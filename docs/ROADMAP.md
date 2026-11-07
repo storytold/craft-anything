@@ -2487,8 +2487,8 @@ Gaps found while using the app for real projects.
       looked at it (#2434). Esc with nothing focused still goes home, and still closes the palette,
       a dialog or Settings first
       Claimed: ilijachrchev, branch bugfix/2434-esc-in-prompt
-- [ ] "Open in the workbench" on a project opens the project's own target (a local app or file) and
-      loads the workbench list; today it only switches screens, so the workbench shows nothing (#1107)
+- [x] "Open in the workbench" on a project opens the project's own target (a local app or file) and
+      loads the workbench list in Deep mode; it used to only switch screens, so the workbench showed nothing (#1107)
       — claimed: Agapenordev, branch bugfix/r2.9-workbench-opens-project-target
 
 ### R2.10 Pinned builds
