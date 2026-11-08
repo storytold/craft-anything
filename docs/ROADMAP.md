@@ -697,12 +697,12 @@ been run live.
       the way it expects (OpenAI-style `image_url` data URIs, Anthropic's image source), capped in
       size, kept out of saved transcripts as bytes, and counted toward the context budget
       — claimed: youkaicountry, branch feature/r5.4-pictures-to-models
-- [ ] Say per AI whether its model sees pictures (`vision = auto | yes | no` in `[[ai.backends]]`,
+- [x] Say per AI whether its model sees pictures (`vision = auto | yes | no` in `[[ai.backends]]`,
       `ai vision`), Auto asking the server: a model list's `input_modalities`, llama.cpp's `/props`
       `modalities` (through llama-swap's upstream route for a loaded model), LM Studio's model
       `type`, Ollama's `capabilities`; Claude reads pictures. Unknown is treated as blind. A
-      builder whose model sees then gets the check's screenshot and the person's pictures attached
-      to its next message (the next step)
+      builder whose model sees is to get the check's screenshot and the person's pictures attached
+      to its next message, the next step
       — claimed: youkaicountry, branch feature/r5.4-vision-setting
 - [ ] Shrink a picture larger than `MAX_IMAGE_BYTES` (3.75 MB) before it's shown to a model,
       instead of refusing it (a 4K screenshot as PNG can be larger)
@@ -714,6 +714,11 @@ been run live.
       the picture. Test several live and resumed pictures interleaved with text too, since the
       content array keeps their order. The 1,600-token estimate per picture isn't every model's
       cost (review of #1175)
+- [ ] Ask whether a model sees again after its first reply when the server didn't say before it:
+      llama-swap answers only for a loaded model, and asking about an unloaded one would start it,
+      so under Auto a model it hasn't loaded yet reads as blind for the whole conversation
+- [ ] The vision setting in Settings → AI (a dropdown beside the AI's other settings, with what Auto
+      works out to), added with the attachment step so the choice does something when it lands
 
 ### R5.5 API-key builds fail in words people can use
 Owner: open · Status: todo
