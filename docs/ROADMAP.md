@@ -716,7 +716,9 @@ been run live.
       cost (review of #1175)
 - [ ] Ask whether a model sees again after its first reply when the server didn't say before it:
       llama-swap answers only for a loaded model, and asking about an unloaded one would start it,
-      so under Auto a model it hasn't loaded yet reads as blind for the whole conversation
+      so under Auto a model it hasn't loaded yet reads as blind for the whole conversation. One it
+      has just started reads the same: llama-swap lists it as loaded while its server is still
+      starting, and the server's `/props` didn't answer for about a minute (seen live, a 512k model)
 - [ ] The vision setting in Settings → AI (a dropdown beside the AI's other settings, with what Auto
       works out to), added with the attachment step so the choice does something when it lands
 
