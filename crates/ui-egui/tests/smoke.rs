@@ -1844,6 +1844,48 @@ fn model_server() -> String {
     url
 }
 
+/// Settings → AI: whether an AI's model is shown pictures is Auto, Yes or No.
+#[test]
+fn whether_an_ai_sees_pictures_is_chosen_in_settings() {
+    let url = model_server();
+    let mut h = harness(move || {
+        let mut a = demo::app(demo::engine(Mode::Experienced, true));
+        a.hub.add_server("Box", &url, Some("qwen3:8b"), None).unwrap();
+        a.state.settings_open = true;
+        a.state.settings_tab = craft_anything_ui_egui::state::SettingsTab::Ai;
+        a
+    });
+    h.state_mut().refresh_backends();
+    assert!(wait(&mut h, |a| a.backends.iter().any(|b| b.name == "Box")));
+    let vision = |a: &CraftApp| a.backend_options.get("Box").and_then(|o| o.vision);
+    h.run_steps(2);
+    // Box is listed after the demo's Claude, so its dropdown is the last one showing a value.
+    // Each is scrolled into view first: a click below the window's edge would close Settings.
+    let open = |h: &mut Harness<'static, CraftApp>, showing: &str| {
+        h.get_all_by_value(showing).last().unwrap().scroll_to_me();
+        h.run_steps(3);
+        h.get_all_by_value(showing).last().unwrap().click();
+        h.run_steps(2);
+    };
+    let pick = |h: &mut Harness<'static, CraftApp>, label: &str| {
+        h.get_all_by_label(label).last().unwrap().scroll_to_me();
+        h.run_steps(3);
+        h.get_all_by_label(label).last().unwrap().click();
+        h.run_steps(2);
+    };
+    open(&mut h, "Auto");
+    pick(&mut h, "Yes");
+    assert!(wait(&mut h, |a| vision(a) == Some(craft_anything_ai::Vision::Yes)), "{:?}", vision(h.state()));
+    h.run_steps(2);
+    open(&mut h, "Yes");
+    pick(&mut h, "No");
+    assert!(wait(&mut h, |a| vision(a) == Some(craft_anything_ai::Vision::No)), "{:?}", vision(h.state()));
+    h.run_steps(2);
+    open(&mut h, "No");
+    pick(&mut h, "Auto");
+    assert!(wait(&mut h, |a| vision(a).is_none()), "Auto isn't written: {:?}", vision(h.state()));
+}
+
 /// #123, #127: the model an AI uses is changed in Settings → AI from the ones it lists.
 #[test]
 fn an_ais_model_is_changed_in_settings() {

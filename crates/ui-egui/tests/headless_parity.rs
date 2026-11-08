@@ -121,6 +121,7 @@ const ACTIONS: &[Action] = &[
     a("set_requests_per_minute", "set an API backend's request rate",            Cli("ai request-rate <name> <requests-per-minute>")),
     a("set_tool_list",       "choose an API builder's tool list",              Cli("ai tools <name> <auto|lean|full>")),
     a("set_effort",          "change how hard an AI thinks",                   Cli("ai effort <name> <level>")),
+    a("set_vision",          "choose whether a builder on an AI is shown pictures", Cli("ai vision <name> <auto|yes|no>")),
     a("pick_agent_model",    "list an agent's visible models and thinking depths", Tool(&["ai_models_list"])),
     a("reload_agent_model",  "reload model-specific thinking choices",         Tool(&["ai_models_list"])),
     a("set_agent_model",     "choose an agent's model and thinking depth",     Tool(&["ai_model_set"])),

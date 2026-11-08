@@ -471,7 +471,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
     let mut folder_drafts = std::mem::take(&mut app.folder_inputs);
     let mut key_drafts = std::mem::take(&mut app.backend_key_inputs);
     let (mut pick_model, mut chosen_model, mut close_picker) = (None, None, false);
-    let mut chosen_effort = None;
+    let (mut chosen_effort, mut save_vision) = (None, None);
     let mut save_request_rate = None;
     let mut chosen_tools = None;
     let (mut pick_agent_model, mut chosen_agent_model, mut remote_program) = (None, None, None);
@@ -692,6 +692,29 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                                 });
                             }
                         });
+                        // Whether an API backend's model is shown pictures (the check's
+                        // screenshots, the person's pictures).
+                        if b.kind != BackendKind::AgentCli {
+                            use craft_anything_ai::Vision;
+                            let vision = app.backend_options.get(&b.name).and_then(|o| o.vision).unwrap_or_default();
+                            ui.horizontal_wrapped(|ui| {
+                                ui.style_mut().override_font_id = Some(egui::FontId::proportional(theme::CAPTION));
+                                let label = ui.label(RichText::new(tr("Sees pictures")).color(t.text_faint).size(theme::CAPTION));
+                                let named = |v: Vision| match v {
+                                    Vision::Auto => tr("Auto"),
+                                    Vision::Yes => tr("Yes"),
+                                    Vision::No => tr("No"),
+                                };
+                                let combo = egui::ComboBox::from_id_salt(("vision", &b.name)).icon(widgets::combo_icon).selected_text(named(vision)).show_ui(ui, |ui| {
+                                    for v in Vision::ALL {
+                                        if ui.selectable_label(v == vision, named(v)).clicked() && v != vision {
+                                            save_vision = Some((b.name.clone(), v));
+                                        }
+                                    }
+                                });
+                                combo.response.labelled_by(label.id).on_hover_text(tr("Whether a builder on this AI is shown pictures: the original's screenshots, your pictures of it, and the check's pictures of the build. Auto: what its server says; a model it says nothing about isn't shown any."));
+                            });
+                        }
                     }
                     if craft_anything_ai::model_options::supported(b) {
                         if let Some(draft) = app.model_tuning.get_mut(&b.name) {
@@ -958,6 +981,9 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
     }
     if let Some((name, effort)) = chosen_effort {
         app.set_effort(&name, effort);
+    }
+    if let Some((name, vision)) = save_vision {
+        app.set_vision(&name, vision);
     }
     if close_picker {
         app.model_picker = None;

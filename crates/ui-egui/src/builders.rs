@@ -323,6 +323,15 @@ impl CraftApp {
         })
     }
 
+    /// Say whether an AI's model sees pictures (Auto: what its server says).
+    pub fn set_vision(&mut self, name: &str, vision: craft_anything_ai::Vision) {
+        let (hub, name) = (self.hub.clone(), name.to_string());
+        self.jobs.spawn(tr("Set whether an AI sees pictures"), false, move |_| {
+            hub.set_vision(&name, Some(vision)).map_err(|e| e.message)?;
+            Ok(crate::backends(&hub))
+        });
+    }
+
     /// Connect the server in Settings → AI's address form. Its key goes to the keychain; the form
     /// keeps what was typed until it's added, so a mistake can be fixed.
     pub fn add_server(&mut self) {
