@@ -729,6 +729,7 @@ been run live.
       starting, and the server's `/props` didn't answer for about a minute (seen live, a 512k model)
 - [ ] Shrink a picture larger than `MAX_IMAGE_BYTES` (3.75 MB) before it's shown to a model,
       instead of refusing it (a 4K screenshot as PNG can be larger)
+      — claimed: youkaicountry, branch feature/r5.4-shrink-pictures
 - [ ] Before pictures reach a builder, bound a request's pictures as a whole (how many and their
       total size: `MAX_IMAGE_BYTES` bounds each one alone) and keep to each provider's own limits
       on a picture's size and dimensions (review of #1175)
