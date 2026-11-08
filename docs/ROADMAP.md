@@ -722,7 +722,7 @@ been run live.
 - [x] Let a builder whose model sees get the check's screenshot and the person's pictures attached
       to its next message
       — claimed: youkaicountry, branch feature/r5.4-pictures-to-builders
-- [ ] Ask whether a model sees again after its first reply when the server didn't say before it:
+- [x] Ask whether a model sees again after its first reply when the server didn't say before it:
       llama-swap answers only for a loaded model, and asking about an unloaded one would start it,
       so under Auto a model it hasn't loaded yet reads as blind for the whole conversation. One it
       has just started reads the same: llama-swap lists it as loaded while its server is still
