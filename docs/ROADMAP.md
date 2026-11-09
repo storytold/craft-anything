@@ -1841,6 +1841,10 @@ Gaps found while using the app for real projects.
       — PR #2217; claimed: rmsff, branch feature/r2.9-plugin-form-checks
 - [ ] A plugin's Test lists its tools but calls none, and #2153 met a server that listed 11 tools
       and failed on use. Offer an optional call of one tool the person picks, saying it runs it
+- [ ] Prevent the native macOS Touch Bar shutdown crash by adopting the published AccessKit KVO
+      fix through the coordinated GUI stack, preserving accessibility and normal shutdown;
+      add dependency regression coverage and verify native Quit/window close — claimed: dbzx6r,
+      branch bugfix/r2.9-macos-touchbar-upstream
 - [x] Each project chooses, per kind of action, what the builder's approvals get (allow, ask or
       refuse): reading the web, commands, files outside the project, pushing and publishing,
       deleting outside the project, system changes, other tools. Unset kinds follow Auto mode as
