@@ -630,11 +630,10 @@ been run live.
       — claimed: Afloat16, branch bugfix/r5.4-api-follow-up-check
 - [x] Models that can see get pictures: an image block in the conversation, sent as `image_url`
       parts (OpenAI-style) and `image` blocks (Anthropic), for the check's screenshots beside the
-      original's, the pictures in `reference/` and a PNG the builder reads. Each AI's Pictures
-      setting is Auto, On or Off; Auto follows what the server reports (Ollama's capabilities,
-      LM Studio's model type, `input_modalities` in a model list). The image block and the setting
-      are in; what's left is attaching the pictures to a builder whose model sees, and treating it
-      as sighted (`BriefCx::sees_pictures`), with the setting in Settings → AI
+      original's, the pictures in `reference/` and a PNG the builder reads. Each AI's "Sees
+      pictures" setting (`vision`) is Auto, Yes or No; Auto follows what the server reports
+      (Ollama's capabilities, LM Studio's model type, `input_modalities` in a model list). A builder
+      whose model sees is treated as sighted (`BriefCx::sees_pictures`) and shown the pictures
       — claimed: youkaicountry, branch feature/r5.4-pictures-to-builders
 - [ ] Let an API builder whose model sees open a picture itself: `build_file_read` refuses
       pictures, so it sees only what the run attaches (the original's with the first message, each
@@ -720,8 +719,14 @@ been run live.
       `modalities` (through llama-swap's upstream route for a loaded model), LM Studio's model
       `type`, Ollama's `capabilities`; Claude reads pictures. Unknown is treated as blind
       — claimed: youkaicountry, branch feature/r5.4-vision-setting
-- [ ] Let a builder whose model sees get the check's screenshot and the person's pictures attached
+- [x] Let a builder whose model sees get the check's screenshot and the person's pictures attached
       to its next message
+      — claimed: youkaicountry, branch feature/r5.4-pictures-to-builders
+- [ ] Ask whether a model sees again after its first reply when the server didn't say before it:
+      llama-swap answers only for a loaded model, and asking about an unloaded one would start it,
+      so under Auto a model it hasn't loaded yet reads as blind for the whole conversation. One it
+      has just started reads the same: llama-swap lists it as loaded while its server is still
+      starting, and the server's `/props` didn't answer for about a minute (seen live, a 512k model)
 - [ ] Shrink a picture larger than `MAX_IMAGE_BYTES` (3.75 MB) before it's shown to a model,
       instead of refusing it (a 4K screenshot as PNG can be larger)
 - [ ] Before pictures reach a builder, bound a request's pictures as a whole (how many and their
@@ -732,11 +737,6 @@ been run live.
       the picture. Test several live and resumed pictures interleaved with text too, since the
       content array keeps their order. The 1,600-token estimate per picture isn't every model's
       cost (review of #1175)
-- [ ] Ask whether a model sees again after its first reply when the server didn't say before it:
-      llama-swap answers only for a loaded model, and asking about an unloaded one would start it,
-      so under Auto a model it hasn't loaded yet reads as blind for the whole conversation. One it
-      has just started reads the same: llama-swap lists it as loaded while its server is still
-      starting, and the server's `/props` didn't answer for about a minute (seen live, a 512k model)
 
 ### R5.5 API-key builds fail in words people can use
 Owner: open · Status: todo
