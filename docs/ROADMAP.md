@@ -1841,7 +1841,7 @@ Gaps found while using the app for real projects.
       — PR #2217; claimed: rmsff, branch feature/r2.9-plugin-form-checks
 - [ ] A plugin's Test lists its tools but calls none, and #2153 met a server that listed 11 tools
       and failed on use. Offer an optional call of one tool the person picks, saying it runs it
-- [ ] Prevent the native macOS Touch Bar shutdown crash by adopting the published AccessKit KVO
+- [x] Prevent the native macOS Touch Bar shutdown crash by adopting the published AccessKit KVO
       fix through the coordinated GUI stack, preserving accessibility and normal shutdown;
       add dependency regression coverage and verify native Quit/window close — claimed: dbzx6r,
       branch bugfix/r2.9-macos-touchbar-upstream

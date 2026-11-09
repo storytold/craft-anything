@@ -24,7 +24,7 @@ pub fn show(app: &mut CraftApp, ctx: &egui::Context) {
     let available = ctx.content_rect().size() - Vec2::splat(2.0 * theme::space::SM) - frame.total_margin().sum();
     // A modal (dimmed backdrop, Esc or a click outside closes) with a full-size close button;
     // egui's window close box is 14 px.
-    let resp = egui::Modal::new(egui::Id::new("settings-window")).frame(frame).show(ctx, |ui| {
+    let resp = egui::Modal::new(egui::Id::unique("settings-window")).frame(frame).show(ctx, |ui| {
         let width = (ctx.content_rect().width() - 2.0 * theme::space::XXL).min(860.0).min(available.x).max(0.0);
         ui.set_width(width);
         ui.set_max_height(available.y.max(0.0));
@@ -479,7 +479,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
     // A saved API key being replaced or forgotten (the keychain work happens off this frame).
     let (mut save_key, mut forget_key) = (None, None);
     // The AI whose Remove was pressed once: asked again before its key is deleted.
-    let confirm_id = egui::Id::new("remove-ai");
+    let confirm_id = egui::Id::unique("remove-ai");
     let confirming: Option<String> = ui.data(|d| d.get_temp(confirm_id));
     for b in &app.backends {
         widgets::panel(&t).show(ui, |ui| {
@@ -550,7 +550,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                     // account. Saved on Enter or when the field is left; empty is its usual one.
                     if craft_anything_ai::folder_var(b).is_some() {
                         let saved = app.backend_options.get(&b.name).and_then(|o| o.config_dir.clone()).unwrap_or_default();
-                        let id = egui::Id::new(("agent-folder", &b.name));
+                        let id = egui::Id::unique(("agent-folder", &b.name));
                         // What was typed stays until it's saved (or refused, so it can be fixed).
                         if folder_drafts.get(&b.name).is_some_and(|d| d.trim() == saved) && !ui.memory(|m| m.has_focus(id)) {
                             folder_drafts.remove(&b.name);
@@ -584,7 +584,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                     let effort = craft_anything_ai::effort_in_use(b, app.backend_options.get(&b.name));
                     let effort_levels = craft_anything_ai::effort_levels(b);
                     if b.kind == BackendKind::AgentCli && b.ssh_host.as_deref().is_some_and(|h| !h.trim().is_empty()) {
-                        let id = egui::Id::new(("remote-agent-program", &b.name));
+                        let id = egui::Id::unique(("remote-agent-program", &b.name));
                         let mut program = ui
                             .data_mut(|d| d.get_temp::<String>(id))
                             .unwrap_or_else(|| app.backend_options.get(&b.name).and_then(|o| o.command.clone()).unwrap_or_default());

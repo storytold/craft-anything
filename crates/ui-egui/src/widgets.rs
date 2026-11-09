@@ -55,7 +55,7 @@ pub fn toggle(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
     }
     focus_ring(ui, &resp, sw);
     let state = *on;
-    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, state, tr(label)));
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::CheckBox, true, state, tr(label)));
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
@@ -74,7 +74,7 @@ const POPUP_FADE: f64 = 0.12;
 /// wasn't drawn on the frame before (by frame, not by the clock: frames can be far apart).
 fn popup_fade(ui: &Ui) -> f32 {
     let (now, frame) = (ui.input(|i| i.time), ui.ctx().cumulative_frame_nr());
-    let id = ui.id().with("popup-fade");
+    let id = ui.scope_id().with("popup-fade");
     let (since, seen) = ui.data(|d| d.get_temp::<(f64, u64)>(id)).unwrap_or((now, frame));
     let since = if frame.saturating_sub(seen) > 1 { now } else { since };
     ui.data_mut(|d| d.insert_temp(id, (since, frame)));
@@ -136,7 +136,7 @@ fn menu_item_layout(ui: &mut Ui, selected: bool, text: String, truncate: bool) -
         icons::paint(ui, at, "check", size.icon(), t.accent_ink);
     }
     focus_ring(ui, &resp, rect);
-    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &text));
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, selected, &text));
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
@@ -157,7 +157,7 @@ pub fn action_row(ui: &mut Ui, icon: &str, label: &str, danger: bool) -> Respons
     icons::paint(ui, at, icon, size.icon(), if danger { t.danger } else { theme::mix(t.icon, t.text, h) });
     ui.painter().galley_with_override_text_color(egui::pos2(at.right() + theme::space::SM, rect.center().y - galley.size().y / 2.0), galley, ink);
     focus_ring(ui, &resp, rect);
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tr(label)));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tr(label)));
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
@@ -209,7 +209,7 @@ pub fn suggestion(ui: &mut Ui, text: &str) -> Response {
     let pos = egui::pos2(rect.left() + 13.0, rect.center().y - g.size().y / 2.0);
     ui.painter().galley_with_override_text_color(pos, g, theme::mix(t.text_dim, t.text, h));
     focus_ring(ui, &resp, rect);
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tr(text)));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tr(text)));
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
@@ -248,7 +248,7 @@ pub fn choice_tile(ui: &mut Ui, size: Vec2, icon: &str, label: &str, blurb: &str
         );
     }
     focus_ring(ui, &resp, rect);
-    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::RadioButton, resp.enabled(), on, tr(label)));
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::RadioButton, resp.enabled(), on, tr(label)));
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
@@ -275,7 +275,7 @@ pub fn frameless_field(resp: &Response) {
 /// [`focus_ring`], faded in and out. Drawn once a frame, after the screens, because a field's
 /// own frame can't know it has focus.
 pub fn text_focus_ring(ctx: &egui::Context) {
-    let key = egui::Id::new("text-focus-ring");
+    let key = egui::Id::unique("text-focus-ring");
     let focused =
         ctx.memory(|m| m.focused()).filter(|id| ctx.text_edit_focused() && !ctx.data(|d| d.get_temp::<bool>(id.with("frameless-field")).unwrap_or(false)));
     // The field that had it last fades out.
@@ -393,7 +393,7 @@ impl egui::Widget for Button<'_> {
         }
         ui.painter().galley_with_override_text_color(egui::pos2(x, rect.center().y - galley.size().y / 2.0), galley, fg);
         focus_ring(ui, &resp, rect);
-        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, tr(label)));
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, tr(label)));
         if enabled { resp.on_hover_cursor(egui::CursorIcon::PointingHand) } else { resp }
     }
 }
@@ -469,16 +469,16 @@ pub fn segmented_scaled(ui: &mut Ui, options: &[&str], selected: usize, height: 
     for (i, w) in widths.iter().enumerate() {
         let seg = egui::Rect::from_min_size(egui::pos2(x, rect.top() + pad), Vec2::new(*w, height - 2.0 * pad));
         let name = options.get(i).copied().unwrap_or_default();
-        let resp = ui.interact(seg, ui.id().with(("seg", name)), Sense::click());
+        let resp = ui.interact(seg, ui.scope_id().with(("seg", name)), Sense::click());
         let on = i == selected;
-        resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, tr(name)));
+        resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, on, tr(name)));
         segments.push((seg, resp));
         x += w;
     }
     // The row scopes its controls with push_id. Keep the same animation as the layout moves,
     // while letting rows with identical options slide independently.
     let before: f32 = widths.iter().take(selected).sum();
-    let slide = |part: &str, to: f32| ui.ctx().animate_value_with_time(ui.id().with(("seg-slide", part, options)), to, SLIDE);
+    let slide = |part: &str, to: f32| ui.ctx().animate_value_with_time(ui.scope_id().with(("seg-slide", part, options)), to, SLIDE);
     let (card_x, card_w) = (slide("x", before), slide("w", widths.get(selected).copied().unwrap_or_default()));
     let card = egui::Rect::from_min_size(egui::pos2(rect.left() + pad + card_x, rect.top() + pad), Vec2::new(card_w, height - 2.0 * pad));
     ui.painter().rect(card, t.radius_sm, t.field, Stroke::new(scale, t.card_border), egui::StrokeKind::Inside);
@@ -528,7 +528,7 @@ pub fn pill_sized(ui: &mut Ui, text: &str, fg: Color32, bg: Color32, text_size: 
     ui.painter().rect_filled(rect, rect.height() / 2.0, bg);
     ui.painter().galley_with_override_text_color(rect.center() - g.size() / 2.0, g, fg);
     // Painted text: say it to screen readers too.
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &label));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, &label));
     resp
 }
 
@@ -626,7 +626,7 @@ pub fn big_card(ui: &mut Ui, size: Vec2, icon: &str, title: &str, blurb: &str, b
     let wrap = ui.painter().layout(tr(blurb), egui::FontId::proportional(theme::SMALL), t.text_dim, rect.width() - 44.0);
     ui.painter().galley(title_pos + Vec2::new(0.0, title_h + 8.0), wrap, t.text_dim);
     focus_ring(ui, &resp, rect);
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tr(title)));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tr(title)));
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
@@ -704,7 +704,7 @@ impl egui::Widget for ProgressBar {
         let (rect, response) = ui.allocate_exact_size(self.size, Sense::hover());
         let fraction = self.fraction.filter(|f| f.is_finite()).map(|f| f.clamp(0.0, 1.0));
         response.widget_info(|| {
-            let mut info = egui::WidgetInfo::new(egui::WidgetType::ProgressIndicator);
+            let mut info = egui::WidgetInfo::new(egui::Role::ProgressIndicator);
             info.value = fraction.map(|f| f64::from(f) * 100.0);
             info
         });
@@ -761,7 +761,7 @@ impl egui::Widget for Spinner {
     fn ui(self, ui: &mut Ui) -> Response {
         let size = self.size.unwrap_or_else(|| ui.style().spacing.interact_size.y);
         let (rect, response) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
-        response.widget_info(|| egui::WidgetInfo::new(egui::WidgetType::ProgressIndicator));
+        response.widget_info(|| egui::WidgetInfo::new(egui::Role::ProgressIndicator));
         if ui.is_rect_visible(rect) {
             let color = self.color.unwrap_or_else(|| ui.visuals().strong_text_color());
             let radius = (rect.height().min(rect.width()) / 2.0) - 2.0;
@@ -830,7 +830,7 @@ pub fn working_since(ui: &mut Ui, title: &str, detail: Option<&str>, began: Opti
     let t = Tokens::get(ui.ctx());
     let now = ui.input(|i| i.time);
     // The clock restarts when the row wasn't on screen a moment ago.
-    let id = ui.id().with("working-since");
+    let id = ui.scope_id().with("working-since");
     let (since, seen) = ui.data(|d| d.get_temp::<(f64, f64)>(id)).unwrap_or((now, now));
     let since = if now - seen > 1.0 { now } else { since };
     ui.data_mut(|d| d.insert_temp(id, (since, now)));
