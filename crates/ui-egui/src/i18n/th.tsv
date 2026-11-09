@@ -1488,3 +1488,9 @@ Updated to {version}.	อัปเดตเป็น {version} แล้ว
 Use Releases or your package manager to update this installation.	ใช้รุ่นที่เผยแพร่หรือตัวจัดการแพ็กเกจเพื่ออัปเดตการติดตั้งนี้
 You're up to date.	คุณใช้เวอร์ชันล่าสุดแล้ว
 {version} is available.	มี {version} พร้อมใช้งานแล้ว
+Interface font	ฟอนต์อินเทอร์เฟซ
+The font for the whole window.	ฟอนต์สำหรับทั้งหน้าต่าง
+Add a font file…	เพิ่มไฟล์ฟอนต์…
+That file is not a .ttf or .otf font.	ไฟล์นั้นไม่ใช่ฟอนต์ .ttf หรือ .otf
+That font file is too large.	ไฟล์ฟอนต์นั้นใหญ่เกินไป
+That file is not a font this app can read.	ไฟล์นั้นไม่ใช่ฟอนต์ที่แอปนี้อ่านได้

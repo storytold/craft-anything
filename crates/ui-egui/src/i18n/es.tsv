@@ -1488,3 +1488,9 @@ Updated to {version}.	Actualizado a {version}.
 Use Releases or your package manager to update this installation.	Usa Versiones o tu gestor de paquetes para actualizar esta instalación.
 You're up to date.	Tienes la última versión.
 {version} is available.	{version} está disponible.
+Interface font	Fuente de la interfaz
+The font for the whole window.	La fuente de toda la ventana.
+Add a font file…	Añadir un archivo de fuente…
+That file is not a .ttf or .otf font.	Ese archivo no es una fuente .ttf o .otf.
+That font file is too large.	Ese archivo de fuente es demasiado grande.
+That file is not a font this app can read.	Ese archivo no es una fuente que esta aplicación pueda leer.

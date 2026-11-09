@@ -1488,3 +1488,9 @@ Updated to {version}.	Đã cập nhật lên {version}.
 Use Releases or your package manager to update this installation.	Dùng Bản phát hành hoặc trình quản lý gói để cập nhật bản cài đặt này.
 You're up to date.	Bạn đang dùng phiên bản mới nhất.
 {version} is available.	Đã có phiên bản {version}.
+Interface font	Phông chữ giao diện
+The font for the whole window.	Phông chữ cho toàn bộ cửa sổ.
+Add a font file…	Thêm tệp phông chữ…
+That file is not a .ttf or .otf font.	Tệp đó không phải phông chữ .ttf hoặc .otf.
+That font file is too large.	Tệp phông chữ đó quá lớn.
+That file is not a font this app can read.	Tệp đó không phải phông chữ mà ứng dụng này đọc được.

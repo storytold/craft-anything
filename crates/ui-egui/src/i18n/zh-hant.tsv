@@ -1488,3 +1488,9 @@ Updated to {version}.	已更新至 {version}。
 Use Releases or your package manager to update this installation.	請透過「發行版本」或套件管理器更新此安裝。
 You're up to date.	已是最新版本。
 {version} is available.	{version} 已可用。
+Interface font	介面字型
+The font for the whole window.	整個視窗使用的字型。
+Add a font file…	新增字型檔案…
+That file is not a .ttf or .otf font.	該檔案不是 .ttf 或 .otf 字型。
+That font file is too large.	該字型檔案太大。
+That file is not a font this app can read.	該檔案不是此應用程式能讀取的字型。

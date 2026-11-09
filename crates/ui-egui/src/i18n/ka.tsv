@@ -1488,3 +1488,9 @@ Updated to {version}.	განახლდა {version} ვერსიამ�
 Use Releases or your package manager to update this installation.	ამ ინსტალაციის გასაახლებლად გამოიყენეთ გამოშვებები ან პაკეტების მმართველი.
 You're up to date.	უახლეს ვერსიას იყენებთ.
 {version} is available.	ხელმისაწვდომია {version}.
+Interface font	ინტერფეისის შრიფტი
+The font for the whole window.	შრიფტი მთელი ფანჯრისთვის.
+Add a font file…	შრიფტის ფაილის დამატება…
+That file is not a .ttf or .otf font.	ეს ფაილი არ არის .ttf ან .otf შრიფტი.
+That font file is too large.	ეს შრიფტის ფაილი ძალიან დიდია.
+That file is not a font this app can read.	ეს ფაილი არ არის შრიფტი, რომელსაც ეს აპი კითხულობს.
