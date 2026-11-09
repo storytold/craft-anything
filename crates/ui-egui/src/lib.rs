@@ -2305,6 +2305,7 @@ impl CraftApp {
         }
     }
 
+    /// Show whether hovered files will attach as pictures or open as targets, without opening them.
     fn drop_overlay(&self, ctx: &egui::Context) {
         if !ctx.input(|i| !i.raw.hovered_files.is_empty()) {
             return;

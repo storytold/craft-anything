@@ -223,6 +223,7 @@ const RADIUS_SM: f32 = 4.0;
 const RADIUS: f32 = 6.0;
 const RADIUS_LG: f32 = 8.0;
 
+/// Stable context-local key for the active theme tokens.
 fn tokens_id() -> egui::Id {
     egui::Id::unique("craft-anything-theme")
 }
@@ -895,6 +896,7 @@ mod tests {
     }
 
     #[test]
+    /// Bundled fonts must render navigation arrows even when optional font packages are absent.
     fn navigation_arrows_do_not_require_optional_fonts() {
         let ctx = egui::Context::default();
         install_fonts(&ctx);

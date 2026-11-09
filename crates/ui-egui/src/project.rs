@@ -910,6 +910,7 @@ fn current_step(app: &CraftApp, ws: &Workspace) -> Option<(Step, bool)> {
 const SIDE_W: f32 = 300.0;
 const SIDE_BESIDE: f32 = 860.0;
 
+/// Present the selected project's feed and controls, folding side details on narrow windows.
 pub fn show(app: &mut CraftApp, ui: &mut Ui) {
     let Some(ws) = app.workspace.clone() else {
         app.state.screen = Screen::Home;
@@ -1115,6 +1116,7 @@ fn open_questions(app: &CraftApp, ui: &mut Ui) {
     ui.add_space(theme::space::LG);
 }
 
+/// Render build progress with distinct completed, running and paused step markers.
 fn steps(app: &CraftApp, ui: &mut Ui, ws: &Workspace) {
     let t = Tokens::get(ui.ctx());
     let current = current_step(app, ws);
@@ -1778,6 +1780,7 @@ fn claims_list(ui: &mut Ui, c: &CheckResult, t: &Tokens) {
     }
 }
 
+/// Show recorded verification results and let the person inspect individual compared pages.
 fn check_card(app: &mut CraftApp, ui: &mut Ui, ctx: &egui::Context, ws: &Workspace, c: &CheckResult) {
     let t = Tokens::get(ui.ctx());
     widgets::card(&t).show(ui, |ui| {
@@ -1872,6 +1875,7 @@ fn waiting_notes(app: &mut CraftApp, ui: &mut Ui, waiting: &[Note], t: &Tokens) 
     }
 }
 
+/// Compose project messages alongside the current plan, queued notes and run controls.
 fn composer(app: &mut CraftApp, ui: &mut Ui, width: f32, t: &Tokens, last_waiting: Option<&Note>) {
     let running = app.running();
     if let Some(steps) = plan(&app.state.feed).filter(|p| running || p.iter().any(|s| s.status != PlanStatus::Done)) {
