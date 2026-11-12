@@ -450,6 +450,10 @@ been run live.
       then reached the model; on the CPU a second run wrote the call with a summary after it, so
       nothing ran (the open line on a call followed by a summary)
       — claimed: SoldierPePe, branch bugfix/r5.4-build-command-folder
+- [ ] Fall back to `app/` when `build_files_list`, `build_file_read`, `build_file_edit` or
+      `build_file_write` receives an `app/`-relative path from `build_command_run` output that
+      does not exist at the workspace root (`in_project_or_app`)
+      — claimed: d7do7e, branch bugfix/r5.4-build-tools-app-fallback
 - [x] An assistant turn with no text sends an empty string, not `content: null`, which Ollama
       refused as `invalid message content type: <nil>` (#403, #536)
 - [x] Understand a tool call a model writes as JSON in its text (#417; implementation `dfe9a4db2dcb3e27edbd67311cbb4202584e7af6`). The fallback protocol reads
