@@ -8391,6 +8391,7 @@ version = "0.6.1"
 dependencies = [
  "craft-anything-engine",
  "proc-macro2",
+ "serde_json",
  "syn 2.0.119",
  "toml 0.9.12+spec-1.1.0",
 ]

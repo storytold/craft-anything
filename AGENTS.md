@@ -29,7 +29,7 @@ crates/
   ui-egui    L6  The egui interface (Beginner + Experienced). The only crate that may use egui/eframe/winit/rfd.
   testkit        Test helpers and synthetic sample builders
 apps/  craft-anything (desktop) · craft-anything-cli (CLI + `mcp`) · craft-anything-web (browser viewer)
-xtask/ cargo xtask layers | tools [--check] | wasm | secrets [--history] | ci | version [set X.Y.Z]
+xtask/ cargo xtask layers | fmt [--check] | tools [--check] | wasm | secrets [--history] | ci | version [set X.Y.Z]
 ```
 
 Layering is enforced by `cargo xtask layers`. Register new crates in `xtask/src/main.rs`.
@@ -149,7 +149,7 @@ It is part of these rules: read it before your first change (Claude Code loads i
 ## Before you finish
 
 ```sh
-cargo fmt --all
+cargo xtask fmt                     # cargo fmt --all, in batches Windows's command line takes
 cargo build -p craft-anything-cli   # if you touched crates/ai: two of its tests start this helper
 cargo test -p <crates you touched>
 cargo clippy -p <crates> --all-targets -- -D warnings

@@ -9,7 +9,7 @@ person or developer, with the roadmap id, e.g. "Decode radio recordings with rtl
 
 **Not verified:** <!-- what you couldn't try, so the docs and STATUS say so -->
 
-- [ ] `cargo fmt --all --check`, `cargo clippy -p <crates> --all-targets -- -D warnings`,
+- [ ] `cargo xtask fmt --check`, `cargo clippy -p <crates> --all-targets -- -D warnings`,
       `cargo test -p <crates>`, `cargo xtask layers`, `cargo xtask secrets`
 - [ ] Docs in this PR: the roadmap line ticked (and new `- [ ]` lines for what's left), STATUS if
       what works changed, `cargo xtask tools` if tools were added

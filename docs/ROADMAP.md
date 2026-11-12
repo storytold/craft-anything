@@ -315,6 +315,12 @@ only when it's green and a maintainer has fully reviewed it, code as well as wor
       Seen once in six whole-suite runs on Windows 11: `engines_jeb_check` got a stand-in's answer.
       Give the negative probe an address no other test can take
       — claimed: FuryNocturn, branch test/r5.2-jeb-refused-port
+- [x] `cargo fmt --all` (and so `cargo xtask ci`) fails on Windows with "The filename or extension
+      is too long" (os error 206): it hands rustfmt every target's root file in one command, about
+      31,000 characters of `\\?\` paths, past Windows' 32,767 limit, and one crate (formats, ~22,000)
+      will reach it alone. Format through `cargo xtask fmt [--check]`, which runs rustfmt on the same
+      files in batches that fit, and have `ci` use it
+      — claimed: FuryNocturn, branch chore/r5.2-fmt-on-windows
 
 ### R5.3 A builder that can't make progress stops
 Owner: open · Status: todo

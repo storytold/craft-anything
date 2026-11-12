@@ -518,6 +518,11 @@ keep the decision in a function a test can call (`plan` in `crates/ui-egui/build
 **Unformatted code reached `main`.** A test was edited by script after `cargo fmt --all` had run,
 so #53 merged with a long line rustfmt rewraps. Run `cargo fmt --all --check` last, after every
 edit, right before committing.
+Then `cargo fmt --all` itself stopped working on Windows: it hands rustfmt every target's root file
+in one command, and with the tests added since then that was about 31,000 characters of `\\?\`
+paths, past the 32,767 limit ("The filename or extension is too long", os error 206), so `cargo
+xtask ci` failed before checking anything. A command that takes one argument per file grows with
+the repository: format through `cargo xtask fmt [--check]`, which sends the same files in batches.
 
 **Clippy passed on an older Rust.** #1480 ran clippy on Rust 1.97 (the workspace's
 `rust-version`), clean; CI's 1.99 has `clippy::chunks_exact_to_as_chunks` and stopped the PR on

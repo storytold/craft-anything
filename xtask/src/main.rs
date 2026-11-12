@@ -1,9 +1,10 @@
-//! `cargo xtask <layers | locks | status | i18n-coverage | tools [--check] | wasm | licenses | schemas [--check] | pending [--count] | secrets [--history] | ci | version [set X.Y.Z] | ico <out.ico> <png>...>`
+//! `cargo xtask <layers | locks | status | i18n-coverage | fmt [--check] | tools [--check] | wasm | licenses | schemas [--check] | pending [--count] | secrets [--history] | ci | version [set X.Y.Z] | ico <out.ico> <png>...>`
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
+mod fmt;
 mod i18n_coverage;
 mod ico;
 mod locks;
@@ -43,6 +44,7 @@ fn main() -> ExitCode {
         Some("i18n-coverage") => i18n_coverage::check(&root),
         Some("tools") => tools(&root, args.iter().any(|a| a == "--check")),
         Some("schemas") => schemas(&root, args.iter().any(|a| a == "--check")),
+        Some("fmt") => fmt::run(&root, args.iter().any(|a| a == "--check")),
         Some("wasm") => wasm(),
         Some("licenses") => licenses(),
         Some("version") => version(&root, args.get(1).map(String::as_str), args.get(2).map(String::as_str)),
@@ -58,7 +60,7 @@ fn main() -> ExitCode {
                 && locks::check(&root)
                 && i18n_coverage::check(&root)
                 && secrets::secrets(&root, false)
-                && run("cargo", &["fmt", "--all", "--check"])
+                && fmt::run(&root, true)
                 && run("cargo", &["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"])
                 && run("cargo", &["test", "--workspace"])
                 // The off-by-default WASM plugin host, built and tested on its own.
@@ -70,7 +72,7 @@ fn main() -> ExitCode {
         }
         _ => {
             eprintln!(
-                "usage: cargo xtask <layers | locks | status | i18n-coverage | tools [--check] | wasm | licenses | schemas [--check] | pending [--count] | secrets [--history] | ci | version [set X.Y.Z] | ico <out.ico> <png>...>"
+                "usage: cargo xtask <layers | locks | status | i18n-coverage | fmt [--check] | tools [--check] | wasm | licenses | schemas [--check] | pending [--count] | secrets [--history] | ci | version [set X.Y.Z] | ico <out.ico> <png>...>"
             );
             false
         }
