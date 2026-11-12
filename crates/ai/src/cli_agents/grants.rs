@@ -82,6 +82,7 @@ const DECLARED: &[Declared] = &[
     Declared { id: "aider", path: Path::Argv, tool_server: Given::No, approvals: Given::No, mid_turn_notes: Given::No },
     Declared { id: "copilot", path: Path::Acp, tool_server: Given::Yes, approvals: Given::Yes, mid_turn_notes: Given::No },
     Declared { id: "grok", path: Path::Acp, tool_server: Given::Yes, approvals: Given::Yes, mid_turn_notes: Given::No },
+    Declared { id: "omp", path: Path::Acp, tool_server: Given::Yes, approvals: Given::Yes, mid_turn_notes: Given::No },
     // Its print path gets neither; ACP (`acp = true` on the backend) hands over the server and
     // its permission requests, but isn't what a run does unless the person turned it on.
     Declared { id: "devin", path: Path::Argv, tool_server: Given::No, approvals: Given::No, mid_turn_notes: Given::No },

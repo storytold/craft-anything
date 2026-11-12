@@ -33,6 +33,7 @@ pub const ACP_AGENTS: &[(&str, &[&str])] = &[
     ("copilot", &["--acp", "--stdio"]),
     // Flags that belong to this mode (`--model`, `--no-leader`) go between `agent` and `stdio`.
     ("grok", &["agent"]),
+    ("omp", &["acp"]),
     ("devin", &["acp"]),
 ];
 
@@ -319,6 +320,22 @@ impl AcpCore {
         }
     }
 
+    /// Selectable model values from `configOptions` (`id == "model"` or `category == "model"`),
+    /// used when an ACP agent exposes its models through `configOptions` instead of `models.availableModels`.
+    fn config_model_options(options: &[Value]) -> Vec<String> {
+        options
+            .iter()
+            .find(|option| option.get("id").and_then(Value::as_str) == Some("model") || option.get("category").and_then(Value::as_str) == Some("model"))
+            .and_then(|option| option.get("options"))
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|choice| choice.get("value").and_then(Value::as_str))
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_string)
+            .collect()
+    }
+
     /// Send the next config override that the session does not already have, then mark it ready.
     /// A value is a JSON string: Grok rejects a nested `{"value": ...}` wrapper.
     fn advance_config(&mut self) -> Vec<Out> {
@@ -453,11 +470,16 @@ impl AcpCore {
             }
             Pending::Authenticate => self.open_session(),
             Pending::NewSession | Pending::LoadSession => {
-                self.current_model = result.pointer("/models/currentModelId").and_then(Value::as_str).unwrap_or_default().to_string();
                 self.config_options = result.get("configOptions").and_then(Value::as_array).cloned().unwrap_or_default();
+                self.current_model = result
+                    .pointer("/models/currentModelId")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .or_else(|| Self::config_current(&self.config_options, "model"))
+                    .unwrap_or_default();
                 // The running agent decides what's available to this account. Entries without
                 // an id can't be selected, so skip them rather than inventing one from a label.
-                self.models = result
+                let mut models: Vec<String> = result
                     .pointer("/models/availableModels")
                     .and_then(Value::as_array)
                     .into_iter()
@@ -465,6 +487,10 @@ impl AcpCore {
                     .filter_map(|model| model.get("modelId").and_then(Value::as_str))
                     .map(str::to_string)
                     .collect();
+                if models.is_empty() {
+                    models = Self::config_model_options(&self.config_options);
+                }
+                self.models = models;
                 if let Some(sid) = result.get("sessionId").and_then(Value::as_str) {
                     self.session = Some(sid.to_string());
                 }
@@ -1058,6 +1084,19 @@ mod tests {
         core.line(r#"{"jsonrpc":"2.0","id":1,"result":{}}"#);
         core.line(r#"{"jsonrpc":"2.0","id":2,"result":{"sessionId":"copilot-test","models":{"availableModels":[{"modelId":"model-one","name":"One"},{"modelId":"model-two","name":"Two"},{"name":"missing-id"}]}}}"#);
         assert_eq!(core.models, ["model-one", "model-two"]);
+        assert!(core.ready);
+    }
+
+    #[test]
+    fn omp_model_choices_and_current_model_fall_back_to_config_options() {
+        let mut core = core(None);
+        core.start();
+        core.line(r#"{"jsonrpc":"2.0","id":1,"result":{}}"#);
+        core.line(
+            r#"{"jsonrpc":"2.0","id":2,"result":{"sessionId":"omp-test","configOptions":[{"id":"model","category":"model","type":"select","currentValue":"openrouter/deepseek/deepseek-chat","options":[{"value":"openrouter/deepseek/deepseek-chat","name":"DeepSeek Chat"},{"value":"anthropic/claude-sonnet-4-6","name":"Claude Sonnet 4.6"}]}]}}"#,
+        );
+        assert_eq!(core.current_model, "openrouter/deepseek/deepseek-chat");
+        assert_eq!(core.models, ["openrouter/deepseek/deepseek-chat", "anthropic/claude-sonnet-4-6"]);
         assert!(core.ready);
     }
 
