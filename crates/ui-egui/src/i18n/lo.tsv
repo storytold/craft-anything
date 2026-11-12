@@ -1,0 +1,1490 @@
+# lo: Lao UI translations. Licensed MIT OR Apache-2.0.
+# UTF-8: English source<TAB>Lao text. Keep placeholders and escapes intact.
+OpenCode default	ຄ່າເລີ່ມຕົ້ນ OpenCode
+Model default	ຄ່າເລີ່ມຕົ້ນໂມເດວ
+Thinking depth	ລະດັບຄວາມເລິກໃນການຄິດ
+OpenCode model	ໂມເດວ OpenCode
+Remote program	ໂປຣແກຣມທາງໄກ
+Reload models	ໂຫລດໂມເດວຄືນໃໝ່
+Apply	ນຳໃຊ້
+No chat models are visible in {agent}. Check its setup, then reload.	ບໍ່ພົບໂມເດວສົນທະນາໃນ {agent}. ກວດສອບການຕັ້ງຄ່າ ແລ້ວໂຫລດຄືນໃໝ່.
+The saved model is no longer visible. Choose another model or the {agent} default.	ບໍ່ພົບໂມເດວທີ່ບັນທຶກໄວ້ອີກແລ້ວ. ເລືອກໂມເດວອື່ນ ຫຼື ຄ່າເລີ່ມຕົ້ນຂອງ {agent}.
+OpenCode has no visible chat models. Connect a provider in OpenCode, then reload.	OpenCode ບໍ່ມີໂມເດວສົນທະນາທີ່ພົບເຫັນ. ເຊື່ອມຕໍ່ຜູ້ໃຫ້ບໍລິການໃນ OpenCode ແລ້ວໂຫລດຄືນໃໝ່.
+The saved model is no longer visible. Choose another model or the OpenCode default.	ບໍ່ພົບໂມເດວທີ່ບັນທຶກໄວ້ອີກແລ້ວ. ເລືອກໂມເດວອື່ນ ຫຼື ຄ່າເລີ່ມຕົ້ນຂອງ OpenCode.
+The saved thinking depth is unavailable for this model. Choose its default or an offered depth.	ລະດັບຄວາມເລິກໃນການຄິດທີ່ບັນທຶກໄວ້ບໍ່ສາມາດໃຊ້ໄດ້ກັບໂມເດວນີ້. ເລືອກຄ່າເລີ່ມຕົ້ນ ຫຼື ລະດັບຄວາມເລິກທີ່ມີໃຫ້.
+List an agent's models	ສະແດງລາຍການໂມເດວຂອງເອເຈັນ
+Choose an agent's model and thinking	ເລືອກໂມເດວ ແລະ ລະດັບການຄິດຂອງເອເຈັນ
+ GB	 GB
+ and {n} more	 ແລະ ອີກ {n} ລາຍການ
+ {ascii}	 {ascii}
+ · ${c:.2}	 · ${c:.2}
+ · ssh {h}	 · ssh {h}
+(1 picture attached)	(ແນບຮູບ 1 ຮູບ)
+({n} pictures attached)	(ແນບຮູບ {n} ຮູບ)
+, ${c:.4}	, ${c:.4}
+.NET application graph	ກຣາຟແອັບພລິເຄຊັນ .NET
+.NET apps	ແອັບ .NET
+.NET assembly overview	ພາບລວມ assembly ຂອງ .NET
+.NET native calls	ການຮຽກໃຊ້ native ຂອງ .NET
+.NET types and methods	types ແລະ methods ຂອງ .NET
+/btw {}	/btw {}
+0x… or number	0x… ຫຼື ຕົວເລກ
+A .NET program (C#, F# or VB)	ໂປຣແກຣມ .NET (C#, F# ຫຼື VB)
+A DOS program	ໂປຣແກຣມ DOS
+A Java program	ໂປຣແກຣມ Java
+A Linux (or Unix) program	ໂປຣແກຣມ Linux (ຫຼື Unix)
+A Mac or iPhone program	ໂປຣແກຣມ Mac ຫຼື iPhone
+A SQLite database (how an app stores its data)	ຖານຂໍ້ມູນ SQLite (ວິທີທີ່ແອັບເກັບຮັກສາຂໍ້ມູນຂອງມັນ)
+A WebAssembly module (code that runs in a browser)	ໂມດູນ WebAssembly (ໂຄ້ດທີ່ເຮັດວຽກໃນບຣາວເຊີ)
+A Windows program	ໂປຣແກຣມ Windows
+A ZIP archive	ໄຟລ໌ບີບອັດ ZIP
+A bundle of ready-made code that many programs share.	ຊຸດໂຄ້ດສຳເລັດຮູບທີ່ຫຼາຍໂປຣແກຣມໃຊ້ຮ່ວມກັນ.
+A coding agent such as Claude Code builds it, and an AI answers your questions in plain words. Change this any time in Settings → AI.	ເອເຈັນຂຽນໂຄ້ດເຊັ່ນ Claude Code ເປັນຜູ້ສ້າງມັນ, ແລະ AI ຈະຕອບຄຳຖາມຂອງທ່ານດ້ວຍຄຳເວົ້າທຳມະດາ. ປ່ຽນແປງສິ່ງນີ້ໄດ້ທຸກເວລາໃນ ການຕັ້ງຄ່າ → AI.
+A command's output shows here when it finishes.	ຜົນການເຮັດວຽກຂອງຄຳສັ່ງຈະສະແດງຢູ່ນີ້ເມື່ອສຳເລັດ.
+A copy to try something else from here.	ສຳເນົາເພື່ອລອງວິທີອື່ນຈາກຈຸດນີ້.
+A file of machine code that a computer can run directly, like an .exe or an app.	ໄຟລ໌ລະຫັດເຄື່ອງທີ່ຄອມພິວເຕີສາມາດສັ່ງເຮັດວຽກໄດ້ໂດຍກົງ, ເຊັ່ນ .exe ຫຼື ແອັບ.
+A file that a computer can run as a program.	ໄຟລ໌ທີ່ຄອມພິວເຕີສາມາດສັ່ງເຮັດວຽກເປັນໂປຣແກຣມໄດ້.
+A file that links packed web code back to the original, readable source files.	ໄຟລ໌ທີ່ເຊື່ອມຕໍ່ໂຄ້ດເວັບທີ່ຖືກຫຸ້ມຫໍ່ກັບຄືນໄປຫາໄຟລ໌ຊອດໂຄ້ດຕົ້ນສະບັບທີ່ອ່ານໄດ້.
+A file we don't recognise yet	ໄຟລ໌ທີ່ພວກເຮົາຍັງບໍ່ຮູ້ຈັກ
+A first look at a file you're unsure about, without running it.	ການກວດເບິ່ງໄຟລ໌ທີ່ທ່ານບໍ່ແນ່ໃຈໃນເບື້ອງຕົ້ນ ໂດຍບໍ່ຕ້ອງສັ່ງເຮັດວຽກມັນ.
+A folder	ໂຟນເດີ
+A folder has no bytes of its own	ໂຟນເດີບໍ່ມີໄບຕ໌ເປັນຂອງຕົນເອງ
+A free reverse-engineering tool from the NSA. Deep mode uses it for extra detail; Clean room mode never does.	ເຄື່ອງມືວິສະວະກຳຍ້ອນຮອຍຟຣີຈາກ NSA. ໂໝດເຈາະເລິກ (Deep) ໃຊ້ມັນເພື່ອລາຍລະອຽດເພີ່ມເຕີມ; ສ່ວນໂໝດ Clean room ຈະບໍ່ໃຊ້ມັນເລີຍ.
+A frozen copy (recommended)	ສຳເນົາຄົງທີ່ (ແນະນຳ)
+A frozen copy takes {size}. That's a lot of space: a light copy takes {light}.	ສຳເນົາຄົງທີ່ໃຊ້ພື້ນທີ່ {size}. ນັ້ນເປັນພື້ນທີ່ຫຼາຍ: ສຳເນົາແບບເບົາໃຊ້ພຽງ {light}.
+A frozen copy takes {size}; a light copy takes {light}.	ສຳເນົາຄົງທີ່ໃຊ້ {size}; ສຳເນົາແບບເບົາໃຊ້ {light}.
+A game	ເກມ
+A game's files	ໄຟລ໌ຂອງເກມ
+A light copy	ສຳເນົາແບບເບົາ
+A locked room for running a program so it can't touch the rest of your computer.	ຫ້ອງທີ່ຖືກລັອກໄວ້ສຳລັບສັ່ງເຮັດວຽກໂປຣແກຣມ ເພື່ອບໍ່ໃຫ້ມັນແຕະຕ້ອງສ່ວນອື່ນໆ ຂອງຄອມພິວເຕີທ່ານ.
+A map of which functions call which other functions.	ແຜນຜັງສະແດງວ່າຟັງຊັນໃດຮຽກໃຊ້ຟັງຊັນອື່ນໃດແດ່.
+A name the program's author gave to a function or variable that survived in the file.	ຊື່ທີ່ຜູ້ຂຽນໂປຣແກຣມຕັ້ງໃຫ້ຟັງຊັນ ຫຼື ຕົວປ່ຽນ ທີ່ຍັງຄົງເຫຼືອຢູ່ໃນໄຟລ໌.
+A named piece of a program that does one job, like "add two numbers" or "save the file".	ສ່ວນໜຶ່ງຂອງໂປຣແກຣມທີ່ມີຊື່ ເຊິ່ງເຮັດໜ້າທີ່ຢ່າງໃດຢ່າງໜຶ່ງ, ເຊັ່ນ "ບວກເລກສອງຈຳນວນ" ຫຼື "ບັນທຶກໄຟລ໌".
+A number that says where something is in a program's memory, like a house number.	ຕົວເລກທີ່ບອກວ່າບາງສິ່ງຢູ່ໃສໃນໜ່ວຍຄວາມຈຳຂອງໂປຣແກຣມ, ຄືກັບເລກທີ່ເຮືອນ.
+A piece of text stored inside a program, like a message, a web address or a file name.	ຂໍ້ຄວາມທີ່ເກັບໄວ້ພາຍໃນໂປຣແກຣມ, ເຊັ່ນ ຂໍ້ຄວາມແຈ້ງເຕືອນ, ທີ່ຢູ່ເວັບ ຫຼື ຊື່ໄຟລ໌.
+A program, an app bundle, an APK, a JavaScript bundle, a folder… or drop it on the window.	ໂປຣແກຣມ, ແພັກເກດແອັບ, APK, ຊຸດ JavaScript, ໂຟນເດີ… ຫຼື ລາກມາວາງໃສ່ໜ້າຕ່າງ.
+A recording of network traffic	ການບັນທຶກການສັນຈອນເຄືອຂ່າຍ
+A region of a program as it sits in memory while running.	ພື້ນທີ່ຂອງໂປຣແກຣມຂະນະທີ່ມັນຢູ່ໃນໜ່ວຍຄວາມຈຳຕອນກຳລັງເຮັດວຽກ.
+A region of a program file with one purpose: code, text, pictures, settings.	ພື້ນທີ່ຂອງໄຟລ໌ໂປຣແກຣມທີ່ມີຈຸດປະສົງສະເພາະ: ໂຄ້ດ, ຂໍ້ຄວາມ, ຮູບພາບ, ການຕັ້ງຄ່າ.
+A rule of thumb. Usually right, sometimes wrong, so we label the result as a best guess.	ກົດເກນຕາມປະສົບການ. ສ່ວນຫຼາຍຖືກຕ້ອງ, ບາງຄັ້ງຜິດພາດ, ດັ່ງນັ້ນພວກເຮົາຈຶ່ງໝາຍຜົນລັດວ່າເປັນການຄາດເດົາທີ່ດີທີ່ສຸດ.
+A saved, checkable record of something we found, with how sure we are and where we found it.	ບັນທຶກທີ່ກວດສອບໄດ້ຂອງສິ່ງທີ່ພວກເຮົາຄົ້ນພົບ, ພ້ອມທັງລະດັບຄວາມໝັ້ນໃຈ ແລະ ບ່ອນທີ່ພວກເຮົາພົບເຫັນມັນ.
+A script or web page	ສະຄຣິບ ຫຼື ໜ້າເວັບ
+A set of commands a program offers to other programs.	ຊຸດຄຳສັ່ງທີ່ໂປຣແກຣມໜຶ່ງສະໜອງໃຫ້ແກ່ໂປຣແກຣມອື່ນໆ.
+A simple snake game	ເກມງູແບບງ່າຍດາຍ
+A small download (under 200 MB). Free, no account needed.	ໄຟລ໌ດາວໂຫຼດຂະໜາດນ້ອຍ (ຕໍ່າກວ່າ 200 MB). ຟຣີ, ບໍ່ຕ້ອງໃຊ້ບັນຊີ.
+A small file that lists what an app is called, what it needs and what it's allowed to do.	ໄຟລ໌ຂະໜາດນ້ອຍທີ່ລະບຸຊື່ແອັບ, ສິ່ງທີ່ມັນຕ້ອງການ ແລະ ສິ່ງທີ່ມັນໄດ້ຮັບອະນຸຍາດໃຫ້ເຮັດ.
+A smart contract (EVM bytecode)	ສັນຍາອັດສະລິຍະ (EVM bytecode)
+A way of writing bytes as two-character codes (00 to FF). The rawest view of a file.	ວິທີຂຽນໄບຕ໌ເປັນລະຫັດສອງຕົວອັກສອນ (00 ຫາ FF). ມຸມມອງໄຟລ໌ທີ່ດິບທີ່ສຸດ.
+A way to build desktop apps out of web pages. The app is basically a website with its own browser.	ວິທີສ້າງແອັບເດັສທັອບຈາກໜ້າເວັບ. ໂດຍພື້ນຖານແລ້ວ ແອັບແມ່ນເວັບໄຊທີ່ມີບຣາວເຊີໃນຕົວມັນເອງ.
+A website	ເວັບໄຊ
+A website for my bakery	ເວັບໄຊສຳລັບຮ້ານເຂົ້າຈີ່ຂອງຂ້ອຍ
+AI	AI
+AI cost	ຄ່າໃຊ້ຈ່າຍ AI
+AI cost (estimate)	ຄ່າໃຊ້ຈ່າຍ AI (ປະມານການ)
+AI cost (part estimate)	ຄ່າໃຊ້ຈ່າຍ AI (ປະມານການບາງສ່ວນ)
+AI model file	ໄຟລ໌ໂມເດວ AI
+AI name	ຊື່ AI
+AI use this session	ການນຳໃຊ້ AI ໃນເຊັສຊັນນີ້
+API boundary	ຂອບເຂດ API
+API key	ຄີ API
+API key (stored in your system keychain)	ຄີ API (ເກັບໄວ້ໃນ keychain ຂອງລະບົບທ່ານ)
+API key, if it needs one	ຄີ API, ຖ້າຫາກຈຳເປັນຕ້ອງໃຊ້
+About 10 GB. Free for personal use with a Unity account.	ປະມານ 10 GB. ຟຣີສຳລັບການນຳໃຊ້ສ່ວນຕົວເມື່ອມີບັນຊີ Unity.
+About 60 GB, an Epic Games account, and Visual Studio's C++ tools.	ປະມານ 60 GB, ບັນຊີ Epic Games, ແລະ ເຄື່ອງມື C++ ຂອງ Visual Studio.
+Add	ເພີ່ມ
+Add Visual Studio's C++ tools	ເພີ່ມເຄື່ອງມື C++ ຂອງ Visual Studio
+Add a brain	ເພີ່ມ AI
+Add a fal.ai key	ເພີ່ມຄີ fal.ai
+Add a folder…	ເພີ່ມໂຟນເດີ…
+Add a plugin	ເພີ່ມປລັກອິນ
+Add an AI brain and I'll read this evidence for you, answer follow-up questions and point at the proof.	ເພີ່ມ AI ແລ້ວຂ້ອຍຈະອ່ານຫຼັກຖານນີ້ໃຫ້ທ່ານ, ຕອບຄຳຖາມຕໍ່ເນື່ອງ ແລະ ຊີ້ບອກຫຼັກຖານ.
+Add an AI by its address	ເພີ່ມ AI ດ້ວຍທີ່ຢູ່
+Add another	ເພີ່ມອີກອັນໜຶ່ງ
+Add it again, to choose another account's folder for it.	ເພີ່ມມັນອີກຄັ້ງ ເພື່ອເລືອກໂຟນເດີຂອງບັນຊີອື່ນສຳລັບມັນ.
+Add more info. The builder reads it at its next step.	ເພີ່ມຂໍ້ມູນຕື່ມ. ຜູ້ສ້າງຈະອ່ານມັນໃນຂັ້ນຕອນຖັດໄປ.
+Add pictures	ເພີ່ມຮູບພາບ
+Add pictures of the original	ເພີ່ມຮູບພາບຂອງຕົ້ນສະບັບ
+Add pictures of the original (optional: screenshots help it look right)	ເພີ່ມຮູບພາບຂອງຕົ້ນສະບັບ (ເລືອກໄດ້: ຮູບໜ້າຈໍຊ່ວຍໃຫ້ມັນເບິ່ງຄືຕົ້ນສະບັບຫຼາຍຂຶ້ນ)
+Add to a running build	ເພີ່ມໃສ່ການບິວດ໌ທີ່ກຳລັງເຮັດວຽກ
+Added	ເພີ່ມແລ້ວ
+Added {n} picture(s). The builder uses them from your next change.	ເພີ່ມຮູບພາບແລ້ວ {n} ຮູບ. ຜູ້ສ້າງຈະໃຊ້ມັນຕັ້ງແຕ່ການປ່ຽນແປງຄັ້ງຕໍ່ໄປຂອງທ່ານ.
+Address to file offset	ທີ່ຢູ່ໄປຫາອັອບເຊັດໄຟລ໌
+Adds its decompiler to Deep mode. Craft Anything can download and set it up for you.	ເພີ່ມ decompiler ໃສ່ໂໝດ Deep. Craft Anything ສາມາດດາວໂຫຼດ ແລະ ຕິດຕັ້ງໃຫ້ທ່ານໄດ້.
+Advanced	ຂັ້ນສູງ
+After installing one, look for it again.	ຫຼັງຈາກຕິດຕັ້ງແລ້ວ, ໃຫ້ຊອກຫາມັນອີກຄັ້ງ.
+Agent	ເອເຈັນ
+Allow generated assets	ອະນຸຍາດແອັສເຊັດທີ່ສ້າງຂຶ້ນ
+Allow once	ອະນຸຍາດຄັ້ງດຽວ
+Allowed for this project	ອະນຸຍາດສຳລັບໂຄງການນີ້ແລ້ວ
+Allowed for this project.	ໄດ້ຮັບອະນຸຍາດສຳລັບໂຄງການນີ້ແລ້ວ.
+Allowed in	ອະນຸຍາດໃນ
+Allowed once	ອະນຸຍາດຄັ້ງດຽວແລ້ວ
+Allowed once.	ໄດ້ຮັບອະນຸຍາດຄັ້ງດຽວແລ້ວ.
+Also list projects from	ສະແດງໂຄງການຈາກບ່ອນນີ້ຕື່ມອີກ
+Always for this project	ອະນຸຍາດສະເໝີສຳລັບໂຄງການນີ້
+An Android app	ແອັບ Android
+An Android app package: the file you install on a phone.	ແພັກເກດແອັບ Android: ໄຟລ໌ທີ່ທ່ານຕິດຕັ້ງລົງໃນໂທລະສັບ.
+An Apple settings file (plist)	ໄຟລ໌ຕັ້ງຄ່າ Apple (plist)
+An app	ແອັບ
+An app or a file	ແອັບ ຫຼື ໄຟລ໌
+Analyse a JavaScript app	ວິເຄາະແອັບ JavaScript
+Analyse a page's JavaScript	ວິເຄາະ JavaScript ຂອງໜ້າເວັບ
+Android app code (DEX)	ໂຄ້ດແອັບ Android (DEX)
+Android app components	ອົງປະກອບແອັບ Android
+Android app package	ແພັກເກດແອັບ Android
+Android apps	ແອັບ Android
+Android class	ຄລາສ Android
+Android method bytecode	ໄບຕ໌ໂຄ້ດເມທອດ Android
+Android resources	ຊັບພະຍາກອນ Android
+Annotate function	ໃສ່ຄຳອະທິບາຍຟັງຊັນ
+Another build is working, so this one waits its turn.	ການບິວດ໌ອື່ນກຳລັງດຳເນີນການຢູ່, ອັນນີ້ຈຶ່ງຕ້ອງລໍຖ້າຄິວ.
+Answer a project's question	ຕອບຄຳຖາມຂອງໂຄງການ
+Answer any of them in a message below.	ຕອບຄຳຖາມໃດກໍໄດ້ໃນຂໍ້ຄວາມດ້ານລຸ່ມ.
+Answered by {name}	ຕອບໂດຍ {name}
+Answers come from {brain}. To build, set up a coding agent in Settings → AI.	ຄຳຕອບມາຈາກ {brain}. ເພື່ອສ້າງ, ໃຫ້ຕັ້ງຄ່າເອເຈັນຂຽນໂຄ້ດໃນ ການຕັ້ງຄ່າ → AI.
+App	ແອັບ
+App details on device	ລາຍລະອຽດແອັບໃນອຸປະກອນ
+Apple apps	ແອັບ Apple
+Apply model options	ນຳໃຊ້ຕົວເລືອກໂມເດວ
+Approve an agent action	ອະນຸມັດການກະທຳຂອງເອເຈັນ
+Apps and games: keep refining until they look this alike to your pictures. Off, the likeness is only reported.	ແອັບ ແລະ ເກມ: ປັບແຕ່ງຕໍ່ເນື່ອງຈົນກວ່າຈະຄືກັບຮູບຂອງທ່ານໃນລະດັບນີ້. ຖ້າປິດ, ຈະພຽງແຕ່ລາຍງານຄວາມຄ້າຍຄືເທົ່ານັ້ນ.
+Architectures	ສະຖາປັດຕະຍະກຳ
+Archive	ໄຟລ໌ບີບອັດ
+Archives	ໄຟລ໌ບີບອັດ
+Ask a question	ຖາມຄຳຖາມ
+Ask about a build	ຖາມກ່ຽວກັບການບິວດ໌
+Ask about the build	ຖາມກ່ຽວກັບການບິວດ໌
+Ask about the build, e.g. "where are the latest files?" Nothing changes and no build starts.	ຖາມກ່ຽວກັບການບິວດ໌, ເຊັ່ນ "ໄຟລ໌ຫຼ້າສຸດຢູ່ໃສ?" ບໍ່ມີຫຍັງປ່ຽນແປງ ແລະ ບໍ່ມີການເລີ່ມບິວດ໌ໃໝ່.
+Ask about this game	ຖາມກ່ຽວກັບເກມນີ້
+Ask anything, e.g. "What does this program do?"	ຖາມຫຍັງກໍໄດ້, ເຊັ່ນ "ໂປຣແກຣມນີ້ເຮັດຫຍັງ?"
+Ask before running anything	ຖາມກ່ອນສັ່ງເຮັດວຽກທຸກຄັ້ງ
+Ask each time	ຖາມທຸກຄັ້ງ
+Ask first	ຖາມກ່ອນ
+Ask for a change	ຮ້ອງຂໍການປ່ຽນແປງ
+Ask for a change, e.g. "bigger buttons" or "add a dark mode"	ຮ້ອງຂໍການປ່ຽນແປງ, ເຊັ່ນ "ປຸ່ມໃຫຍ່ຂຶ້ນ" ຫຼື "ເພີ່ມໂໝດມືດ"
+Ask for a change, e.g. "make it faster" or "add a high-score table"	ຮ້ອງຂໍການປ່ຽນແປງ, ເຊັ່ນ "ເຮັດໃຫ້ໄວຂຶ້ນ" ຫຼື "ເພີ່ມຕາຕະລາງຄະແນນສູງສຸດ"
+Ask for a change, e.g. "make the header blue" or "add a contact form"	ຮ້ອງຂໍການປ່ຽນແປງ, ເຊັ່ນ "ເຮັດໃຫ້ສ່ວນຫົວເປັນສີຟ້າ" ຫຼື "ເພີ່ມແບບຟອມຕິດຕໍ່"
+Ask in your own words. Every answer shows how sure we are, and the proof.	ຖາມດ້ວຍຄຳເວົ້າຂອງທ່ານເອງ. ທຸກໆ ຄຳຕອບຈະສະແດງລະດັບຄວາມໝັ້ນໃຈ ແລະ ຫຼັກຖານຢັ້ງຢືນ.
+Ask me	ຖາມຂ້ອຍ
+Ask the agent about this	ຖາມເອເຈັນກ່ຽວກັບເລື່ອງນີ້
+Ask the agent about this target. It cites evidence for every claim.	ຖາມເອເຈັນກ່ຽວກັບເປົ້າໝາຍນີ້. ມັນຈະອ້າງອີງຫຼັກຖານສຳລັບທຸກໆ ຂໍ້ອ້າງ.
+Ask the agent…	ຖາມເອເຈັນ…
+Ask the person	ຖາມຜູ້ໃຊ້
+Ask: "How does the % key work?"	ຖາມ: "ປຸ່ມ % ເຮັດວຽກແນວໃດ?"
+Ask: "Is it safe to run?"	ຖາມ: "ມັນປອດໄພທີ່ຈະສັ່ງເຮັດວຽກຫຼືບໍ່?"
+Ask: "What does it send over the internet?"	ຖາມ: "ມັນສົ່ງຫຍັງຜ່ານອິນເຕີເນັດແດ່?"
+Asking for its models…	ກຳລັງຮ້ອງຂໍລາຍການໂມເດວ…
+Asset catalog	ລາຍການແອັສເຊັດ
+At most this many rounds of fixes after the first build.	ແກ້ໄຂສູງສຸດບໍ່ເກີນຈຳນວນຮອບນີ້ຫຼັງຈາກການບິວດ໌ຄັ້ງທຳອິດ.
+Attach pictures	ແນບຮູບພາບ
+Attach pictures (or drop or paste them here)	ແນບຮູບພາບ (ຫຼື ລາກມາວາງ ຫຼື ວາງໃສ່ບ່ອນນີ້)
+Auto mode	ໂໝດອັດຕະໂນມັດ
+Automatic	ອັດຕະໂນມັດ
+Automatic ({name})	ອັດຕະໂນມັດ ({name})
+Back	ກັບຄືນ
+Best guess	ການຄາດເດົາທີ່ດີທີ່ສຸດ
+Best guess: a reasonable reading, but not proven.	ການຄາດເດົາທີ່ດີທີ່ສຸດ: ການຕີຄວາມທີ່ມີເຫດຜົນ, ແຕ່ຍັງບໍ່ໄດ້ຮັບການພິສູດ.
+Binary layout	ໂຄງສ້າງໄບນາຣີ
+Blocked	ຖືກບລັອກ
+Bookmark	ບຸກມາກ
+Budget for a new project	ງົບປະມານສຳລັບໂຄງການໃໝ່
+Bug report	ລາຍງານຂໍ້ຜິດພາດ
+Build	ບິວດ໌
+Build a rebuild ledger	ສ້າງບັນທຶກການສ້າງຄືນໃໝ່
+Build a stand-in backend	ສ້າງແບັກເອັນດ໌ທົດແທນ
+Build with	ບິວດ໌ດ້ວຍ
+Build with this	ບິວດ໌ດ້ວຍສິ່ງນີ້
+Build with {name}	ບິວດ໌ດ້ວຍ {name}
+Build with {name} instead	ບິວດ໌ດ້ວຍ {name} ແທນ
+Build without it	ບິວດ໌ໂດຍບໍ່ມີມັນ
+Builder's questions:	ຄຳຖາມຂອງຜູ້ສ້າງ:
+Building	ກຳລັງບິວດ໌
+Building needs a coding agent on this computer (Claude Code, Codex or Gemini CLI: install one and sign in to it once in its own window), or an AI with an API key. Craft Anything never sees your account.	ການບິວດ໌ຕ້ອງການເອເຈັນຂຽນໂຄ້ດໃນຄອມພິວເຕີເຄື່ອງນີ້ (Claude Code, Codex ຫຼື Gemini CLI: ຕິດຕັ້ງອັນໃດອັນໜຶ່ງ ແລະ ເຂົ້າສູ່ລະບົບຄັ້ງໜຶ່ງໃນໜ້າຕ່າງຂອງມັນເອງ), ຫຼື AI ທີ່ມີຄີ API. Craft Anything ຈະບໍ່ເຫັນບັນຊີຂອງທ່ານຢ່າງເດັດຂາດ.
+Building needs a coding agent such as Claude Code, or an AI with an API key.	ການບິວດ໌ຕ້ອງການເອເຈັນຂຽນໂຄ້ດເຊັ່ນ Claude Code, ຫຼື AI ທີ່ມີຄີ API.
+Builds	ການບິວດ໌
+Builds and answers may use it again.	ການບິວດ໌ ແລະ ຄຳຕອບອາດຈະນຳໃຊ້ມັນອີກ.
+Builds at once	ຈຳນວນການບິວດ໌ພ້ອມກັນ
+Builds keep going without stopping to ask you before an action. The builder still never deletes outside its project, changes system settings or publishes anything, and stays within each project's asset budget.	ການບິວດ໌ຈະດຳເນີນຕໍ່ໄປໂດຍບໍ່ຢຸດຖາມທ່ານກ່ອນລົງມື. ຜູ້ສ້າງຈະບໍ່ລຶບສິ່ງໃດນອກໂຄງການ, ບໍ່ປ່ຽນການຕັ້ງຄ່າລະບົບ ຫຼື ເຜີຍແຜ່ຫຍັງເລີຍ, ແລະ ຢູ່ໃນງົບປະມານແອັສເຊັດຂອງແຕ່ລະໂຄງການ.
+Builds use this one. Click to choose automatically again.	ການບິວດ໌ໃຊ້ອັນນີ້. ຄລິກເພື່ອເລືອກແບບອັດຕະໂນມັດອີກຄັ້ງ.
+Built by	ສ້າງໂດຍ
+Built with	ສ້າງດ້ວຍ
+Built with {stack}, as you asked, so no game engine is needed.	ສ້າງດ້ວຍ {stack} ຕາມທີ່ທ່ານຮ້ອງຂໍ, ຈຶ່ງບໍ່ຈຳເປັນຕ້ອງໃຊ້ເກມເອນຈິນ.
+Call graph	ກຣາຟການຮຽກໃຊ້
+Call path	ເສັ້ນທາງການຮຽກໃຊ້
+Call the build done	ໝາຍວ່າການບິວດ໌ສຳເລັດແລ້ວ
+Called done. A new message carries on from here.	ໝາຍວ່າສຳເລັດແລ້ວ. ຂໍ້ຄວາມໃໝ່ຈະສືບຕໍ່ຈາກບ່ອນນີ້.
+Cancel	ຍົກເລີກ
+Cancel: don't use this folder	ຍົກເລີກ: ບໍ່ໃຊ້ໂຟນເດີນີ້
+Capture a website for rebuilding	ບັນທຶກເວັບໄຊເພື່ອສ້າງຄືນໃໝ່
+Capture inventories	ລາຍການທີ່ບັນທຶກໄດ້
+Capture menus, dialogs and tabs	ບັນທຶກເມນູ, ກ່ອງຂໍ້ຄວາມ ແລະ ແຖບ
+Change	ປ່ຽນແປງ
+Change a setting	ປ່ຽນການຕັ້ງຄ່າ
+Change an AI's model	ປ່ຽນໂມເດວຂອງ AI
+Change how hard an AI thinks	ປ່ຽນລະດັບຄວາມເລິກໃນການຄິດຂອງ AI
+Change it	ປ່ຽນມັນ
+Change…	ປ່ຽນແປງ…
+Check	ກວດສອບ
+Check .NET native calls	ກວດສອບການຮຽກໃຊ້ native ຂອງ .NET
+Check a rebuild claim	ກວດສອບຂໍ້ອ້າງການສ້າງຄືນໃໝ່
+Check a scripted web session	ກວດສອບເຊັສຊັນເວັບທີ່ມີສະຄຣິບ
+Check an answer	ກວດສອບຄຳຕອບ
+Check decompiled C#	ກວດສອບ C# ທີ່ຖືກ decompile
+Check my build	ກວດສອບການບິວດ໌ຂອງຂ້ອຍ
+Check the JEB connection	ກວດສອບການເຊື່ອມຕໍ່ JEB
+Check the asset keys	ກວດສອບຄີແອັສເຊັດ
+Check the setup	ກວດສອບການຕິດຕັ້ງ
+Check {n}	ກວດສອບ {n}
+Check {n}: about {s}% like the original	ກວດສອບ {n}: ຄືກັບຕົ້ນສະບັບປະມານ {s}%
+Checked against Godot's official checksums before it's used.	ກວດສອບກັບ checksum ທາງການຂອງ Godot ກ່ອນນຳໃຊ້.
+Checking	ກຳລັງກວດສອບ
+Choose a file	ເລືອກໄຟລ໌
+Choose a folder…	ເລືອກໂຟນເດີ…
+Choose a function, string or section to see it here.	ເລືອກຟັງຊັນ, ຂໍ້ຄວາມ ຫຼື ພາກສ່ວນ ເພື່ອເບິ່ງຢູ່ນີ້.
+Choose an AI's job	ເລືອກໜ້າທີ່ຂອງ AI
+Choose the folder Ghidra is installed in.	ເລືອກໂຟນເດີທີ່ Ghidra ຖືກຕິດຕັ້ງໄວ້.
+Choose what the builder's questions get	ເລືອກວິທີຕອບຮັບຄຳຖາມຂອງຜູ້ສ້າງ
+Choose what to recreate, say what you want, then press Start.	ເລືອກສິ່ງທີ່ຕ້ອງການສ້າງຄືນໃໝ່, ບອກສິ່ງທີ່ທ່ານຕ້ອງການ, ແລ້ວກົດ ເລີ່ມຕົ້ນ.
+Choose…	ເລືອກ…
+Classes	ຄລາສ
+Claude Code folder (CLAUDE_CONFIG_DIR)	ໂຟນເດີ Claude Code (CLAUDE_CONFIG_DIR)
+Clean room	Clean room
+Clean room / Deep	Clean room / Deep
+Clean room never reads the original's code, files or page source. Deep mode reads them with every tool Craft Anything has.	Clean room ຈະບໍ່ອ່ານໂຄ້ດ, ໄຟລ໌ ຫຼື ຊອດໂຄ້ດໜ້າເວັບຂອງຕົ້ນສະບັບເລີຍ. ສ່ວນໂໝດ Deep ຈະອ່ານພວກມັນດ້ວຍທຸກເຄື່ອງມືທີ່ Craft Anything ມີ.
+Clean room never reads the original's code, files or page source: it works from what you can see. Deep reads them with every tool, and with Ghidra when it's installed. Every finding records which was used.	Clean room ຈະບໍ່ອ່ານໂຄ້ດ, ໄຟລ໌ ຫຼື ຊອດໂຄ້ດຂອງຕົ້ນສະບັບ: ມັນເຮັດວຽກຈາກສິ່ງທີ່ທ່ານເຫັນໄດ້ເທົ່ານັ້ນ. Deep ອ່ານພວກມັນດ້ວຍທຸກເຄື່ອງມື, ແລະ ດ້ວຍ Ghidra ເມື່ອຖືກຕິດຕັ້ງ. ທຸກໆ ການຄົ້ນພົບຈະບັນທຶກໄວ້ວ່າໃຊ້ວິທີໃດ.
+Clean room on	Clean room ເປີດຢູ່
+Clean room or Deep	Clean room ຫຼື Deep
+Clean room: nothing inside the original is read. We work from what you can see: pictures, the page as a visitor sees it, and watching it run.	Clean room: ບໍ່ມີການອ່ານສິ່ງໃດພາຍໃນຕົ້ນສະບັບ. ພວກເຮົາເຮັດວຽກຈາກສິ່ງທີ່ທ່ານເຫັນ: ຮູບພາບ, ໜ້າເວັບຕາມທີ່ຜູ້ຢ້ຽມຊົມເຫັນ, ແລະ ການສັງເກດເບິ່ງການເຮັດວຽກຂອງມັນ.
+Clear finished	ລຶບລາຍການທີ່ສຳເລັດແລ້ວ
+Close	ປິດ
+Close a Frida session	ປິດເຊັສຊັນ Frida
+Close a GDB session	ປິດເຊັສຊັນ GDB
+Close a Rizin debug session	ປິດເຊັສຊັນດີບັກ Rizin
+Close a pinned build	ປິດການບິວດ໌ທີ່ປັກໝຸດໄວ້
+Close it	ປິດມັນ
+Close it first.	ປິດມັນກ່ອນ.
+Close the website	ປິດເວັບໄຊ
+Code reconstructed from a program that looks like the C language. Close to what the program does, but not its original source.	ໂຄ້ດທີ່ສ້າງຂຶ້ນຄືນໃໝ່ຈາກໂປຣແກຣມເຊິ່ງມີລັກສະນະຄ້າຍພາສາ C. ໃກ້ຄຽງກັບການເຮັດວຽກຂອງໂປຣແກຣມ, ແຕ່ບໍ່ແມ່ນຊອດໂຄ້ດຕົ້ນສະບັບ.
+Code signature	ລາຍເຊັນໂຄ້ດ
+Coding agent app	ແອັບເອເຈັນຂຽນໂຄ້ດ
+Command palette (Ctrl/⌘ K)	ແຜງຄຳສັ່ງ (Ctrl/⌘ K)
+Commands:	ຄຳສັ່ງ:
+Compare WebAssembly interfaces	ປຽບທຽບອິນເຕີເຟສ WebAssembly
+Compare module exports	ປຽບທຽບການສົ່ງອອກຂອງໂມດູນ
+Compare two .NET builds	ປຽບທຽບການບິວດ໌ .NET ສອງລາຍການ
+Compare two app versions	ປຽບທຽບເວີຊັນແອັບສອງລຸ້ນ
+Compare two artifacts	ປຽບທຽບຜົນຜະລິດສອງອັນ
+Compare two evidence bundles	ປຽບທຽບຊຸດຫຼັກຖານສອງຊຸດ
+Compare two functions	ປຽບທຽບຟັງຊັນສອງອັນ
+Compare two page captures	ປຽບທຽບການບັນທຶກໜ້າເວັບສອງຄັ້ງ
+Compare two runs	ປຽບທຽບການສັ່ງເຮັດວຽກສອງຄັ້ງ
+Compare two screenshots	ປຽບທຽບຮູບໜ້າຈໍສອງຮູບ
+Comparing and rebuilding	ກຳລັງປຽບທຽບ ແລະ ສ້າງຄືນໃໝ່
+Compiled Python file	ໄຟລ໌ Python ທີ່ຄອມໄພລ໌ແລ້ວ
+Connect	ເຊື່ອມຕໍ່
+Connect agent apps	ເຊື່ອມຕໍ່ແອັບເອເຈັນ
+Connect to a browser	ເຊື່ອມຕໍ່ກັບບຣາວເຊີ
+Connect {name}	ເຊື່ອມຕໍ່ {name}
+Connected devices	ອຸປະກອນທີ່ເຊື່ອມຕໍ່ແລ້ວ
+Connected phone	ໂທລະສັບທີ່ເຊື່ອມຕໍ່ແລ້ວ
+Context window	ໜ້າຕ່າງບໍລິບົດ
+Continue	ດຳເນີນການຕໍ່
+Contradicted	ຂັດແຍ້ງກັນ
+Control-flow graph: a map of every path a function can take, like a flowchart.	ກຣາຟລຳດັບການຄວບຄຸມ: ແຜນຜັງຂອງທຸກເສັ້ນທາງທີ່ຟັງຊັນສາມາດໄປໄດ້, ຄືກັບຜັງງານ.
+Copies share the files it saves beside itself.	ສຳເນົາຈະໃຊ້ໄຟລ໌ຮ່ວມກັນກັບທີ່ມັນບັນທຶກໄວ້ຄຽງຂ້າງ.
+Copy a file off the phone	ຄັດລອກໄຟລ໌ອອກຈາກໂທລະສັບ
+Copy a file to the phone	ຄັດລອກໄຟລ໌ໄປຍັງໂທລະສັບ
+Copy an app off the phone	ຄັດລອກແອັບອອກຈາກໂທລະສັບ
+Copy the command	ຄັດລອກຄຳສັ່ງ
+Copy the evidence id	ຄັດລອກລະຫັດຫຼັກຖານ
+Couldn't add the pictures:	ບໍ່ສາມາດເພີ່ມຮູບພາບໄດ້:
+Couldn't answer:	ບໍ່ສາມາດຕອບໄດ້:
+Couldn't attach the pictures:	ບໍ່ສາມາດແນບຮູບພາບໄດ້:
+Couldn't look through that folder.	ບໍ່ສາມາດກວດເບິ່ງຜ່ານໂຟນເດີນັ້ນໄດ້.
+Couldn't open it.	ບໍ່ສາມາດເປີດໄດ້.
+Couldn't open the folder.	ບໍ່ສາມາດເປີດໂຟນເດີໄດ້.
+Couldn't open {}: {}	ບໍ່ສາມາດເປີດ {}: {}
+Couldn't start a worker thread: {e}	ບໍ່ສາມາດເລີ່ມເທຣດເຮັດວຽກໄດ້: {e}
+Couldn't start it.	ບໍ່ສາມາດເລີ່ມຕົ້ນໄດ້.
+Coverage unknown	ບໍ່ຮູ້ຂອບເຂດການຄອບຄຸມ
+Craft Anything	Craft Anything
+Craft Anything can't build with {engine}, so Unity is the closest match.	Craft Anything ບໍ່ສາມາດບິວດ໌ດ້ວຍ {engine} ໄດ້, ດັ່ງນັ້ນ Unity ຈຶ່ງເປັນສິ່ງທີ່ໃກ້ຄຽງທີ່ສຸດ.
+Craft Anything or the computer closed while it was working. Everything so far is kept; Continue picks up where it stopped.	Craft Anything ຫຼື ຄອມພິວເຕີຖືກປິດຂະນະທີ່ກຳລັງເຮັດວຽກ. ທຸກຢ່າງຈົນຮອດຕອນນີ້ຍັງຖືກເກັບໄວ້; ກົດ ດຳເນີນການຕໍ່ ເພື່ອເລີ່ມຈາກບ່ອນທີ່ຄ້າງໄວ້.
+Craft Anything reads its code and files with every tool it has. For your private use.	Craft Anything ອ່ານໂຄ້ດ ແລະ ໄຟລ໌ດ້ວຍທຸກເຄື່ອງມືທີ່ມີ. ສຳລັບການນຳໃຊ້ສ່ວນຕົວຂອງທ່ານ.
+Craft Anything reads the original's code, files and page source with every tool it has, and with Ghidra when it's installed.	Craft Anything ອ່ານໂຄ້ດ, ໄຟລ໌ ແລະ ຊອດໂຄ້ດໜ້າເວັບຂອງຕົ້ນສະບັບດ້ວຍທຸກເຄື່ອງມືທີ່ມີ, ແລະ ດ້ວຍ Ghidra ເມື່ອມີການຕິດຕັ້ງໄວ້.
+Craft Anything report.md	Craft Anything report.md
+Craft Anything's records, checks and anything it built in app/ are deleted. Your own files in the folder stay as they are.	ບັນທຶກ, ການກວດສອບ ແລະ ສິ່ງຕ່າງໆ ທີ່ Craft Anything ສ້າງຂຶ້ນໃນ app/ ຖືກລຶບແລ້ວ. ໄຟລ໌ຂອງທ່ານເອງໃນໂຟນເດີຍັງຄົງຢູ່ຄືເກົ່າ.
+Crash dump	ດັມພ໌ຂໍ້ມູນການຂັດຂ້ອງ
+Create the project	ສ້າງໂຄງການ
+Critical	ຮ້າຍແຮງ
+Cross-reference: a place in the program that uses or calls the thing you're looking at.	ການອ້າງອີງໄຂວ່: ຈຸດໃນໂປຣແກຣມທີ່ນຳໃຊ້ ຫຼື ຮຽກໃຊ້ສິ່ງທີ່ທ່ານກຳລັງເບິ່ງຢູ່.
+Cross-references	ການອ້າງອີງໄຂວ່
+Cross-references: the places in the program that use or call the thing you're looking at.	ການອ້າງອີງໄຂວ່: ບັນດາຈຸດໃນໂປຣແກຣມທີ່ນຳໃຊ້ ຫຼື ຮຽກໃຊ້ສິ່ງທີ່ທ່ານກຳລັງເບິ່ງຢູ່.
+Current document	ເອກະສານປະຈຸບັນ
+Cursor address	ທີ່ຢູ່ເຄີເຊີ
+Cursor function	ຟັງຊັນຢູ່ຕຳແໜ່ງເຄີເຊີ
+Custom	ກຳນົດເອງ
+Cutter command	ຄຳສັ່ງ Cutter
+DOS load image	ຮູບພາບໂຫຼດ DOS
+Databases	ຖານຂໍ້ມູນ
+Decide yourself	ຕັດສິນໃຈດ້ວຍຕົນເອງ
+Decode a radio recording	ຖອດລະຫັດການບັນທຶກຄື້ນວິທະຍຸ
+Decompile	ດີຄອມໄພລ໌
+Decompile Java with Vineflower	ດີຄອມໄພລ໌ Java ດ້ວຍ Vineflower
+Decompile many	ດີຄອມໄພລ໌ຫຼາຍລາຍການ
+Decompile with JEB	ດີຄອມໄພລ໌ດ້ວຍ JEB
+Deep	Deep
+Deep mode now decompiles with Ghidra. The first look at a large program can take several minutes.	ຕອນນີ້ໂໝດ Deep ໃຊ້ Ghidra ໃນການດີຄອມໄພລ໌. ການກວດເບິ່ງໂປຣແກຣມຂະໜາດໃຫຍ່ໃນຄັ້ງທຳອິດອາດໃຊ້ເວລາຫຼາຍນາທີ.
+Deep mode on	ໂໝດ Deep ເປີດຢູ່
+Deep: we read its code, files and page source with every tool we have, and with Ghidra when it's installed. Click to switch.	Deep: ພວກເຮົາອ່ານໂຄ້ດ, ໄຟລ໌ ແລະ ຊອດໂຄ້ດໜ້າເວັບດ້ວຍທຸກເຄື່ອງມືທີ່ມີ, ແລະ ດ້ວຍ Ghidra ເມື່ອຕິດຕັ້ງແລ້ວ. ຄລິກເພື່ອປ່ຽນ.
+Default	ຄ່າເລີ່ມຕົ້ນ
+Delete a project	ລຶບໂຄງການ
+Delete it	ລຶບມັນ
+Delete the project	ລຶບໂຄງການ
+Delete {name}?	ລຶບ {name} ບໍ່?
+Deleted.	ລຶບແລ້ວ.
+Deleted. Your own files are still in the folder.	ລຶບແລ້ວ. ໄຟລ໌ຂອງທ່ານເອງຍັງຄົງຢູ່ໃນໂຟນເດີ.
+Delete…	ລຶບ…
+Deliberately scrambled to make it hard to read, without changing what it does.	ຖືກເຮັດໃຫ້ສັບສົນໂດຍເຈດຕະນາເພື່ອໃຫ້ຍາກຕໍ່ການອ່ານ, ໂດຍບໍ່ປ່ຽນແປງການເຮັດວຽກຂອງມັນ.
+Demangle Swift symbols	ຖອດຊື່ສັນຍະລັກ Swift
+Details	ລາຍລະອຽດ
+Details about the selected item appear here.	ລາຍລະອຽດກ່ຽວກັບລາຍການທີ່ເລືອກຈະສະແດງຢູ່ນີ້.
+Detect	ກວດຫາ
+Device details	ລາຍລະອຽດອຸປະກອນ
+Device features	ຄຸນສົມບັດອຸປະກອນ
+Device folder	ໂຟນເດີອຸປະກອນ
+Device log	ລັອກຂອງອຸປະກອນ
+Disassemble sBPF code	ດິສແອັດເຊັມເບິນໂຄ້ດ sBPF
+Disassembly	ດິສແອັດເຊັມບລີ
+Disconnect agent apps	ຕັດການເຊື່ອມຕໍ່ແອັບເອເຈັນ
+Dismiss	ປິດການແຈ້ງເຕືອນ
+Dispatch metadata	ຂໍ້ມູນເມຕາການສົ່ງຕໍ່
+Display info	ຂໍ້ມູນການສະແດງຜົນ
+Do you have permission?	ທ່ານໄດ້ຮັບອະນຸຍາດຫຼືບໍ່?
+Does it talk to the internet?	ມັນເຊື່ອມຕໍ່ກັບອິນເຕີເນັດຫຼືບໍ່?
+Does it track me?	ມັນຕິດຕາມຂ້ອຍຫຼືບໍ່?
+Don't allow	ບໍ່ອະນຸຍາດ
+Don't ask again (you can change this in Settings)	ບໍ່ຕ້ອງຖາມອີກ (ທ່ານສາມາດປ່ຽນສິ່ງນີ້ໄດ້ໃນ ການຕັ້ງຄ່າ)
+Done	ສຳເລັດ
+Download	ດາວໂຫຼດ
+Download Godot {v}	ດາວໂຫຼດ Godot {v}
+Download Unity Hub	ດາວໂຫຼດ Unity Hub
+Download and use Ghidra	ດາວໂຫຼດ ແລະ ໃຊ້ Ghidra
+Download it from unity.com and install it.	ດາວໂຫຼດຈາກ unity.com ແລ້ວຕິດຕັ້ງມັນ.
+Download it from unrealengine.com and install it.	ດາວໂຫຼດຈາກ unrealengine.com ແລ້ວຕິດຕັ້ງມັນ.
+Download the Epic Games Launcher	ດາວໂຫຼດ Epic Games Launcher
+Downloads keep going in the background.	ການດາວໂຫຼດຈະດຳເນີນຕໍ່ໄປໃນພື້ນຫຼັງ.
+Drive an app's screen	ຄວບຄຸມໜ້າຈໍແອັບ
+Drop a calculator app (or any small program) on the window.	ລາກແອັບເຄື່ອງຄິດເລກ (ຫຼື ໂປຣແກຣມນ້ອຍໆ ໃດກໍໄດ້) ມາວາງໃສ່ໜ້າຕ່າງ.
+Drop a file or app anywhere in this window.	ລາກໄຟລ໌ ຫຼື ແອັບ ມາວາງໃສ່ບ່ອນໃດກໍໄດ້ໃນໜ້າຕ່າງນີ້.
+Drop the file on the window. We only read it; nothing runs.	ລາກໄຟລ໌ມາວາງໃສ່ໜ້າຕ່າງ. ພວກເຮົາພຽງແຕ່ອ່ານມັນ; ບໍ່ມີຫຍັງຖືກສັ່ງເຮັດວຽກ.
+Drop to attach	ວາງເພື່ອແນບ
+Drop to open it	ວາງເພື່ອເປີດ
+Duplicate	ສ້າງສຳເນົາຊ້ຳ
+Duplicate a project	ສ້າງສຳເນົາໂຄງການ
+Duplicate the project	ສ້າງສຳເນົາໂຄງການນີ້
+Each answer says how sure we are: Seen it, Worked it out or Best guess.	ແຕ່ລະຄຳຕອບຈະບອກລະດັບຄວາມໝັ້ນໃຈ: ເຫັນຕົວຈິງ, ວິເຄາະອອກມາ ຫຼື ການຄາດເດົາທີ່ດີທີ່ສຸດ.
+Edit a project file	ແກ້ໄຂໄຟລ໌ໂຄງການ
+Edit them in place	ແກ້ໄຂຢູ່ບ່ອນນັ້ນເລີຍ
+Effort:	ລະດັບການຄິດ:
+Electron and JavaScript	Electron ແລະ JavaScript
+Electron fuses	Electron fuses
+Engines	ເອນຈິນ
+Engines and settings	ເອນຈິນ ແລະ ການຕັ້ງຄ່າ
+Enter a full web address, like example.com or https://example.com/page.	ປ້ອນທີ່ຢູ່ເວັບເຕັມ, ເຊັ່ນ example.com ຫຼື https://example.com/page.
+Enter to send · Shift+Enter for a new line	Enter ເພື່ອສົ່ງ · Shift+Enter ເພື່ອຂຶ້ນແຖວໃໝ່
+Epic's own installer. It only opens if Epic's signature checks out.	ຕົວຕິດຕັ້ງຂອງ Epic ເອງ. ມັນຈະເປີດສະເພາະເມື່ອກວດສອບລາຍເຊັນຂອງ Epic ຖືກຕ້ອງເທົ່ານັ້ນ.
+Essentials	ເຄື່ອງມືພື້ນຖານ
+Every build of this project.	ທຸກໆ ການບິວດ໌ຂອງໂຄງການນີ້.
+Every finding is saved here with how sure we are.	ທຸກໆ ການຄົ້ນພົບຈະຖືກບັນທຶກຢູ່ນີ້ພ້ອມກັບລະດັບຄວາມໝັ້ນໃຈ.
+Every tool as well: a workbench with functions, bytes, references and evidence.	ລວມທັງທຸກເຄື່ອງມື: ພື້ນທີ່ເຮັດວຽກທີ່ມີຟັງຊັນ, ໄບຕ໌, ການອ້າງອີງ ແລະ ຫຼັກຖານ.
+Everything found so far, as a Markdown file.	ທຸກຢ່າງທີ່ຄົ້ນພົບຈົນຮອດຕອນນີ້, ໃນຮູບແບບໄຟລ໌ Markdown.
+Everything so far is kept. Continue picks up where it stopped.	ທຸກສິ່ງຈົນຮອດຕອນນີ້ຍັງຖືກເກັບໄວ້. ກົດ ດຳເນີນການຕໍ່ ເພື່ອເລີ່ມຈາກບ່ອນທີ່ຄ້າງໄວ້.
+Evidence	ຫຼັກຖານ
+Evidence ledger	ບັນທຶກຫຼັກຖານ
+Evidence so far	ຫຼັກຖານຈົນຮອດຕອນນີ້
+Explain a function	ອະທິບາຍຟັງຊັນ
+Explain like I'm new	ອະທິບາຍແບບງ່າຍໆ ຄືຄົນເລີ່ມຕົ້ນ
+Export a report	ສົ່ງອອກລາຍງານ
+Export a report (Markdown)	ສົ່ງອອກລາຍງານ (Markdown)
+Export captured scripts	ສົ່ງອອກສະຄຣິບທີ່ບັນທຶກໄວ້
+Export evidence	ສົ່ງອອກຫຼັກຖານ
+Export report	ສົ່ງອອກລາຍງານ
+Extended	ສ່ວນຂະຫຍາຍ
+Extract an archive	ແຕກໄຟລ໌ບີບອັດ
+Extract firmware	ສະກັດເຟີມແວ
+Extract with this	ສະກັດດ້ວຍສິ່ງນີ້
+Extracts	ການສະກັດ
+File formats	ຮູບແບບໄຟລ໌
+Files packed inside a file	ໄຟລ໌ທີ່ຖືກຫຸ້ມຫໍ່ໄວ້ພາຍໃນໄຟລ໌
+Filter	ກັ່ນຕອງ
+Filter by name	ກັ່ນຕອງຕາມຊື່
+Filter the files	ກັ່ນຕອງໄຟລ໌
+Filter…	ກັ່ນຕອງ…
+Find Android classes	ຊອກຫາຄລາສ Android
+Find Java classes	ຊອກຫາຄລາສ Java
+Find a call path	ຊອກຫາເສັ້ນທາງການຮຽກໃຊ້
+Find a game's files	ຊອກຫາໄຟລ໌ຂອງເກມ
+Find an app	ຊອກຫາແອັບ
+Find in-page MCP tools	ຊອກຫາເຄື່ອງມື MCP ພາຍໃນໜ້າ
+Find it automatically	ຊອກຫາແບບອັດຕະໂນມັດ
+Find out how any software works, then craft your own.	ຊອກຮູ້ວິທີທີ່ຊອບແວໃດໜຶ່ງເຮັດວຽກ, ແລ້ວສ້າງສັນຜົນງານຂອງທ່ານເອງ.
+Find the original source line	ຊອກຫາແຖວຊອດໂຄ້ດຕົ້ນສະບັບ
+Firmware regions	ພາກສ່ວນເຟີມແວ
+Fold the sidebar	ພັບແຖບຂ້າງ
+Folders of projects, and projects started in a folder you picked. Removing one only takes it off the list.	ໂຟນເດີໂຄງການ, ແລະ ໂຄງການທີ່ເລີ່ມໃນໂຟນເດີທີ່ທ່ານເລືອກ. ການລຶບອອກພຽງແຕ່ເອົາມັນອອກຈາກລາຍການເທົ່ານັ້ນ.
+Follow the installer that opened. Come back here when it's done.	ປະຕິບັດຕາມຕົວຕິດຕັ້ງທີ່ເປີດຂຶ້ນ. ກັບຄືນມານີ້ເມື່ອສຳເລັດ.
+Follow the steps on rustup.rs, then come back here.	ປະຕິບັດຕາມຂັ້ນຕອນໃນ rustup.rs, ແລ້ວກັບຄືນມານີ້.
+For everything you make, like the switch in the title bar.	ສຳລັບທຸກຢ່າງທີ່ທ່ານສ້າງ, ຄືກັບສະວິດຢູ່ໃນແຖບຫົວຂໍ້.
+For example: a website for my bakery	ຕົວຢ່າງ: ເວັບໄຊສຳລັບຮ້ານເຂົ້າຈີ່ຂອງຂ້ອຍ
+For example: recreate this website	ຕົວຢ່າງ: ສ້າງເວັບໄຊນີ້ຄືນໃໝ່
+For example: the same app, but simpler	ຕົວຢ່າງ: ແອັບດຽວກັນ, ແຕ່ລຽບງ່າຍກວ່າ
+For example: the same game, with a high-score table	ຕົວຢ່າງ: ເກມດຽວກັນ, ພ້ອມຕາຕະລາງຄະແນນສູງສຸດ
+Force-stop an app	ບັງຄັບປິດແອັບ
+Forget the key	ລຶບຄີອອກ
+Found on this computer	ພົບເຫັນໃນຄອມພິວເຕີເຄື່ອງນີ້
+Found {} AI option(s) on this computer	ພົບຕົວເລືອກ AI ຈຳນວນ {} ລາຍການ ໃນຄອມພິວເຕີເຄື່ອງນີ້
+Frida devices	ອຸປະກອນ Frida
+Frida instrumentation	ການວັດແທກ Frida
+Frida processes	ໂປຣເຊສ Frida
+Frida session status	ສະຖານະເຊັສຊັນ Frida
+From	ຈາກ
+Frozen copy	ສຳເນົາຄົງທີ່
+Function address	ທີ່ຢູ່ຟັງຊັນ
+Function assembly	ແອັດເຊັມບລີຂອງຟັງຊັນ
+Function dossier	ແຟ້ມຂໍ້ມູນລວມຂອງຟັງຊັນ
+Function info	ຂໍ້ມູນຟັງຊັນ
+Function instructions	ຄຳສັ່ງຂອງຟັງຊັນ
+Function references	ການອ້າງອີງຟັງຊັນ
+Functions	ຟັງຊັນ
+GDB command	ຄຳສັ່ງ GDB
+GDB session status	ສະຖານະເຊັສຊັນ GDB
+Game assets	ແອັສເຊັດເກມ
+Game engines	ເກມເອນຈິນ
+Game files	ໄຟລ໌ເກມ
+General	ທົ່ວໄປ
+Generate a 3D model	ສ້າງໂມເດວ 3D
+Generate a picture	ສ້າງຮູບພາບ
+Generate custom pictures and models	ສ້າງຮູບພາບ ແລະ ໂມເດວແບບກຳນົດເອງ
+Generated art (games)	ງານສິລະປະທີ່ສ້າງຂຶ້ນ (ເກມ)
+Generated assets	ແອັສເຊັດທີ່ສ້າງຂຶ້ນ
+Generated pictures and 3D models are made with fal.ai.	ຮູບພາບ ແລະ ໂມເດວ 3D ທີ່ສ້າງຂຶ້ນແມ່ນຜະລິດດ້ວຍ fal.ai.
+Get Ghidra	ດາວໂຫຼດ Ghidra
+Get Ghidra for Deep mode	ດາວໂຫຼດ Ghidra ສຳລັບໂໝດ Deep
+Get Unity Hub	ດາວໂຫຼດ Unity Hub
+Get a key at {name}	ຮັບຄີໄດ້ທີ່ {name}
+Get the Epic Games Launcher	ດາວໂຫຼດ Epic Games Launcher
+Get {name}	ດາວໂຫຼດ {name}
+Getting Ghidra	ກຳລັງດາວໂຫຼດ Ghidra
+Getting Godot	ກຳລັງດາວໂຫຼດ Godot
+Getting Unity Hub	ກຳລັງດາວໂຫຼດ Unity Hub
+Getting the Epic Games Launcher	ກຳລັງດາວໂຫຼດ Epic Games Launcher
+Ghidra	Ghidra
+Ghidra folder	ໂຟນເດີ Ghidra
+Ghidra is ready	Ghidra ພ້ອມແລ້ວ
+Ghidra is ready. Deep mode uses it from now on.	Ghidra ພ້ອມແລ້ວ. ໂໝດ Deep ຈະໃຊ້ມັນຕັ້ງແຕ່ຕອນນີ້ເປັນຕົ້ນໄປ.
+Ghidra isn't installed, so the built-in decompiler stands in. Get it in Settings → Engines.	ຍັງບໍ່ໄດ້ຕິດຕັ້ງ Ghidra, ຈຶ່ງໃຊ້ decompiler ໃນຕົວແທນ. ດາວໂຫຼດມັນໄດ້ໃນ ການຕັ້ງຄ່າ → ເອນຈິນ.
+Ghidra isn't on this computer yet, so the built-in decompiler stands in.	ຍັງບໍ່ມີ Ghidra ໃນຄອມພິວເຕີເຄື່ອງນີ້, ຈຶ່ງໃຊ້ decompiler ໃນຕົວແທນ.
+Ghidra will use half of this computer's memory (up to {gb} GB).	Ghidra ຈະໃຊ້ເຄິ່ງໜຶ່ງຂອງໜ່ວຍຄວາມຈຳຄອມພິວເຕີນີ້ (ສູງສຸດ {gb} GB).
+Ghidra will use up to {gb} GB of memory.	Ghidra ຈະໃຊ້ໜ່ວຍຄວາມຈຳສູງສຸດ {gb} GB.
+Ghidra, a free reverse-engineering tool from the NSA, gives Deep mode richer decompiled code and types.	Ghidra, ເຄື່ອງມືວິສະວະກຳຍ້ອນຮອຍຟຣີຈາກ NSA, ຊ່ວຍໃຫ້ໂໝດ Deep ໄດ້ຮັບໂຄ້ດ ແລະ types ທີ່ decompile ໄດ້ລະອຽດຂຶ້ນ.
+Go home	ກັບໄປໜ້າຫຼັກ
+Go program details	ລາຍລະອຽດໂປຣແກຣມ Go
+Go to address	ໄປທີ່ທີ່ຢູ່
+Go to offset (0x…)	ໄປທີ່ອັອບເຊັດ (0x…)
+Go to the project	ໄປທີ່ໂຄງການ
+Good enough	ເກນຜ່ານມາດຕະຖານ
+Got it	ຮັບຊາບ
+Graph	ກຣາຟ
+Half of this computer's memory, up to {gb} GB.	ເຄິ່ງໜຶ່ງຂອງໜ່ວຍຄວາມຈຳຄອມພິວເຕີນີ້, ສູງສຸດ {gb} GB.
+Here's a first look:	ນີ້ແມ່ນຂໍ້ມູນເບື້ອງຕົ້ນ:
+Here's what I found on that page:	ນີ້ແມ່ນສິ່ງທີ່ຂ້ອຍພົບໃນໜ້າເວັບນັ້ນ:
+Hex	Hex
+Hide pinned builds	ເຊື່ອງການບິວດ໌ທີ່ປັກໝຸດໄວ້
+Hide the answer	ເຊື່ອງຄຳຕອບ
+Hide the console	ເຊື່ອງຄອນໂຊລ
+High	ສູງ
+Home	ໜ້າຫຼັກ
+How alike a rebuild must look to the original before refining stops.	ລະດັບຄວາມຄ້າຍຄືທີ່ຜົນງານສ້າງໃໝ່ຕ້ອງມີທຽບກັບຕົ້ນສະບັບ ກ່ອນທີ່ຈະຢຸດການປັບແຕ່ງ.
+How closely may Craft Anything look at it?	Craft Anything ສາມາດກວດສອບມັນໄດ້ລະອຽດປານໃດ?
+How complete is the rebuild	ຄວາມສົມບູນຂອງການສ້າງຄືນໃໝ່
+How do I open an app?	ຂ້ອຍຈະເປີດແອັບແນວໃດ?
+How do the window and the page talk to each other?	ໜ້າຕ່າງ ແລະ ໜ້າເວັບສື່ສານກັນແນວໃດ?
+How does the % key work?	ປຸ່ມ % ເຮັດວຽກແນວໃດ?
+How is this app built?	ແອັບນີ້ຖືກສ້າງຂຶ້ນແນວໃດ?
+How is this app put together?	ແອັບນີ້ຖືກປະກອບເຂົ້າກັນແນວໃດ?
+How many projects may build at the same time. More wait their turn.	ຈຳນວນໂຄງການທີ່ສາມາດບິວດ໌ໄດ້ພ້ອມກັນ. ຖ້າເກີນນັ້ນຈະຕ້ອງລໍຖ້າຄິວ.
+How should the builder use them?	ຜູ້ສ້າງຄວນໃຊ້ມັນແນວໃດ?
+I have Ghidra	ຂ້ອຍມີ Ghidra ແລ້ວ
+I have permission	ຂ້ອຍໄດ້ຮັບອະນຸຍາດແລ້ວ
+I want to make things work together	ຂ້ອຍຕ້ອງການໃຫ້ສິ່ງຕ່າງໆ ເຮັດວຽກຮ່ວມກັນໄດ້
+I'm checking whether it's safe	ຂ້ອຍກຳລັງກວດສອບວ່າມັນປອດໄພຫຼືບໍ່
+I'm keeping old software alive	ຂ້ອຍກຳລັງຮັກສາຊອບແວເກົ່າໃຫ້ຍັງໃຊ້ງານໄດ້
+I'm learning how things work	ຂ້ອຍກຳລັງຮຽນຮູ້ວິທີການເຮັດວຽກຂອງມັນ
+I'm new to this	ຂ້ອຍຫາເກີດໃໝ່ກັບເລື່ອງນີ້
+ILSpy decompile	ILSpy decompile
+Ideas:	ແນວຄວາມຄິດ:
+Identify a Flutter build	ລະບຸການບິວດ໌ Flutter
+Import a source folder	ນຳເຂົ້າໂຟນເດີຊອດໂຄ້ດ
+Import evidence	ນຳເຂົ້າຫຼັກຖານ
+Imports / Exports	Imports / Exports
+In Deep mode this one takes a game's own files out after the study. Click to stop.	ໃນໂໝດ Deep, ສ່ວນນີ້ຈະດຶງໄຟລ໌ຂອງເກມອອກມາຫຼັງຈາກການສຶກສາ. ຄລິກເພື່ອຢຸດ.
+In Unity Hub: sign in (or make a free account) and accept the free Personal licence. Then open Installs, press Install Editor and choose the recommended version. About 10 GB.	ໃນ Unity Hub: ເຂົ້າສູ່ລະບົບ (ຫຼື ສ້າງບັນຊີຟຣີ) ແລະ ຍອມຮັບໃບອະນຸຍາດ Personal ຟຣີ. ຈາກນັ້ນເປີດ Installs, ກົດ Install Editor ແລະ ເລືອກເວີຊັນທີ່ແນະນຳ. ປະມານ 10 GB.
+In the launcher: sign in, open Unreal Engine, then Library, and press + next to Engine Versions to install one. About 60 GB.	ໃນຕົວເປີດ (Launcher): ເຂົ້າສູ່ລະບົບ, ເປີດ Unreal Engine, ໄປທີ່ Library, ແລະ ກົດ + ຖັດຈາກ Engine Versions ເພື່ອຕິດຕັ້ງ. ປະມານ 60 GB.
+In use	ກຳລັງໃຊ້ງານ
+Inside	ພາຍໃນ
+Inspect a Dart AOT snapshot	ກວດສອບ snapshot Dart AOT
+Inspect a network recording	ກວດສອບການບັນທຶກເຄືອຂ່າຍ
+Inspect a web page	ກວດສອບໜ້າເວັບ
+Inspect an Electron page	ກວດສອບໜ້າ Electron
+Inspect data	ກວດສອບຂໍ້ມູນ
+Inspect instruction	ກວດສອບຄຳສັ່ງ
+Inspector	ຕົວລະອຽດກວດສອບ
+Install Rust	ຕິດຕັ້ງ Rust
+Install Unity Hub	ຕິດຕັ້ງ Unity Hub
+Install Visual Studio Community (free) and tick "Game development with C++".	ຕິດຕັ້ງ Visual Studio Community (ຟຣີ) ແລະ ໝາຍຕິກໃສ່ "Game development with C++".
+Install Xcode	ຕິດຕັ້ງ Xcode
+Install an app	ຕິດຕັ້ງແອັບ
+Install an engine	ຕິດຕັ້ງເອນຈິນ
+Install the launcher	ຕິດຕັ້ງຕົວເປີດ
+Installed	ຕິດຕັ້ງແລ້ວ
+Installed apps	ແອັບທີ່ຕິດຕັ້ງແລ້ວ
+Inter-process communication: how two parts of an app (or two apps) send messages to each other.	ການສື່ສານລະຫວ່າງໂປຣເຊສ: ວິທີທີ່ສອງສ່ວນຂອງແອັບ (ຫຼື ສອງແອັບ) ສົ່ງຂໍ້ຄວາມຫາກັນ.
+Interface Builder documents	ເອກະສານ Interface Builder
+Interrupted	ຖືກຂັດຈັງຫວະ
+Inventory an archive or app bundle	ກວດສອບລາຍການໃນໄຟລ໌ບີບອັດ ຫຼື ແພັກເກດແອັບ
+Investigating	ກຳລັງສືບຄົ້ນ
+Investigation so far	ການສືບຄົ້ນຈົນຮອດຕອນນີ້
+Is Apktool available?	Apktool ສາມາດໃຊ້ໄດ້ບໍ່?
+Is adb available?	adb ສາມາດໃຊ້ໄດ້ບໍ່?
+Is an asset key set up?	ມີການຕັ້ງຄ່າຄີແອັສເຊັດແລ້ວບໍ່?
+Is anything in here a program?	ມີຫຍັງຢູ່ນີ້ທີ່ເປັນໂປຣແກຣມບໍ່?
+Is anything sensitive saved in plain text?	ມີຂໍ້ມູນລະອຽດອ່ອນຖືກບັນທຶກເປັນຂໍ້ຄວາມທຳມະດາບໍ່?
+Is it safe to look inside programs?	ມັນປອດໄພບໍ່ທີ່ຈະກວດເບິ່ງພາຍໃນໂປຣແກຣມ?
+Is it safe to run?	ມັນປອດໄພທີ່ຈະສັ່ງເຮັດວຽກບໍ່?
+Is there any readable text inside?	ມີຂໍ້ຄວາມທີ່ສາມາດອ່ານໄດ້ຢູ່ພາຍໃນບໍ່?
+Is this file safe to open?	ໄຟລ໌ນີ້ປອດໄພທີ່ຈະເປີດບໍ່?
+It closed straight away.	ມັນປິດລົງທັນທີ.
+It closed straight away. It said:	ມັນປິດລົງທັນທີ. ຂໍ້ຄວາມແຈ້ງເຕືອນ:
+It isn't on this computer yet. Craft Anything can download Ghidra {version} and the Java runtime it needs (about {mb} MB), check both against their publishers' checksums, and set them up in its own folder. Nothing else on your computer changes.	ຍັງບໍ່ມີໃນຄອມພິວເຕີເຄື່ອງນີ້ເທື່ອ. Craft Anything ສາມາດດາວໂຫຼດ Ghidra {version} ແລະ Java runtime ທີ່ຈຳເປັນ (ປະມານ {mb} MB), ກວດສອບທັງສອງກັບ checksum ຂອງຜູ້ເຜີຍແຜ່, ແລະ ຕິດຕັ້ງພວກມັນໃນໂຟນເດີຂອງມັນເອງ. ສ່ວນອື່ນໆ ໃນຄອມພິວເຕີຂອງທ່ານຈະບໍ່ມີຫຍັງປ່ຽນແປງ.
+It isn't on this computer yet. Install Ghidra {version} from its release page, then choose its folder.	ຍັງບໍ່ມີໃນຄອມພິວເຕີເຄື່ອງນີ້ເທື່ອ. ໃຫ້ຕິດຕັ້ງ Ghidra {version} ຈາກໜ້າລາຍການປ່ອຍ, ແລ້ວເລືອກໂຟນເດີຂອງມັນ.
+It's already open.	ມັນເປີດຢູ່ແລ້ວ.
+It's already open. Right-click it to open another copy.	ມັນເປີດຢູ່ແລ້ວ. ຄລິກຂວາເພື່ອເປີດອີກສຳເນົາໜຶ່ງ.
+It's done	ສຳເລັດແລ້ວ
+It's mine, or I'm allowed to look	ມັນເປັນຂອງຂ້ອຍ, ຫຼື ຂ້ອຍໄດ້ຮັບອະນຸຍາດໃຫ້ເບິ່ງໄດ້
+Its copy is deleted, with anything it saved there. The project itself stays as it is.	ສຳເນົາຂອງມັນຖືກລຶບແລ້ວ, ພ້ອມກັບທຸກສິ່ງທີ່ບັນທຶກໄວ້ໃນນັ້ນ. ສ່ວນຕົວໂຄງການເອງຍັງຄົງຢູ່ຄືເກົ່າ.
+Its folder is deleted with everything in it: what was built, the checks and the conversation.	ໂຟນເດີຂອງມັນຖືກລຶບພ້ອມກັບທຸກຢ່າງພາຍໃນ: ສິ່ງທີ່ຖືກບິວດ໌, ການກວດສອບ ແລະ ການສົນທະນາ.
+Its own code	ໂຄ້ດຂອງມັນເອງ
+Its own sign-in, settings and conversations: another folder is another account. Empty: its usual folder.	ການເຂົ້າສູ່ລະບົບ, ການຕັ້ງຄ່າ ແລະ ການສົນທະນາຂອງຕົນເອງ: ໂຟນເດີອື່ນຄືອີກບັນຊີໜຶ່ງ. ຖ້າຫວ່າງເປົ່າ: ຈະໃຊ້ໂຟນເດີປົກກະຕິຂອງມັນ.
+Java archive overview	ພາບລວມໄຟລ໌ບີບອັດ Java
+Java class	ຄລາສ Java
+Java method bytecode and pseudo-Java	ໄບຕ໌ໂຄ້ດເມທອດ Java ແລະ pseudo-Java
+Java program code (one class)	ໂຄ້ດໂປຣແກຣມ Java (ໜຶ່ງຄລາສ)
+Java programs	ໂປຣແກຣມ Java
+Java runtime	Java runtime
+Jobs	ວຽກ
+Jobs ({n_jobs})	ວຽກ ({n_jobs})
+Jobs ({n})	ວຽກ ({n})
+Just a question: nothing was changed. Answered by	ພຽງແຕ່ເປັນຄຳຖາມ: ບໍ່ມີຫຍັງປ່ຽນແປງ. ຕອບໂດຍ
+Just ask	ພຽງແຕ່ຖາມ
+Just look inside	ພຽງແຕ່ກວດເບິ່ງພາຍໃນ
+Work on my project	ເຮັດວຽກກັບໂຄງການຂອງຂ້ອຍ
+Work on a project you already have	ເຮັດວຽກກັບໂຄງການທີ່ທ່ານມີຢູ່ແລ້ວ
+Pick its folder, say what you want, then press Start.	ເລືອກໂຟນເດີຂອງມັນ, ບອກສິ່ງທີ່ທ່ານຕ້ອງການ, ແລ້ວກົດ ເລີ່ມຕົ້ນ.
+Where is your project?	ໂຄງການຂອງທ່ານຢູ່ໃສ?
+Choose your project's folder…	ເລືອກໂຟນເດີໂຄງການຂອງທ່ານ…
+For example: add a dark mode	ຕົວຢ່າງ: ເພີ່ມໂໝດມືດ
+Pick your project's folder first.	ເລືອກໂຟນເດີໂຄງການຂອງທ່ານກ່ອນ.
+Pick your project's folder	ເລືອກໂຟນເດີໂຄງການຂອງທ່ານ
+That folder is empty. Pick the folder your project's files are in.	ໂຟນເດີນັ້ນຫວ່າງເປົ່າ. ເລືອກໂຟນເດີທີ່ໄຟລ໌ໂຄງການຂອງທ່ານຕັ້ງຢູ່.
+Keep going without asking	ເຮັດຕໍ່ໄປໂດຍບໍ່ຕ້ອງຖາມ
+Keep it	ເກັບຮັກສາໄວ້
+Keep it in the sidebar to open any time, whatever later builds change.	ເກັບມັນໄວ້ໃນແຖບຂ້າງເພື່ອເປີດໄດ້ທຸກເວລາ, ບໍ່ວ່າການບິວດ໌ພາຍຫຼັງຈະປ່ຽນແປງຫຍັງກໍຕາມ.
+Keep the build as it is and stop offering to carry on.	ຮັກສາການບິວດ໌ໄວ້ຄືເກົ່າ ແລະ ຢຸດການສະເໜີໃຫ້ສືບຕໍ່.
+Keep this version in the sidebar to open any time.	ເກັບຮັກສາເວີຊັນນີ້ໄວ້ໃນແຖບຂ້າງເພື່ອເປີດໄດ້ທຸກເວລາ.
+Keeps this version exactly as it is now. Later builds can't change or break it, and anything it saves stays with the copy.	ຮັກສາເວີຊັນນີ້ໄວ້ຕາມສະພາບເດີມຢ່າງແນ່ນອນ. ການບິວດ໌ໃນພາຍຫຼັງຈະບໍ່ສາມາດປ່ຽນແປງ ຫຼື ເຮັດໃຫ້ມັນເສຍຫາຍໄດ້, ແລະ ສິ່ງໃດທີ່ມັນບັນທຶກຈະຍັງຢູ່ກັບສຳເນົານີ້.
+Key saved	ບັນທຶກຄີແລ້ວ
+Keyed archive	ໄຟລ໌ບີບອັດແບບມີຄີ
+Kind	ປະເພດ
+Language	ພາສາ
+Last: {what}	ຫຼ້າສຸດ: {what}
+Launch an app	ເປີດແອັບ
+Leave a few GB for the rest of your computer.	ເຫຼືອພື້ນທີ່ໄວ້ສອງສາມ GB ສຳລັບການເຮັດວຽກອື່ນໆ ຂອງຄອມພິວເຕີທ່ານ.
+Leave a path empty to use the managed install. We never need environment variables.	ປະເສັ້ນທາງໃຫ້ຫວ່າງເປົ່າເພື່ອໃຊ້ການຕິດຕັ້ງແບບຄວບຄຸມ. ພວກເຮົາບໍ່ເຄີຍຕ້ອງການຕົວປ່ຽນສະພາບແວດລ້ອມ (environment variables).
+Leave empty to use the one Craft Anything sets up.	ປະໃຫ້ຫວ່າງເປົ່າເພື່ອໃຊ້ອັນທີ່ Craft Anything ຕິດຕັ້ງໄວ້.
+Let a project generate assets	ອະນຸຍາດໃຫ້ໂຄງການສ້າງແອັສເຊັດ
+Let's go	ເລີ່ມກັນເລີຍ
+Lets the builder make realistic 3D models and textures for games, {model} a model, with a {budget} budget per project.	ຊ່ວຍໃຫ້ຜູ້ສ້າງສ້າງໂມເດວ 3D ແລະ ພື້ນຜິວທີ່ສົມຈິງສຳລັບເກມ, {model} ຕໍ່ໂມເດວ, ດ້ວຍງົບປະມານ {budget} ຕໍ່ໂຄງການ.
+Library resolution	ການກຳນົດໄລບຣາຣີ
+Light copy: shares big files with the project	ສຳເນົາແບບເບົາ: ໃຊ້ໄຟລ໌ຂະໜາດໃຫຍ່ຮ່ວມກັບໂຄງການ
+Likeness	ຄວາມຄ້າຍຄື
+Line up code and behaviour	ປຽບທຽບໂຄ້ດ ແລະ ພຶດຕິກຳ
+Line up source with the bundle	ປຽບທຽບຊອດໂຄ້ດກັບຊຸດບັນຈຸ
+List Electron pages	ລາຍການໜ້າ Electron
+List JEB units	ລາຍການໜ່ວຍ JEB
+List JS runtime targets	ລາຍການເປົ້າໝາຍ JS runtime
+List a Unity assets file	ລາຍການໄຟລ໌ແອັສເຊັດ Unity
+List a Unity bundle	ລາຍການບັນເດິນ Unity
+List a game's archives	ລາຍການໄຟລ໌ບີບອັດຂອງເກມ
+List a node's event listeners	ລາຍການຕົວຮັບຟັງເຫດການຂອງໂນດ
+List an AI's models	ລາຍການໂມເດວຂອງ AI
+List an Unreal IoStore container	ລາຍການຄອນເທນເນີ Unreal IoStore
+List an Unreal pak	ລາຍການ Unreal pak
+List bookmarks	ລາຍການບຸກມາກ
+List browser pages	ລາຍການໜ້າບຣາວເຊີ
+List documents	ລາຍການເອກະສານ
+List engines	ລາຍການເອນຈິນ
+List functions	ລາຍການຟັງຊັນ
+List names	ລາຍການຊື່
+List open targets	ລາຍການເປົ້າໝາຍທີ່ເປີດຢູ່
+List pinned builds	ລາຍການການບິວດ໌ທີ່ປັກໝຸດໄວ້
+List plugins	ລາຍການປລັກອິນ
+List project files	ລາຍການໄຟລ໌ໂຄງການ
+List projects	ລາຍການໂຄງການ
+List questions about a build	ລາຍການຄຳຖາມກ່ຽວກັບການບິວດ໌
+List radio decoders	ລາຍການຕົວຖອດລະຫັດວິທະຍຸ
+List segments	ລາຍການເຊກເມນຕ໌
+List shared Cutter sessions	ລາຍການເຊັສຊັນ Cutter ທີ່ແບ່ງປັນ
+List strings	ລາຍການຂໍ້ຄວາມ
+Live: the project's latest build	ອັບເດດສົດ: ການບິວດ໌ຫຼ້າສຸດຂອງໂຄງການ
+Load a picture	ໂຫຼດຮູບພາບ
+Load a screenshot	ໂຫຼດຮູບໜ້າຈໍ
+Load model options	ໂຫຼດຕົວເລືອກໂມເດວ
+Loading…	ກຳລັງໂຫຼດ…
+Log	ລັອກ
+Look again	ກວດເບິ່ງອີກຄັ້ງ
+Look at a game	ກວດເບິ່ງເກມ
+Look at a website	ກວດເບິ່ງເວັບໄຊ
+Look at the game	ກວດເບິ່ງເກມ
+Look for AI on this computer	ຊອກຫາ AI ໃນຄອມພິວເຕີເຄື່ອງນີ້
+Look for game engines	ຊອກຫາເກມເອນຈິນ
+Look for projects again	ຊອກຫາໂຄງການອີກຄັ້ງ
+Looked at everything	ກວດເບິ່ງທັງໝົດແລ້ວ
+Looked at part of it	ກວດເບິ່ງບາງສ່ວນແລ້ວ
+Looked at {a} of {b}	ກວດເບິ່ງແລ້ວ {a} ຈາກ {b}
+Looking for AI on this computer…	ກຳລັງຊອກຫາ AI ໃນຄອມພິວເຕີເຄື່ອງນີ້…
+Looking for game engines on this computer…	ກຳລັງຊອກຫາເກມເອນຈິນໃນຄອມພິວເຕີເຄື່ອງນີ້…
+Looking for the game's files…	ກຳລັງຊອກຫາໄຟລ໌ຂອງເກມ…
+Looking inside needs Deep mode	ການກວດເບິ່ງພາຍໃນຕ້ອງໃຊ້ໂໝດ Deep
+Looking inside software you own or are allowed to examine is normal and often protected (learning, compatibility, security). Saying why helps you keep to it; it stays on this computer.	ການກວດເບິ່ງພາຍໃນຊອບແວທີ່ທ່ານເປັນເຈົ້າຂອງ ຫຼື ໄດ້ຮັບອະນຸຍາດໃຫ້ກວດສອບແມ່ນເລື່ອງປົກກະຕິ ແລະ ມັກຈະໄດ້ຮັບການປົກປ້ອງ (ການຮຽນຮູ້, ຄວາມເຂົ້າກັນໄດ້, ຄວາມປອດໄພ). ການລະບຸເຫດຜົນຈະຊ່ວຍໃຫ້ທ່ານຢູ່ໃນຂອບເຂດ; ຂໍ້ມູນນີ້ຈະຢູ່ສະເພາະໃນຄອມພິວເຕີເຄື່ອງນີ້.
+Looking on this computer…	ກຳລັງຊອກຫາໃນຄອມພິວເຕີເຄື່ອງນີ້…
+Low	ຕໍ່າ
+Mach-O structure	ໂຄງສ້າງ Mach-O
+Made a copy: {name}	ສ້າງສຳເນົາແລ້ວ: {name}
+Made with fal.ai and paid from your account: {model} a 3D model, {picture} a picture. Off, the game is built without them.	ສ້າງດ້ວຍ fal.ai ແລະ ຊຳລະຈາກບັນຊີຂອງທ່ານ: {model} ຕໍ່ໂມເດວ 3D, {picture} ຕໍ່ຮູບພາບ. ຖ້າປິດ, ເກມຈະຖືກສ້າງຂຶ້ນໂດຍບໍ່ມີສິ່ງເຫຼົ່ານີ້.
+Made with {engine}	ສ້າງດ້ວຍ {engine}
+Made without looking inside the original.	ສ້າງຂຶ້ນໂດຍບໍ່ໄດ້ກວດເບິ່ງພາຍໃນຕົ້ນສະບັບ.
+Make a game that plays like this	ສ້າງເກມທີ່ຫຼິ້ນໄດ້ແບບນີ້
+Make a simpler version of this game	ສ້າງເກມນີ້ໃນເວີຊັນທີ່ລຽບງ່າຍກວ່າ
+Make my own version	ສ້າງເວີຊັນຂອງຂ້ອຍເອງ
+Make my own version of this app	ສ້າງແອັບນີ້ໃນເວີຊັນຂອງຂ້ອຍເອງ
+Making my own thing talk to something else.	ເຮັດໃຫ້ສິ່ງທີ່ຂ້ອຍສ້າງສາມາດສື່ສານກັບສິ່ງອື່ນໄດ້.
+Many source files packed into one big file so an app or web page loads faster.	ໄຟລ໌ຊອດໂຄ້ດຈຳນວນຫຼາຍຖືກລວມເຂົ້າເປັນໄຟລ໌ໃຫຍ່ອັນດຽວ ເພື່ອໃຫ້ແອັບ ຫຼື ໜ້າເວັບໂຫຼດໄດ້ໄວຂຶ້ນ.
+Map a HarmonyOS app	ສ້າງແຜນຜັງແອັບ HarmonyOS
+Map a page's module graph	ສ້າງກຣາຟໂມດູນຂອງໜ້າເວັບ
+Map an Android app	ສ້າງແຜນຜັງແອັບ Android
+Map an Apple app	ສ້າງແຜນຜັງແອັບ Apple
+Markdown	Markdown
+Match functions between two builds	ຈັບຄູ່ຟັງຊັນລະຫວ່າງການບິວດ໌ສອງຄັ້ງ
+Match my pictures	ປັບໃຫ້ກົງກັບຮູບພາບຂອງຂ້ອຍ
+Match static code to what ran	ປຽບທຽບໂຄ້ດສະຖິດກັບສິ່ງທີ່ສັ່ງເຮັດວຽກຈິງ
+Maximise	ຂະຫຍາຍເຕັມຈໍ
+May I run "{title}"?	ອະນຸຍາດໃຫ້ຂ້ອຍສັ່ງເຮັດວຽກ "{title}" ໄດ້ບໍ່?
+May I {action}?	ອະນຸຍາດໃຫ້ຂ້ອຍ {action} ໄດ້ບໍ່?
+Measure which code ran	ວັດແທກວ່າໂຄ້ດສ່ວນໃດຖືກສັ່ງເຮັດວຽກແດ່
+Medium	ປານກາງ
+Memory for Ghidra	ໜ່ວຍຄວາມຈຳສຳລັບ Ghidra
+Minimise	ຫຍໍ້ໜ້າຕ່າງ
+Mode	ໂໝດ
+Model	ໂມເດວ
+Model options	ຕົວເລືອກໂມເດວ
+Model: {model}	ໂມເດວ: {model}
+Modules	ໂມດູນ
+More detail	ລາຍລະອຽດເພີ່ມເຕີມ
+More makes a big program's first look faster.	ຍິ່ງມີຫຼາຍ ຍິ່ງເຮັດໃຫ້ການກວດເບິ່ງໂປຣແກຣມໃຫຍ່ໃນເບື້ອງຕົ້ນໄວຂຶ້ນ.
+More memory makes Ghidra's first look at a big program faster; leave some for the rest of the computer. Used from the next time Ghidra starts.	ໜ່ວຍຄວາມຈຳທີ່ຫຼາຍຂຶ້ນຈະຊ່ວຍໃຫ້ Ghidra ກວດເບິ່ງໂປຣແກຣມໃຫຍ່ໃນຄັ້ງທຳອິດໄດ້ໄວຂຶ້ນ; ຄວນເຫຼືອໄວ້ບາງສ່ວນສຳລັບວຽກອື່ນໃນຄອມພິວເຕີ. ຈະເລີ່ມນຳໃຊ້ຕັ້ງແຕ່ຕອນທີ່ Ghidra ເລີ່ມເຮັດວຽກຄັ້ງຕໍ່ໄປ.
+Name (optional)	ຊື່ (ບໍ່ບັງຄັບ)
+Name an address	ຕັ້ງຊື່ໃຫ້ທີ່ຢູ່
+Name at address	ຊື່ທີ່ຕຳແໜ່ງທີ່ຢູ່
+Name many addresses	ຕັ້ງຊື່ຫຼາຍໆ ທີ່ຢູ່
+Names the program's author gave to functions or variables that survived in the file.	ຊື່ທີ່ຜູ້ຂຽນໂປຣແກຣມຕັ້ງໃຫ້ຟັງຊັນ ຫຼື ຕົວປ່ຽນ ທີ່ຍັງຄົງເຫຼືອຢູ່ໃນໄຟລ໌.
+Needs a fal.ai key. Until then the game is built without them.	ຕ້ອງການຄີ fal.ai. ຈົນກວ່າຈະມີຄີ, ເກມຈະຖືກສ້າງຂຶ້ນໂດຍບໍ່ມີພວກມັນ.
+Needs you	ຕ້ອງການທ່ານ
+Network	ເຄືອຂ່າຍ
+New	ໃໝ່
+New project	ໂຄງການໃໝ່
+New projects go in	ໂຄງການໃໝ່ຈະຖືກເກັບໄວ້ທີ່
+Next address	ທີ່ຢູ່ຖັດໄປ
+No AI (built-in engines only)	ບໍ່ມີ AI (ໃຊ້ສະເພາະເອນຈິນໃນຕົວເທົ່ານັ້ນ)
+No AI brain is set up, so answers come straight from the built-in engines. Add one any time for plain-words explanations.	ຍັງບໍ່ມີການຕັ້ງຄ່າ AI, ດັ່ງນັ້ນຄຳຕອບຈຶ່ງມາຈາກເອນຈິນໃນຕົວໂດຍກົງ. ເພີ່ມ AI ໄດ້ທຸກເວລາເພື່ອຮັບຄຳອະທິບາຍແບບເຂົ້າໃຈງ່າຍ.
+No AI for now	ຕອນນີ້ຍັງບໍ່ມີ AI
+No AI is set up yet. The built-in engines still work; an AI adds plain-words answers.	ຍັງບໍ່ມີການຕັ້ງຄ່າ AI ເທື່ອ. ເອນຈິນໃນຕົວຍັງຄົງເຮັດວຽກໄດ້; AI ຈະຊ່ວຍເພີ່ມຄຳຕອບທີ່ເຂົ້າໃຈງ່າຍ.
+No Unreal or Unity archives were found. Pick the folder the game is installed in.	ບໍ່ພົບໄຟລ໌ບີບອັດຂອງ Unreal ຫຼື Unity. ເລືອກໂຟນເດີທີ່ເກມຖືກຕິດຕັ້ງໄວ້.
+No coding agent was found on this computer yet.	ຍັງບໍ່ພົບເອເຈັນຂຽນໂຄ້ດໃນຄອມພິວເຕີເຄື່ອງນີ້ເທື່ອ.
+No evidence yet	ຍັງບໍ່ມີຫຼັກຖານເທື່ອ
+No game files here	ບໍ່ມີໄຟລ໌ເກມຢູ່ນີ້
+No jobs yet. Long tasks show their progress here, and you can cancel them.	ຍັງບໍ່ມີວຽກເທື່ອ. ວຽກທີ່ໃຊ້ເວລາດົນຈະສະແດງຄວາມຄືບໜ້າຢູ່ນີ້, ແລະ ທ່ານສາມາດຍົກເລີກພວກມັນໄດ້.
+No matches	ບໍ່ພົບລາຍການທີ່ກົງກັນ
+No open questions	ບໍ່ມີຄຳຖາມທີ່ຄ້າງຢູ່
+No plugins yet.	ຍັງບໍ່ມີປລັກອິນເທື່ອ.
+No result yet	ຍັງບໍ່ມີຜົນລັດເທື່ອ
+No targets	ບໍ່ມີເປົ້າໝາຍ
+No tool named {tool}	ບໍ່ມີເຄື່ອງມືທີ່ຊື່ {tool}
+None	ບໍ່ມີ
+None yet. Screenshots help it look right.	ຍັງບໍ່ມີເທື່ອ. ຮູບໜ້າຈໍຈະຊ່ວຍໃຫ້ຮູບຮ່າງໜ້າຕາຖືກຕ້ອງຫຼາຍຂຶ້ນ.
+Not allowed	ບໍ່ອະນຸຍາດ
+Not allowed.	ບໍ່ໄດ້ຮັບອະນຸຍາດ.
+Not available yet	ຍັງບໍ່ພ້ອມໃຊ້ງານເທື່ອ
+Not compared yet: {what}	ຍັງບໍ່ໄດ້ປຽບທຽບເທື່ອ: {what}
+Not installed	ບໍ່ໄດ້ຕິດຕັ້ງ
+Not now	ບໍ່ແມ່ນຕອນນີ້
+Nothing allowed yet.	ຍັງບໍ່ມີສິ່ງໃດໄດ້ຮັບອະນຸຍາດເທື່ອ.
+Nothing can build yet: install Claude Code (and sign in to it once), or add an AI with an API key below.	ຍັງບໍ່ສາມາດບິວດ໌ຫຍັງໄດ້ເທື່ອ: ຕິດຕັ້ງ Claude Code (ແລະ ເຂົ້າສູ່ລະບົບຄັ້ງໜຶ່ງ), ຫຼື ເພີ່ມ AI ດ້ວຍຄີ API ດ້ານລຸ່ມ.
+Nothing found	ບໍ່ພົບສິ່ງໃດ
+Nothing found yet. We look for API keys, local model servers (Ollama, LM Studio) and agent apps you already have. One on another port or computer can be added by its address below.	ຍັງບໍ່ພົບສິ່ງໃດເທື່ອ. ພວກເຮົາຊອກຫາຄີ API, ເຊີເວີໂມເດວພາຍໃນເຄື່ອງ (Ollama, LM Studio) ແລະ ແອັບເອເຈັນທີ່ທ່ານມີຢູ່ແລ້ວ. ອັນທີ່ຢູ່ພອດອື່ນ ຫຼື ຄອມພິວເຕີອື່ນສາມາດເພີ່ມດ້ວຍທີ່ຢູ່ຂອງມັນໄດ້ຢູ່ດ້ານລຸ່ມ.
+Nothing inside it is read.	ບໍ່ມີການອ່ານສິ່ງໃດພາຍໃນນັ້ນ.
+Nothing inside it is read; Craft Anything works from what you can see. Your version gets its own art.	ບໍ່ມີການອ່ານສິ່ງໃດພາຍໃນນັ້ນ; Craft Anything ເຮັດວຽກຈາກສິ່ງທີ່ທ່ານເຫັນ. ເວີຊັນຂອງທ່ານຈະມີງານສິລະປະຂອງຕົນເອງ.
+Nothing inside the original is read: not its code, files or page source. Craft Anything works from what you can see: pictures, the page as a visitor sees it, and watching it run.	ບໍ່ມີການອ່ານສິ່ງໃດພາຍໃນຕົ້ນສະບັບເລີຍ: ບໍ່ວ່າຈະເປັນໂຄ້ດ, ໄຟລ໌ ຫຼື ຊອດໂຄ້ດໜ້າເວັບ. Craft Anything ເຮັດວຽກຈາກສິ່ງທີ່ທ່ານເຫັນ: ຮູບພາບ, ໜ້າເວັບຕາມທີ່ຜູ້ຢ້ຽມຊົມເຫັນ, ແລະ ການສັງເກດເບິ່ງການເຮັດວຽກຂອງມັນ.
+Nothing made yet. What you make shows up here.	ຍັງບໍ່ມີການສ້າງຫຍັງເທື່ອ. ສິ່ງທີ່ທ່ານສ້າງຈະສະແດງຢູ່ນີ້.
+Nothing matches the filter.	ບໍ່ມີສິ່ງໃດກົງກັບຕົວກັ່ນຕອງ.
+Nothing matches.	ບໍ່ມີສິ່ງໃດກົງກັນ.
+Nothing new for {time}. Long steps can be quiet; if it stays like this, press Pause.	ບໍ່ມີຫຍັງໃໝ່ເປັນເວລາ {time}. ຂັ້ນຕອນທີ່ໃຊ້ເວລາດົນອາດຈະມິດງຽບ; ຖ້າຍັງເປັນແບບນີ້ຢູ່, ໃຫ້ກົດ ຢຸດຊົ່ວຄາວ.
+Nothing open	ບໍ່ມີຫຍັງເປີດຢູ່
+Nothing open yet	ຍັງບໍ່ມີຫຍັງເປີດເທື່ອ
+Nothing selected	ບໍ່ໄດ້ເລືອກຫຍັງ
+Nothing to show	ບໍ່ມີຫຍັງໃຫ້ສະແດງ
+Nothing uses it until it's on again; it keeps its key.	ບໍ່ມີສິ່ງໃດໃຊ້ມັນຈົນກວ່າຈະເປີດຄືນໃໝ່; ຄີຍັງຖືກຮັກສາໄວ້ຄືເກົ່າ.
+Nothing — start fresh	ບໍ່ມີຫຍັງ — ເລີ່ມຕົ້ນໃໝ່ແຕ່ຕົ້ນ
+Now	ຕອນນີ້
+Now: {what} ({time})	ຕອນນີ້: {what} ({time})
+Objective-C classes	ຄລາສ Objective-C
+Objective-C protocols	ໂປຣໂຕຄອນ Objective-C
+Observe a JS runtime	ສັງເກດການ JS runtime
+Of this, {cost} was charged to an API key.	ໃນນີ້, {cost} ຖືກຄິດໄລ່ໃສ່ API key.
+Off	ປິດ
+Ollama or LM Studio on another computer, or any service that speaks the OpenAI API.	Ollama ຫຼື LM Studio ໃນຄອມພິວເຕີເຄື່ອງອື່ນ, ຫຼື ບໍລິການໃດກໍໄດ້ທີ່ຮອງຮັບ OpenAI API.
+On	ເປີດ
+One line, in plain words. It stays on this computer and is never sent anywhere.	ແຖວດຽວ, ດ້ວຍຄຳສັບງ່າຍໆ. ມັນຈະຢູ່ພຽງແຕ່ໃນຄອມພິວເຕີເຄື່ອງນີ້ ແລະ ບໍ່ຖືກສົ່ງໄປໃສເລີຍ.
+One-shot instrumentation	ການຕິດຕາມກວດສອບແບບຄັ້ງດຽວ
+Only for Ghidra. Empty = managed.	ສຳລັບ Ghidra ເທົ່ານັ້ນ. ຫວ່າງເປົ່າ = ຈັດການອັດຕະໂນມັດ.
+Only its name changes; its folder stays where it is.	ປ່ຽນແຕ່ຊື່ເທົ່ານັ້ນ; ໂຟນເດີຍັງຢູ່ບ່ອນເກົ່າ.
+Only take pictures out of games you made, or whose owner allows it. A game's art is usually protected by copyright and by the game's licence.	ດຶງເອົາຮູບພາບອອກມາຈາກເກມທີ່ເຈົ້າສ້າງເອງ ຫຼື ໄດ້ຮັບອະນຸຍາດຈາກເຈົ້າຂອງເທົ່ານັ້ນ. ຮູບພາບສິລະປະຂອງເກມມັກຈະຖືກປົກປ້ອງດ້ວຍລິຂະສິດ ແລະ ໃບອະນຸຍາດຂອງເກມ.
+Only the pin goes; the project and its app stay as they are.	ເອົາພຽງແຕ່ໝຸດອອກ; ໂຄງການ ແລະ ແອັບຂອງມັນຍັງຢູ່ຄືເກົ່າ.
+Open	ເປີດ
+Open "Show me the proof" to see the exact code we found, and how sure we are.	ເປີດ "ສະແດງຫຼັກຖານ" ເພື່ອເບິ່ງລະຫັດຕົວຈິງທີ່ພົບ, ແລະ ລະດັບຄວາມໝັ້ນໃຈຂອງພວກເຮົາ.
+Open Ghidra's release page	ເປີດໜ້າລຸ້ນປ່ອຍຂອງ Ghidra
+Open Unity Hub	ເປີດ Unity Hub
+Open a calculator app and find the code behind one button.	ເປີດແອັບເຄື່ອງຄິດເລກ ແລະ ຊອກຫາລະຫັດທີ່ຢູ່ເບື້ອງຫຼັງປຸ່ມໃດໜຶ່ງ.
+Open a file in JEB	ເປີດໄຟລ໌ໃນ JEB
+Open a file or drop one here.	ເປີດໄຟລ໌ ຫຼື ລາກມາວາງໃສ່ນີ້.
+Open a file…	ເປີດໄຟລ໌…
+Open a folder or app bundle	ເປີດໂຟນເດີ ຫຼື ແອັບບັນເດີລ
+Open a folder or app bundle…	ເປີດໂຟນເດີ ຫຼື ແອັບບັນເດີລ…
+Open a folder…	ເປີດໂຟນເດີ…
+Open a pinned build	ເປີດລຸ້ນບິວທີ່ປັກໝຸດໄວ້
+Open a project's folder	ເປີດໂຟນເດີຂອງໂຄງການ
+Open a website	ເປີດເວັບໄຊ
+Open an app or file	ເປີດແອັບ ຫຼື ໄຟລ໌
+Open an engine's app	ເປີດແອັບຂອງເອນຈິນ
+Open another copy	ເປີດສຳເນົາອີກອັນໜຶ່ງ
+Open another target	ເປີດເປົ້າໝາຍອື່ນ
+Open files, folders or apps; you can have several open at once.	ເປີດໄຟລ໌, ໂຟນເດີ ຫຼື ແອັບ; ເຈົ້າສາມາດເປີດຫຼາຍອັນພ້ອມກັນໄດ້.
+Open folder	ເປີດໂຟນເດີ
+Open in the workbench	ເປີດໃນໂຕະເຮັດວຽກ
+Open it	ເປີດມັນ
+Open log	ເປີດບັນທຶກປະຫວັດ
+Open one of the files inside it to see its bytes.	ເປີດໄຟລ໌ໜຶ່ງທີ່ຢູ່ຂ້າງໃນເພື່ອເບິ່ງໄບຕ໌ຂອງມັນ.
+Open questions	ຄຳຖາມທີ່ຍັງຄ້າງຄາ
+Open something	ເປີດບາງຢ່າງ
+Open something first: drop a file or app here, or choose "Just look inside" on New project. Then I can look inside it.	ເປີດບາງຢ່າງກ່ອນ: ລາກໄຟລ໌ ຫຼື ແອັບມາວາງໃສ່ນີ້, ຫຼື ເລືອກ "ພຽງແຕ່ເບິ່ງຂ້າງໃນ" ຢູ່ ໂຄງການໃໝ່. ຈາກນັ້ນຂ້ອຍຈຶ່ງຈະກວດເບິ່ງຂ້າງໃນໄດ້.
+Open something to start	ເປີດບາງຢ່າງເພື່ອເລີ່ມຕົ້ນ
+Open the Epic Games Launcher	ເປີດ Epic Games Launcher
+Open the app	ເປີດແອັບ
+Open the app you're curious about.	ເປີດແອັບທີ່ເຈົ້າສົນໃຈ.
+Open the download page	ເປີດໜ້າດາວໂຫຼດ
+Open the folder	ເປີດໂຟນເດີ
+Open the installer app	ເປີດແອັບຕິດຕັ້ງ
+Open the website	ເປີດເວັບໄຊ
+Open {name}	ເປີດ {name}
+Opened {name}	ເປີດ {name} ແລ້ວ
+Opened {name}. Taking a first look…	ເປີດ {name} ແລ້ວ. ພວມກວດເບິ່ງເບື້ອງຕົ້ນ…
+Opened {}	ເປີດ {} ແລ້ວ
+Opening {name}…	ພວມເປີດ {name}…
+Open…	ເປີດ…
+Or type your answer…	ຫຼື ພິມຄຳຕອບຂອງເຈົ້າ…
+Original	ຕົ້ນສະບັບ
+Other pages of a website studied and compared besides the one you gave.	ໜ້າອື່ນໆ ຂອງເວັບໄຊທີ່ຖືກສຶກສາ ແລະ ປຽບທຽບນອກເໜືອຈາກໜ້າທີ່ເຈົ້າລະບຸ.
+Overview	ພາບລວມ
+Packet capture overview	ພາບລວມການດັກຈັບແພັກເກັດ
+Packet fields	ຊ່ອງຂໍ້ມູນແພັກເກັດ
+Page through evidence	ເປີດເບິ່ງຫຼັກຖານແຕ່ລະໜ້າ
+Part of the app got stuck, so it was stopped and the rest carried on. Your work is kept.	ບາງສ່ວນຂອງແອັບຄ້າງ, ດັ່ງນັ້ນຈຶ່ງຢຸດສ່ວນນັ້ນ ແລະ ສ່ວນທີ່ເຫຼືອສືບຕໍ່ເຮັດວຽກ. ວຽກຂອງເຈົ້າຍັງຖືກຮັກສາໄວ້.
+Part of the app is stuck. Restarting clears it, and your work is kept.	ບາງສ່ວນຂອງແອັບຄ້າງ. ການເລີ່ມຕົ້ນໃໝ່ຈະແກ້ໄຂໄດ້, ແລະ ວຽກຂອງເຈົ້າຍັງຖືກຮັກສາໄວ້.
+Part of this screen hit a bug and was skipped. Your work is safe.	ບາງສ່ວນຂອງໜ້າຈໍນີ້ພົບບັກ ແລະ ຖືກຂ້າມໄປ. ວຽກຂອງເຈົ້າຍັງປອດໄພ.
+Paste pictures	ວາງຮູບພາບ
+Paste your API key (kept in your system keychain)	ວາງ API key ຂອງເຈົ້າ (ເກັບຮັກສາໄວ້ໃນ keychain ຂອງລະບົບ)
+Paste your {name} key	ວາງ {name} key ຂອງເຈົ້າ
+Path	ເສັ້ນທາງ
+Pause	ຢຸດຊົ່ວຄາວ
+Pausing…	ພວມຢຸດຊົ່ວຄາວ…
+Pause the build first, then delete the project.	ຢຸດການບິວຊົ່ວຄາວກ່ອນ, ແລ້ວຈຶ່ງລຶບໂຄງການ.
+Pause the build first.	ຢຸດການບິວຊົ່ວຄາວກ່ອນ.
+Paused	ຢຸດຊົ່ວຄາວແລ້ວ
+Paused.	ຢຸດຊົ່ວຄາວແລ້ວ.
+Pick a folder with projects in it	ເລືອກໂຟນເດີທີ່ມີໂຄງການຢູ່ຂ້າງໃນ
+Pick a game's folder	ເລືອກໂຟນເດີຂອງເກມ
+Pick another folder…	ເລືອກໂຟນເດີອື່ນ…
+Pick another game	ເລືອກເກມອື່ນ
+Pick something on the left	ເລືອກບາງຢ່າງຢູ່ເບື້ອງຊ້າຍ
+Pick the app or game folder	ເລືອກໂຟນເດີແອັບ ຫຼື ເກມ
+Pick the app, game or file to rebuild	ເລືອກແອັບ, ເກມ ຫຼື ໄຟລ໌ທີ່ຈະສ້າງຄືນໃໝ່
+Pick the folder for this project	ເລືອກໂຟນເດີສຳລັບໂຄງການນີ້
+Pick the game's folder	ເລືອກໂຟນເດີຂອງເກມ
+Picture a program's window	ຖ່າຍຮູບໜ້າຕ່າງຂອງໂປຣແກຣມ
+Picture model	ໂມເດວຮູບພາບ
+Pictures	ຮູບພາບ
+Pictures can't be saved from IoStore containers yet; you can see what's inside.	ຍັງບໍ່ສາມາດບັນທຶກຮູບພາບຈາກຄອນເທນເນີ IoStore ໄດ້; ເຈົ້າສາມາດເບິ່ງສິ່ງທີ່ຢູ່ຂ້າງໃນໄດ້.
+Pictures of the original	ຮູບພາບຂອງຕົ້ນສະບັບ
+Pieces of text stored inside a program, like messages, web addresses or file names.	ຂໍ້ຄວາມທີ່ເກັບໄວ້ໃນໂປຣແກຣມ ເຊັ່ນ: ຂໍ້ຄວາມແຈ້ງເຕືອນ, ທີ່ຢູ່ເວັບ ຫຼື ຊື່ໄຟລ໌.
+Pin a build	ປັກໝຸດລຸ້ນບິວ
+Pin a project's build	ປັກໝຸດລຸ້ນບິວຂອງໂຄງການ
+Pin it	ປັກໝຸດມັນ
+Pin name	ຊື່ໝຸດ
+Pin removed.	ປົດໝຸດອອກແລ້ວ.
+Pin this build	ປັກໝຸດລຸ້ນບິວນີ້
+Pinned	ປັກໝຸດແລ້ວ
+Pinned builds	ລຸ້ນບິວທີ່ປັກໝຸດໄວ້
+Pinned: {name}. Open it from the sidebar any time.	ປັກໝຸດແລ້ວ: {name}. ສາມາດເປີດຈາກແຖບຂ້າງໄດ້ທຸກເວລາ.
+Plain words, big buttons, and I'll explain everything.	ຄຳສັບງ່າຍໆ, ປຸ່ມໃຫຍ່, ແລະ ຂ້ອຍຈະອະທິບາຍທຸກຢ່າງໃຫ້.
+Plain words, short sentences, and every technical word explained.	ຄຳສັບງ່າຍໆ, ປະໂຫຍກສັ້ນ, ແລະ ອະທິບາຍທຸກຄຳສັບເຕັກນິກ.
+Plan	ແຜນການ
+Plan connecting agent apps	ແຜນການເຊື່ອມຕໍ່ແອັບຕົວແທນ
+Play a project's result	ເປີດຜົນຮັບຂອງໂຄງການ
+Play the game	ຫຼິ້ນເກມ
+Plugin added. Read its tools to start using them.	ເພີ່ມປລັກອິນແລ້ວ. ອ່ານເຄື່ອງມືຂອງມັນເພື່ອເລີ່ມຕົ້ນໃຊ້ງານ.
+Plugin arguments	ອາຣ໌ກິວເມັນຂອງປລັກອິນ
+Plugin command or address	ຄຳສັ່ງ ຫຼື ທີ່ຢູ່ຂອງປລັກອິນ
+Plugin id	ລະຫັດປລັກອິນ
+Plugin removed.	ເອົາປລັກອິນອອກແລ້ວ.
+Plugins	ປລັກອິນ
+Plugins add tools Craft Anything offers as its own: MCP servers (a command or an address; read their tools after adding) or WebAssembly components (a .wasm file, which can't touch your files or the network).	ປລັກອິນຊ່ວຍເພີ່ມເຄື່ອງມືທີ່ Craft Anything ໃຫ້ບໍລິການເໝືອນຂອງຕົນເອງ: ເຊີເວີ MCP (ຄຳສັ່ງ ຫຼື ທີ່ຢູ່; ອ່ານເຄື່ອງມືຫຼັງຈາກເພີ່ມແລ້ວ) ຫຼື ສ່ວນປະກອບ WebAssembly (ໄຟລ໌ .wasm, ເຊິ່ງບໍ່ສາມາດແຕະຕ້ອງໄຟລ໌ ຫຼື ເຄືອຂ່າຍຂອງເຈົ້າໄດ້).
+Plugins added here always ask before each call.	ປລັກອິນທີ່ເພີ່ມຢູ່ນີ້ຈະຖາມກ່ອນການຮຽກໃຊ້ທຸກຄັ້ງສະເໝີ.
+Plugins read. Their new tools are offered from the next start.	ອ່ານປລັກອິນແລ້ວ. ເຄື່ອງມືໃໝ່ຈະພ້ອມໃຊ້ງານໃນການເລີ່ມຕົ້ນຄັ້ງຕໍ່ໄປ.
+Preserving software that's no longer supported.	ການອະນຸລັກຊອບແວທີ່ບໍ່ຮອງຮັບອີກຕໍ່ໄປແລ້ວ.
+Preview a project's website	ສະແດງຕົວຢ່າງເວັບໄຊຂອງໂຄງການ
+Preview the website	ສະແດງຕົວຢ່າງເວັບໄຊ
+Previous address	ທີ່ຢູ່ກ່ອນໜ້າ
+Program: found automatically	ໂປຣແກຣມ: ພົບເຫັນໂດຍອັດຕະໂນມັດ
+Program: {path}	ໂປຣແກຣມ: {path}
+Programs (native code)	ໂປຣແກຣມ (ເນທີບໂຄ້ດ)
+Progress	ຄວາມຄືບໜ້າ
+Project details	ລາຍລະອຽດໂຄງການ
+Project name	ຊື່ໂຄງການ
+Projects	ໂຄງການ
+Projects and builds	ໂຄງການ ແລະ ລຸ້ນບິວ
+Property list	ລາຍການຄຸນສົມບັດ
+Pseudo-C	Pseudo-C
+Purpose	ຈຸດປະສົງ
+Raise the asset budget	ເພີ່ມງົບປະມານແອສເຊັດ
+Raise the budget by {amount}	ເພີ່ມງົບປະມານຂຶ້ນ {amount}
+Raw machine code	ລະຫັດເຄື່ອງຕົ້ນສະບັບ
+Read AI settings	ອ່ານການຕັ້ງຄ່າ AI
+Read a Unity game's IL2CPP metadata	ອ່ານເມຕາເດຕາ IL2CPP ຂອງເກມ Unity
+Read a game's files	ອ່ານໄຟລ໌ຂອງເກມ
+Read a project file	ອ່ານໄຟລ໌ໂຄງການ
+Read a setting	ອ່ານການຕັ້ງຄ່າ
+Read a text file	ອ່ານໄຟລ໌ຂໍ້ຄວາມ
+Read an app's screen	ອ່ານໜ້າຈໍຂອງແອັບ
+Read bytes	ອ່ານໄບຕ໌
+Read comment	ອ່ານຄຳເຫັນ
+Read inline comment	ອ່ານຄຳເຫັນໃນແຖວ
+Read its tools	ອ່ານເຄື່ອງມືຂອງມັນ
+Read pinned builds	ອ່ານລຸ້ນບິວທີ່ປັກໝຸດໄວ້
+Read projects	ອ່ານໂຄງການ
+Read the journal	ອ່ານບັນທຶກປະຈຳວັນ
+Read the plugin's tools	ອ່ານເຄື່ອງມືຂອງປລັກອິນ
+Read the project	ອ່ານໂຄງການ
+Reading what's inside…	ພວມອ່ານສິ່ງທີ່ຢູ່ຂ້າງໃນ…
+Ready	ພ້ອມແລ້ວ
+Ready: {what} is on this computer.	ພ້ອມແລ້ວ: {what} ມີຢູ່ໃນຄອມພິວເຕີເຄື່ອງນີ້ແລ້ວ.
+Reasoning	ການຫາເຫດຜົນ
+Rebuild status	ສະຖານະການສ້າງຄືນໃໝ່
+Record a finding	ບັນທຶກຂໍ້ຄົ້ນພົບ
+Record a hypothesis	ບັນທຶກສົມມຸດຕິຖານ
+Record an open question	ບັນທຶກຄຳຖາມທີ່ຍັງຄ້າງຄາ
+Recover readable sources	ກູ້ຄືນຊອຣ໌ສໂຄ້ດທີ່ອ່ານໄດ້
+Recreate it with darker colours	ສ້າງຂຶ້ນໃໝ່ດ້ວຍສີທີ່ເຂັ້ມຂຶ້ນ
+Recreate just its main feature	ສ້າງຂຶ້ນໃໝ່ສະເພາະຄຸນສົມບັດຫຼັກຂອງມັນ
+Recreate this website	ສ້າງເວັບໄຊນີ້ຄືນໃໝ່
+Recreated games are built with the original's own engine when it's here (Unity, Unreal or Godot), else Unity, and Rust as the last resort.	ເກມທີ່ສ້າງຄືນໃໝ່ຈະຖືກບິວດ້ວຍເອນຈິນດັ້ງເດີມຖ້າມີຢູ່ໃນເຄື່ອງ (Unity, Unreal ຫຼື Godot), ຖ້າບໍ່ມີຈະໃຊ້ Unity, ແລະ ໃຊ້ Rust ເປັນທາງເລືອກສຸດທ້າຍ.
+References to a name	ການອ້າງອີງເຖິງຊື່
+Refining rounds	ຮອບການປັບແຕ່ງລະອຽດ
+Refresh plugins	ໂຫຼດປລັກອິນຄືນໃໝ່
+Regions of a program file, each with one purpose: code, text, pictures, settings.	ສ່ວນຕ່າງໆ ຂອງໄຟລ໌ໂປຣແກຣມ ເຊິ່ງແຕ່ລະສ່ວນມີຈຸດປະສົງສະເພາະ: ລະຫັດ, ຂໍ້ຄວາມ, ຮູບພາບ, ການຕັ້ງຄ່າ.
+Reload	ໂຫຼດຄືນໃໝ່
+Remember permission	ຈື່ສິດອະນຸຍາດ
+Remove	ເອົາອອກ
+Remove a pin	ປົດໝຸດ
+Remove a pinned build	ປົດໝຸດລຸ້ນບິວ
+Remove a plugin	ເອົາປລັກອິນອອກ
+Remove an AI	ເອົາ AI ອອກ
+Remove an app	ເອົາແອັບອອກ
+Remove an asset key	ລຶບຄີແອສເຊັດ
+Remove bookmark	ເອົາບຸກມາກອອກ
+Remove it	ເອົາມັນອອກ
+Remove it and its key	ເອົາມັນ ແລະ ຄີຂອງມັນອອກ
+Remove {name}	ເອົາ {name} ອອກ
+Remove {name}?	ເອົາ {name} ອອກບໍ່?
+Remove…	ເອົາອອກ…
+Rename	ປ່ຽນຊື່
+Rename a pinned build	ປ່ຽນຊື່ລຸ້ນບິວທີ່ປັກໝຸດໄວ້
+Rename a project	ປ່ຽນຊື່ໂຄງການ
+Rename the pin	ປ່ຽນຊື່ໝຸດ
+Rename the project	ປ່ຽນຊື່ໂຄງການ
+Rename…	ປ່ຽນຊື່…
+Reset	ຣີເຊັດ
+Resolve a call	ຊອກຫາປາຍທາງການຮຽກໃຊ້
+Resolved	ແກ້ໄຂແລ້ວ
+Resources	ຊັບພະຍາກອນ
+Restart	ເລີ່ມຕົ້ນໃໝ່
+Restore	ກູ້ຄືນ
+Result	ຜົນຮັບ
+Resume a Frida session	ສືບຕໍ່ເຊສຊັນ Frida
+Rizin command	ຄຳສັ່ງ Rizin
+Rizin debug command	ຄຳສັ່ງດີບັກ Rizin
+Rizin debug session status	ສະຖານະເຊສຊັນດີບັກ Rizin
+Rough guide:	ຄຳແນະນຳໂດຍປະມານ:
+Run	ແລ່ນ
+Run a Frida script	ແລ່ນສະຄຣິບ Frida
+Run a build command	ແລ່ນຄຳສັ່ງບິວ
+Run a scripted Electron session	ແລ່ນເຊສຊັນ Electron ດ້ວຍສະຄຣິບ
+Run a scripted web session	ແລ່ນເຊສຊັນເວັບດ້ວຍສະຄຣິບ
+Run a tool from the command palette (Ctrl/⌘ K), or pick a finding in the Evidence panel.	ແລ່ນເຄື່ອງມືຈາກຖາດຄຳສັ່ງ (Ctrl/⌘ K), ຫຼື ເລືອກຂໍ້ຄົ້ນພົບໃນແຜງຫຼັກຖານ.
+Run and watch a program	ແລ່ນ ແລະ ຕິດຕາມໂປຣແກຣມ
+Run to study	ແລ່ນເພື່ອສຶກສາ
+Running	ພວມແລ່ນ
+Running processes	ໂປຣເຊສທີ່ພວມເຮັດວຽກ
+Running programs	ໂປຣແກຣມທີ່ພວມເຮັດວຽກ
+Running {id}	ພວມແລ່ນ {id}
+Runs its tools without asking	ແລ່ນເຄື່ອງມືໂດຍບໍ່ຖາມ
+Runs the first-run steps next time.	ແລ່ນຂັ້ນຕອນການເລີ່ມຕົ້ນຄັ້ງທຳອິດໃນຄັ້ງຕໍ່ໄປ.
+Rust program details	ລາຍລະອຽດໂປຣແກຣມ Rust
+SHA-256	SHA-256
+SQLite database contents	ເນື້ອໃນຖານຂໍ້ມູນ SQLite
+Safety	ຄວາມປອດໄພ
+Save	ບັນທຶກ
+Save a picture	ບັນທຶກຮູບພາບ
+Save a report	ບັນທຶກລາຍງານ
+Save an asset key	ບັນທຶກຄີແອສເຊັດ
+Save picture	ບັນທຶກຮູບພາບ
+Save settings	ບັນທຶກການຕັ້ງຄ່າ
+Save the key	ບັນທຶກຄີ
+Save the picture	ບັນທຶກຮູບພາບ
+Save the report	ບັນທຶກລາຍງານ
+Saved	ບັນທຶກແລ້ວ
+Saved in	ບັນທຶກໄວ້ໃນ
+Saves space: copies the program and code, and shares dependencies and media with the project. A shared file rewritten in place changes here too.	ປະຢັດພື້ນທີ່: ສຳເນົາໂປຣແກຣມ ແລະ ລະຫັດ, ພ້ອມທັງແບ່ງປັນໄຟລ໌ເພິ່ງພາ ແລະ ສື່ຮ່ວມກັບໂຄງການ. ໄຟລ໌ທີ່ແບ່ງປັນຫາກຖືກຂຽນທັບ ຈະປ່ຽນແປງຢູ່ນີ້ຄືກັນ.
+Say what you want	ບອກສິ່ງທີ່ເຈົ້າຕ້ອງການ
+Say what you want first.	ບອກສິ່ງທີ່ເຈົ້າຕ້ອງການກ່ອນ.
+Say what you want to make, or drop an app or file on the window to look inside it. Everything runs in Clean room mode unless you switch on Deep.	ບອກສິ່ງທີ່ເຈົ້າຕ້ອງການສ້າງ, ຫຼື ລາກແອັບ ຫຼື ໄຟລ໌ມາວາງໃສ່ໜ້າຕ່າງເພື່ອເບິ່ງຂ້າງໃນ. ທຸກຢ່າງຈະແລ່ນໃນໂໝດ Clean room ຍົກເວັ້ນແຕ່ເຈົ້າຈະເປີດໂໝດ Deep.
+Screenshot	ພາບໜ້າຈໍ
+Screenshot a page	ຖ່າຍພາບໜ້າຈໍຂອງໜ້າເວັບ
+Screenshots of how it should look. The builder opens each one and matches it.	ພາບໜ້າຈໍຂອງສິ່ງທີ່ຄວນຈະເປັນ. ຕົວສ້າງຈະເປີດແຕ່ລະຮູບ ແລະ ສ້າງໃຫ້ກົງກັນ.
+Search for bytes	ຄົ້ນຫາໄບຕ໌
+Search functions	ຄົ້ນຫາຟັງຊັນ
+Search strings	ຄົ້ນຫາສະຕຣິງ
+Sections	ພາກສ່ວນ
+Security research on software I'm allowed to examine.	ການວິໄຈຄວາມປອດໄພໃນຊອບແວທີ່ຂ້ອຍໄດ້ຮັບອະນຸຍາດໃຫ້ກວດສອບ.
+See how a page is built: its layout, styles, scripts and the requests it makes.	ເບິ່ງວິທີການສ້າງໜ້າເວັບ: ຮູບແບບໂຄງຮ່າງ, ສະໄຕລ໌, ສະຄຣິບ ແລະ ຄຳຮ້ອງຂໍທີ່ມັນສົ່ງອອກໄປ.
+See how a program works: what it does, what it talks to, what's inside.	ເບິ່ງການເຮັດວຽກຂອງໂປຣແກຣມ: ມັນເຮັດຫຍັງແດ່, ມັນຕິດຕໍ່ກັບໃຜ, ແລະ ມີຫຍັງຢູ່ຂ້າງໃນ.
+See what a game packs and save its pictures as PNG files. Only for games you made, or whose owner lets you.	ເບິ່ງສິ່ງທີ່ບັນຈຸຢູ່ໃນເກມ ແລະ ບັນທຶກຮູບພາບເປັນໄຟລ໌ PNG. ໃຊ້ສະເພາະກັບເກມທີ່ເຈົ້າສ້າງເອງ ຫຼື ໄດ້ຮັບອະນຸຍາດຈາກເຈົ້າຂອງເທົ່ານັ້ນ.
+See what a game packs, and save its pictures as PNG files.	ເບິ່ງສິ່ງທີ່ບັນຈຸຢູ່ໃນເກມ, ແລະ ບັນທຶກຮູບພາບເປັນໄຟລ໌ PNG.
+See what a stand-in was asked	ເບິ່ງສິ່ງທີ່ເຊີເວີຈຳລອງຖືກຮ້ອງຂໍ
+See which servers an app talks to, and what it says.	ເບິ່ງວ່າແອັບຕິດຕໍ່ສື່ສານກັບເຊີເວີໃດແດ່, ແລະ ຮັບສົ່ງຂໍ້ມູນຫຍັງ.
+Seen it	ເຫັນຕົວຈິງແລ້ວ
+Seen it: read directly from the file, page or capture.	ເຫັນຕົວຈິງແລ້ວ: ອ່ານໂດຍກົງຈາກໄຟລ໌, ໜ້າເວັບ ຫຼື ຂໍ້ມູນທີ່ຈັບໄດ້.
+Selected	ເລືອກແລ້ວ
+Selection	ລາຍການທີ່ເລືອກ
+Send	ສົ່ງ
+Send (Enter)	ສົ່ງ (Enter)
+Send now	ສົ່ງຕອນນີ້
+Server address	ທີ່ຢູ່ເຊີເວີ
+Session status	ສະຖານະເຊສຊັນ
+Set a project's asset budget	ຕັ້ງງົບປະມານແອສເຊັດຂອງໂຄງການ
+Set an AI's folder	ກຳນົດໂຟນເດີຂອງ AI
+Set an AI's program	ກຳນົດໂປຣແກຣມຂອງ AI
+Set model options	ຕັ້ງຕົວເລືອກໂມເດວ
+Set one up	ຕັ້ງຄ່າຂຶ້ນມາ
+Set up a brain…	ຕັ້ງຄ່າ AI…
+Set up a builder	ຕັ້ງຄ່າຕົວສ້າງ
+Settings	ການຕັ້ງຄ່າ
+Show a build's activity	ສະແດງການເຄື່ອນໄຫວຂອງລຸ້ນບິວ
+Show a project	ສະແດງໂຄງການ
+Show folder	ສະແດງໂຟນເດີ
+Show me everything	ສະແດງທຸກຢ່າງໃຫ້ຂ້ອຍເຫັນ
+Show me the proof	ສະແດງຫຼັກຖານ
+Show model options	ສະແດງຕົວເລືອກໂມເດວ
+Show pinned builds	ສະແດງລຸ້ນບິວທີ່ປັກໝຸດໄວ້
+Show settings	ສະແດງການຕັ້ງຄ່າ
+Show the answer	ສະແດງຄຳຕອບ
+Show the console	ສະແດງຄອນໂຊລ
+Show the folder	ສະແດງໂຟນເດີ
+Show the ones that are met	ສະແດງລາຍການທີ່ບັນລຸເງື່ອນໄຂ
+Show the sidebar	ສະແດງແຖບຂ້າງ
+Show the welcome again	ສະແດງໜ້າຕ້ອນຮັບອີກຄັ້ງ
+Showing	ພວມສະແດງ
+Sign in and add the Unity Editor	ເຂົ້າສູ່ລະບົບ ແລະ ເພີ່ມ Unity Editor
+Sign in and install Unreal Engine	ເຂົ້າສູ່ລະບົບ ແລະ ຕິດຕັ້ງ Unreal Engine
+Simple	ແບບງ່າຍ
+Simple: say what you want and it's handled for you. Advanced: every tool, the evidence and the logs.	ແບບງ່າຍ: ບອກສິ່ງທີ່ເຈົ້າຕ້ອງການ ແລ້ວລະບົບຈະຈັດການໃຫ້. ແບບລະອຽດ: ທຸກເຄື່ອງມື, ຫຼັກຖານ ແລະ ບັນທຶກປະຫວັດ.
+Since Craft Anything opened.	ຕັ້ງແຕ່ເປີດ Craft Anything.
+Size	ຂະໜາດ
+Skip setup	ຂ້າມການຕັ້ງຄ່າ
+Smart contract interface	ອິນເຕີເຟສສະມາດຄອນແທຣກ
+Software I made, bought, or have permission to examine.	ຊອບແວທີ່ຂ້ອຍສ້າງເອງ, ຊື້ມາ, ຫຼື ໄດ້ຮັບອະນຸຍາດໃຫ້ກວດສອບ.
+Solana program (sBPF)	ໂປຣແກຣມ Solana (sBPF)
+Some plugins couldn't be read:	ບໍ່ສາມາດອ່ານປລັກອິນບາງອັນໄດ້:
+Something a program borrows from the operating system or a library, like "open a file".	ສິ່ງທີ່ໂປຣແກຣມຢືມມາຈາກລະບົບປະຕິບັດການ ຫຼື ໄລບຣາຣີ ເຊັ່ນ: "ເປີດໄຟລ໌".
+Something a program or library offers for other programs to use.	ສິ່ງທີ່ໂປຣແກຣມ ຫຼື ໄລບຣາຣີສະໜອງໃຫ້ໂປຣແກຣມອື່ນໃຊ້ງານ.
+Source	ແຫຼ່ງຂໍ້ມູນ
+Standard	ມາດຕະຖານ
+Start	ເລີ່ມຕົ້ນ
+Start a Frida session	ເລີ່ມເຊສຊັນ Frida
+Start a GDB session	ເລີ່ມເຊສຊັນ GDB
+Start a Rizin debug session	ເລີ່ມເຊສຊັນດີບັກ Rizin
+Start a rebuild	ເລີ່ມຕົ້ນການສ້າງຄືນໃໝ່
+Start a stand-in backend	ເລີ່ມຕົ້ນແບັກເອັນຈຳລອງ
+Start an activity	ເລີ່ມກິດຈະກຳ
+Start building	ເລີ່ມການສ້າງ
+Start from them	ເລີ່ມຕົ້ນຈາກໄຟລ໌ເຫຼົ່ານີ້
+Start it	ເລີ່ມຕົ້ນມັນ
+Start with Simple mode; you can set up AI later in Settings.	ເລີ່ມຕົ້ນດ້ວຍໂໝດແບບງ່າຍ; ເຈົ້າສາມາດຕັ້ງຄ່າ AI ພາຍຫຼັງໄດ້ໃນ ການຕັ້ງຄ່າ.
+Starting…	ພວມເລີ່ມຕົ້ນ…
+Starting… it opens in its own window.	ພວມເລີ່ມຕົ້ນ… ມັນຈະເປີດໃນໜ້າຕ່າງແຍກຕ່າງຫາກ.
+Still working. Bigger jobs can take a few minutes.	ຍັງພວມເຮັດວຽກຢູ່. ວຽກຂະໜາດໃຫຍ່ອາດໃຊ້ເວລາສອງສາມນາທີ.
+Stop	ຢຸດ
+Stop a pinned build	ຢຸດລຸ້ນບິວທີ່ປັກໝຸດໄວ້
+Stop a rebuild	ຢຸດການສ້າງຄືນໃໝ່
+Stop a stand-in backend	ຢຸດແບັກເອັນຈຳລອງ
+Stop generated assets	ຢຸດການສ້າງແອສເຊັດ
+Stop listing {folder}	ຢຸດສະແດງລາຍການ {folder}
+Stopped here	ຢຸດຢູ່ນີ້
+Stops the current step and sends your notes straight away.	ຢຸດຂັ້ນຕອນປັດຈຸບັນ ແລະ ສົ່ງບັນທຶກຂອງເຈົ້າທັນທີ.
+Strings	ສະຕຣິງ
+Studio	ສະຕູດິໂອ
+Studio (dark)	ສະຕູດິໂອ (ມືດ)
+Studio Light	ສະຕູດິໂອ ແຈ້ງ
+Study	ສຶກສາ
+Study apps by running them	ສຶກສາແອັບໂດຍການແລ່ນພວກມັນ
+Studying	ພວມສຶກສາ
+Studying software to understand it.	ສຶກສາຊອບແວເພື່ອເຂົ້າໃຈມັນ.
+Summarise what changed	ສະຫຼຸບສິ່ງທີ່ມີການປ່ຽນແປງ
+Swift types	ປະເພດຂໍ້ມູນ Swift
+Switch Beginner / Experienced	ສະຫຼັບ ແບບງ່າຍ / ແບບຊ່ຽວຊານ
+Switch Clean room / Deep	ສະຫຼັບ Clean room / Deep
+Switch light / dark theme	ສະຫຼັບ ຮູບແບບແຈ້ງ / ມືດ
+Switch target	ສະຫຼັບເປົ້າໝາຍ
+System	ລະບົບ
+System services	ບໍລິການລະບົບ
+Take a texture out of an Unreal game	ດຶງເອົາເທັກເຈີອອກມາຈາກເກມ Unreal
+Take an asset out of a Unity game	ດຶງເອົາແອສເຊັດອອກມາຈາກເກມ Unity
+Take back a note	ດຶງບັນທຶກກັບຄືນ
+Take back: puts it in the box again	ດຶງກັບຄືນ: ເອົາມັນກັບຄືນໄປໃສ່ກ່ອງຂໍ້ຄວາມອີກຄັ້ງ
+Take files out of an Unreal pak	ດຶງໄຟລ໌ອອກມາຈາກ Unreal pak
+Take out packed files	ດຶງໄຟລ໌ທີ່ບັນຈຸໄວ້ອອກມາ
+Target	ເປົ້າໝາຍ
+Targets	ເປົ້າໝາຍ
+That folder already has {names}, where Craft Anything keeps its own files. Pick another folder, or move those out first.	ໂຟນເດີນັ້ນມີ {names} ຢູ່ແລ້ວ, ເຊິ່ງແມ່ນບ່ອນທີ່ Craft Anything ເກັບໄຟລ໌ຂອງຕົນເອງ. ກະລຸນາເລືອກໂຟນເດີອື່ນ, ຫຼື ຍ້າຍພວກມັນອອກໄປກ່ອນ.
+That folder is already a project, so it's open now.	ໂຟນເດີນັ້ນເປັນໂຄງການຢູ່ແລ້ວ, ດັ່ງນັ້ນຈຶ່ງເປີດຂຶ້ນມາຕອນນີ້.
+The Rust toolchain (rustup.rs).	ທູລເຊນ Rust (rustup.rs).
+The builder answers its own questions and says what it chose ("I decided: …"), so you can change it.	ຕົວສ້າງຈະຕອບຄຳຖາມຂອງຕົນເອງ ແລະ ແຈ້ງສິ່ງທີ່ເລືອກ ("ຂ້ອຍຕັດສິນໃຈ: …"), ດັ່ງນັ້ນເຈົ້າຈຶ່ງສາມາດປ່ຽນແປງມັນໄດ້.
+The builder makes the game's 3D models and textures from descriptions of original designs, paid from your fal.ai account. Models are low-poly so the game runs fast. A textured model costs {model} and a picture {picture}. Each project has a {budget} budget, and you're asked before it goes over. The key is kept in your system keychain.	ຕົວສ້າງຈະສ້າງໂມເດວ 3D ແລະ ເທັກເຈີຂອງເກມຈາກຄຳອະທິບາຍການອອກແບບຕົ້ນສະບັບ, ໂດຍຈ່າຍຜ່ານບັນຊີ fal.ai ຂອງເຈົ້າ. ໂມເດວຈະເປັນແບບ low-poly ເພື່ອໃຫ້ເກມແລ່ນໄດ້ໄວ. ໂມເດວທີ່ມີເທັກເຈີມີມູນຄ່າ {model} ແລະ ຮູບພາບ {picture}. ແຕ່ລະໂຄງການມີງົບປະມານ {budget}, ແລະ ຈະມີການຖາມເຈົ້າກ່ອນທີ່ງົບຈະເກີນ. ຄີຈະຖືກເກັບໄວ້ໃນ keychain ຂອງລະບົບ.
+The builder reads them (code, notes, pictures) and builds the app in a new app folder beside them. Your files stay as they are.	ຕົວສ້າງຈະອ່ານຂໍ້ມູນເຫຼົ່ານັ້ນ (ລະຫັດ, ບັນທຶກ, ຮູບພາບ) ແລະ ສ້າງແອັບໄວ້ໃນໂຟນເດີແອັບໃໝ່ທີ່ຢູ່ຄຽງຂ້າງ. ໄຟລ໌ຂອງເຈົ້າຍັງຄົງຢູ່ຄືເກົ່າ.
+The builder will decide its questions and tell you what it chose.	ຕົວສ້າງຈະຕັດສິນໃຈຄຳຖາມເອງ ແລະ ບອກເຈົ້າກ່ຽວກັບສິ່ງທີ່ມັນເລືອກ.
+The builder works on these files directly and keeps what works. Craft Anything adds a few records of its own beside them.	ຕົວສ້າງຈະເຮັດວຽກກັບໄຟລ໌ເຫຼົ່ານີ້ໂດຍກົງ ແລະ ຮັກສາສ່ວນທີ່ເຮັດວຽກໄດ້ໄວ້. Craft Anything ຈະເພີ່ມບັນທຶກຂອງຕົນເອງໄວ້ຄຽງຂ້າງອີກໜ້ອຍໜຶ່ງ.
+The builder's questions	ຄຳຖາມຂອງຕົວສ້າງ
+The builder's questions come to you as cards, and it waits for your answer.	ຄຳຖາມຂອງຕົວສ້າງຈະສະແດງເປັນກາດ, ແລະ ມັນຈະລໍຖ້າຄຳຕອບຈາກເຈົ້າ.
+The builder's questions will come to you.	ຄຳຖາມຂອງຕົວສ້າງຈະສົ່ງມາຫາເຈົ້າ.
+The built-in engines still show you everything they find.	ເອນຈິນພາຍໃນຍັງຄົງສະແດງທຸກຢ່າງທີ່ພົບໃຫ້ເຈົ້າເຫັນ.
+The clipboard can't be read:	ບໍ່ສາມາດອ່ານຄລິບບອດໄດ້:
+The code	ລະຫັດ
+The code format Android apps use.	ຮູບແບບລະຫັດທີ່ແອັບ Android ໃຊ້.
+The coding agent's estimate at API prices, not your bill. A subscription isn't charged this.	ການປະເມີນລາຄາ API ຂອງຕົວແທນຂຽນໂຄ້ດ, ບໍ່ແມ່ນໃບບິນຕົວຈິງຂອງເຈົ້າ. ແພັກເກດສະມາຊິກຈະບໍ່ຖືກຮຽກເກັບຄ່ານີ້.
+The download keeps going in the background.	ການດາວໂຫຼດຈະດຳເນີນຕໍ່ໄປໃນພື້ນຫຼັງ.
+The first instruction a program runs when it starts.	ຄຳສັ່ງທຳອິດທີ່ໂປຣແກຣມແລ່ນເມື່ອເລີ່ມຕົ້ນ.
+The full toolset, evidence and logs.	ຊຸດເຄື່ອງມືຄົບຊຸດ, ຫຼັກຖານ ແລະ ບັນທຶກປະຫວັດ.
+The installer is open. Follow its steps, then come back here.	ຕົວຕິດຕັ້ງເປີດຢູ່. ໃຫ້ປະຕິບັດຕາມຂັ້ນຕອນ, ແລ້ວກັບມາບ່ອນນີ້.
+The lowest-level human-readable form of machine code: one small instruction per line.	ຮູບແບບລະຫັດເຄື່ອງລະດັບຕ່ຳສຸດທີ່ມະນຸດສາມາດອ່ານໄດ້: ຄຳສັ່ງນ້ອຍໆ ໜຶ່ງຄຳສັ່ງຕໍ່ໜຶ່ງແຖວ.
+The names were removed from the program before it was shipped, so we have to work them out.	ຊື່ຕ່າງໆ ຖືກລຶບອອກຈາກໂປຣແກຣມກ່ອນການສົ່ງມອບ, ດັ່ງນັ້ນພວກເຮົາຈຶ່ງຕ້ອງຄາດຄະເນພວກມັນ.
+The packed contents of an Electron app (a website inside a desktop app)	ເນື້ອໃນທີ່ຖືກຫຸ້ມຫໍ່ຂອງແອັບ Electron (ເວັບໄຊທີ່ຢູ່ໃນແອັບເດັສທັອບ)
+The pasted picture wasn't attached: another screen was opened meanwhile.	ຮູບພາບທີ່ວາງບໍ່ໄດ້ຖືກແນບ: ໜ້າຈໍອື່ນຖືກເປີດຂຶ້ນໃນເວລາດຽວກັນ.
+The picture on the clipboard is too large.	ຮູບພາບໃນຄລິບບອດມີຂະໜາດໃຫຍ່ເກີນໄປ.
+The program's machine code written out as one tiny instruction per line.	ລະຫັດເຄື່ອງຂອງໂປຣແກຣມທີ່ຂຽນອອກມາເປັນຄຳສັ່ງນ້ອຍໆ ໜຶ່ງຄຳສັ່ງຕໍ່ໜຶ່ງແຖວ.
+The project's name and round	ຊື່ ແລະ ຮອບຂອງໂຄງການ
+The raw result	ຜົນຮັບດິບ
+The smallest unit of data in a file: a number from 0 to 255.	ຫົວໜ່ວຍຂໍ້ມູນທີ່ນ້ອຍທີ່ສຸດໃນໄຟລ໌: ຕົວເລກແຕ່ 0 ຫາ 255.
+The smallest units of data in a file: numbers from 0 to 255.	ຫົວໜ່ວຍຂໍ້ມູນທີ່ນ້ອຍທີ່ສຸດໃນໄຟລ໌: ຕົວເລກແຕ່ 0 ຫາ 255.
+The {name} view isn't available yet in this build.	ມຸມມອງ {name} ຍັງບໍ່ພ້ອມໃຊ້ງານໃນລຸ້ນບິວນີ້.
+The {} view isn't available yet in this build.	ມຸມມອງ {} ຍັງບໍ່ພ້ອມໃຊ້ງານໃນລຸ້ນບິວນີ້.
+Theme	ຮູບແບບ
+There's no /{name} command. You can use {commands}.	ບໍ່ມີຄຳສັ່ງ /{name}. ເຈົ້າສາມາດໃຊ້ {commands}.
+There's no AI brain set up yet, so here's what the built-in engines found:	ຍັງບໍ່ໄດ້ຕັ້ງຄ່າ AI ເທື່ອ, ດັ່ງນັ້ນນີ້ແມ່ນສິ່ງທີ່ເອນຈິນພາຍໃນຄົ້ນພົບ:
+There's no picture on the clipboard to paste.	ບໍ່ມີຮູບພາບໃນຄລິບບອດທີ່ຈະວາງ.
+They're my app: edit them in place	ພວກມັນແມ່ນແອັບຂອງຂ້ອຍ: ແກ້ໄຂໂດຍກົງຢູ່ບ່ອນເກົ່າ
+Things a program borrows from the operating system or libraries, like "open a file" or "draw a window".	ສິ່ງທີ່ໂປຣແກຣມຢືມມາຈາກລະບົບປະຕິບັດການ ຫຼື ໄລບຣາຣີ ເຊັ່ນ: "ເປີດໄຟລ໌" ຫຼື "ແຕ້ມໜ້າຕ່າງ".
+Things a program or library offers for other programs to use.	ສິ່ງທີ່ໂປຣແກຣມ ຫຼື ໄລບຣາຣີສະໜອງໃຫ້ໂປຣແກຣມອື່ນນຳໃຊ້.
+Things we couldn't establish yet are listed here, with what would settle them.	ສິ່ງທີ່ພວກເຮົາຍັງບໍ່ສາມາດຢືນຢັນໄດ້ຈະສະແດງຢູ່ນີ້, ພ້ອມກັບວິທີທີ່ຈະກວດສອບພວກມັນ.
+This answer won't be there after a restart:	ຄຳຕອບນີ້ຈະບໍ່ຢູ່ຫຼັງຈາກເລີ່ມຕົ້ນໃໝ່:
+This build stopped part-way	ລຸ້ນບິວນີ້ຢຸດເຮັດວຽກກາງຄັນ
+This can't be undone.	ການກະທຳນີ້ບໍ່ສາມາດຍົກເລີກໄດ້.
+This folder already has files	ໂຟນເດີນີ້ມີໄຟລ໌ຢູ່ແລ້ວ
+This is a big one. You can leave this open and come back later.	ນີ້ແມ່ນວຽກໃຫຍ່. ເຈົ້າສາມາດເປີດປະໄວ້ແລ້ວກັບມາເບິ່ງໃໝ່ພາຍຫຼັງໄດ້.
+This is outside what the builder may do on its own. Nothing happens until you say so.	ອັນນີ້ເກີນຂອບເຂດທີ່ຕົວສ້າງຈະຕັດສິນໃຈເອງໄດ້. ຈະບໍ່ມີຫຍັງເກີດຂຶ້ນຈົນກວ່າເຈົ້າຈະອະນຸຍາດ.
+This keeps going in the background, and each download is checked against its publisher's checksum before it's used.	ຂະບວນການນີ້ຈະດຳເນີນຕໍ່ໄປໃນພື້ນຫຼັງ, ແລະ ທຸກໆ ການດາວໂຫຼດຈະຖືກກວດສອບກັບ checksum ຂອງຜູ້ເຜີຍແຜ່ກ່ອນນຳໃຊ້.
+This project is waiting its turn. Send your message once it starts.	ໂຄງການນີ້ພວມລໍຖ້າຄິວ. ສົ່ງຂໍ້ຄວາມຂອງເຈົ້າເມື່ອມັນເລີ່ມຕົ້ນ.
+This runs code from the target or changes a device. Clicking Run is your OK.	ການເຮັດວຽກນີ້ຈະແລ່ນລະຫັດຈາກເປົ້າໝາຍ ຫຼື ປ່ຽນແປງອຸປະກອນ. ການກົດ ແລ່ນ ຖືເປັນການຍິນຍອມຈາກເຈົ້າ.
+This runs code from the target or changes a device. Nothing runs until you say so.	ການເຮັດວຽກນີ້ຈະແລ່ນລະຫັດຈາກເປົ້າໝາຍ ຫຼື ປ່ຽນແປງອຸປະກອນ. ຈະບໍ່ມີຫຍັງແລ່ນຈົນກວ່າເຈົ້າຈະອະນຸຍາດ.
+This tool takes no settings.	ເຄື່ອງມືນີ້ບໍ່ມີການຕັ້ງຄ່າ.
+This updates by itself when it's done.	ສິ່ງນີ້ຈະອັບເດດເອງໂດຍອັດຕະໂນມັດເມື່ອສຳເລັດ.
+This view arrives with the next engines. The Hex and Result views work today.	ມຸມມອງນີ້ຈະມາພ້ອມກັບເອນຈິນຮຸ່ນຕໍ່ໄປ. ປັດຈຸບັນສາມາດໃຊ້ມຸມມອງ Hex ແລະ ຜົນຮັບ ໄດ້.
+Those aren't pictures we can use (PNG, JPEG, WebP or GIF, up to 20 MB).	ຮູບພາບເຫຼົ່ານັ້ນບໍ່ແມ່ນຮູບແບບທີ່ຮອງຮັບ (ຮອງຮັບ PNG, JPEG, WebP ຫຼື GIF, ສູງສຸດ 20 MB).
+Time spent	ເວລາທີ່ໃຊ້ໄປ
+Tip: press Ctrl/⌘ K to run any tool.	ຄຳແນະນຳ: ກົດ Ctrl/⌘ K ເພື່ອແລ່ນເຄື່ອງມືໃດກໍໄດ້.
+Tokens	ໂທເຄັນ
+Tools may now run code from what you open without asking. Turn this back on unless you're sure.	ເຄື່ອງມືອາດຈະແລ່ນລະຫັດຈາກສິ່ງທີ່ເຈົ້າເປີດໂດຍບໍ່ຕ້ອງຖາມ. ໃຫ້ເປີດສິ່ງນີ້ຄືນຫາກເຈົ້າບໍ່ແນ່ໃຈ.
+Tools that run code from a target or change a phone always ask first, unless you allowed them for a project.	ເຄື່ອງມືທີ່ແລ່ນລະຫັດຈາກເປົ້າໝາຍ ຫຼື ປ່ຽນແປງໂທລະສັບຈະຖາມກ່ອນສະເໝີ, ເວັ້ນເສຍແຕ່ເຈົ້າໄດ້ອະນຸຍາດສຳລັບໂຄງການນັ້ນແລ້ວ.
+Trace a UI action	ຕິດຕາມການກະທຳຂອງ UI
+Trace a feature	ຕິດຕາມຄຸນສົມບັດ
+Try again	ລອງໃໝ່ອີກຄັ້ງ
+Try asking	ລອງຖາມ
+Try it out, then ask below for any changes.	ລອງໃຊ້ງານເບິ່ງ, ແລ້ວແຈ້ງຂໍປ່ຽນແປງຢູ່ດ້ານລຸ່ມ.
+Turn a program's machine code back into something that reads like source code. It's a reconstruction, not the original.	ແປງລະຫັດເຄື່ອງຂອງໂປຣແກຣມກັບຄືນເປັນສິ່ງທີ່ອ່ານໄດ້ຄືກັບຊອຣ໌ສໂຄ້ດ. ມັນແມ່ນການສ້າງຂຶ້ນໃໝ່, ບໍ່ແມ່ນຕົ້ນສະບັບ.
+Turn off	ປິດ
+Turn off an AI	ປິດ AI
+Turn on	ເປີດ
+Turn on Deep mode	ເປີດໂໝດ Deep
+Turn on an AI	ເປີດ AI
+Turning a plugin on or off takes effect from the next start.	ການເປີດ ຫຼື ປິດປລັກອິນຈະມີຜົນໃນການເລີ່ມຕົ້ນຄັ້ງຕໍ່ໄປ.
+Type a command or tool…	ພິມຄຳສັ່ງ ຫຼື ເຄື່ອງມື…
+Type the website's address:	ພິມທີ່ຢູ່ເວັບໄຊ:
+Type your question after /btw.	ພິມຄຳຖາມຂອງເຈົ້າຫຼັງຈາກ /btw.
+Unity assets	ແອສເຊັດ Unity
+Unity bundle	ບັນເດີລ Unity
+Unity's own installer. It only opens if Unity's signature checks out.	ຕົວຕິດຕັ້ງທາງການຂອງ Unity. ມັນຈະເປີດສະເພາະເມື່ອລາຍເຊັນຂອງ Unity ຖືກຕ້ອງເທົ່ານັ້ນ.
+Unknown	ບໍ່ຮູ້ຈັກ
+Unknown: we couldn't establish this yet.	ບໍ່ຮູ້ຈັກ: ພວກເຮົາຍັງບໍ່ສາມາດຢືນຢັນສິ່ງນີ້ໄດ້.
+Unknowns	ສິ່ງທີ່ຍັງບໍ່ຮູ້ຈັກ
+Unload a Frida script	ຍົກເລີກການໂຫຼດສະຄຣິບ Frida
+Unreal IoStore	Unreal IoStore
+Unreal builds games with Apple's Xcode, free in the App Store.	Unreal ສ້າງເກມດ້ວຍ Xcode ຂອງ Apple, ໂຫຼດຟຣີໃນ App Store.
+Unreal is here, but it also needs Visual Studio's C++ tools.	ມີ Unreal ຢູ່ນີ້ແລ້ວ, ແຕ່ມັນຍັງຕ້ອງການເຄື່ອງມື C++ ຂອງ Visual Studio.
+Unreal pak	Unreal pak
+Update a finding	ອັບເດດຂໍ້ຄົ້ນພົບ
+Update a hypothesis	ອັບເດດສົມມຸດຕິຖານ
+Update an open question	ອັບເດດຄຳຖາມທີ່ຍັງຄ້າງຄາ
+Update the checklist	ອັບເດດລາຍການກວດສອບ
+Update the plan	ອັບເດດແຜນການ
+Use	ໃຊ້
+Use an API key…	ໃຊ້ API key…
+Use as a goal	ໃຊ້ເປັນເປົ້າໝາຍ
+Use the projects folder	ໃຊ້ໂຟນເດີໂຄງການ
+Use this	ໃຊ້ອັນນີ້
+Use {name}	ໃຊ້ {name}
+Value flow	ກະແສຄ່າຂໍ້ມູນ
+Version	ເວີຊັນ
+Waiting	ພວມລໍຖ້າ
+Waiting for another build to finish: this one starts next.	ພວມລໍຖ້າໃຫ້ການບິວອື່ນສຳເລັດ: ລຸ້ນບິວນີ້ຈະເລີ່ມຕໍ່ໄປ.
+Waiting for other builds to finish: {n} in line.	ພວມລໍຖ້າໃຫ້ການບິວອື່ນສຳເລັດ: ລໍຖ້າໃນຄິວ {n} ອັນ.
+Waiting: the builder reads it at its next step. Up arrow to edit.	ພວມລໍຖ້າ: ຕົວສ້າງຈະອ່ານໃນຂັ້ນຕອນຕໍ່ໄປ. ກົດລູກສອນຂຶ້ນເພື່ອແກ້ໄຂ.
+Waiting: the builder reads these at its next step. Up arrow to edit the last.	ພວມລໍຖ້າ: ຕົວສ້າງຈະອ່ານສິ່ງເຫຼົ່ານີ້ໃນຂັ້ນຕອນຕໍ່ໄປ. ກົດລູກສອນຂຶ້ນເພື່ອແກ້ໄຂອັນຫຼ້າສຸດ.
+Want answers in plain words?	ຕ້ອງການຄຳຕອບດ້ວຍຄຳສັບງ່າຍໆ ບໍ່?
+Watch a Mac app's calls	ຕິດຕາມການຮຽກໃຊ້ຂອງແອັບ Mac
+Watch a page over time	ຕິດຕາມການປ່ຽນແປງຂອງໜ້າເວັບຕາມເວລາ
+We didn't find an AI on this computer yet	ພວກເຮົາຍັງບໍ່ພົບ AI ໃນຄອມພິວເຕີເຄື່ອງນີ້ເທື່ອ
+We list the web addresses and messages we can see inside it. Watching it live needs your OK first.	ພວກເຮົາສະແດງທີ່ຢູ່ເວັບ ແລະ ຂໍ້ຄວາມທີ່ເຫັນຢູ່ຂ້າງໃນ. ການຕິດຕາມແບບສົດໆ ຕ້ອງໄດ້ຮັບຄວາມຍິນຍອມຈາກເຈົ້າກ່ອນ.
+We only read it; nothing runs. Every answer shows how sure we are.	ພວກເຮົາພຽງແຕ່ອ່ານມັນ; ບໍ່ມີການແລ່ນໂປຣແກຣມ. ທຸກໆ ຄຳຕອບຈະສະແດງລະດັບຄວາມໝັ້ນໃຈຂອງພວກເຮົາ.
+WebAssembly module	ໂມດູນ WebAssembly
+WebAssembly: fast compiled code that runs inside web browsers.	WebAssembly: ລະຫັດທີ່ຜ່ານການຄອມໄພລ໌ຢ່າງໄວວາ ເຊິ່ງແລ່ນພາຍໃນເວັບບຣາວເຊີ.
+Website address	ທີ່ຢູ່ເວັບໄຊ
+Website pages	ໜ້າເວັບໄຊ
+Websites	ເວັບໄຊ
+Welcome	ຍິນດີຕ້ອນຮັບ
+What a new game may spend on generated pictures and 3D models before you're asked. Each project keeps its own.	ຈຳນວນເງິນທີ່ເກມໃໝ່ສາມາດໃຊ້ຈ່າຍໃນການສ້າງຮູບພາບ ແລະ ໂມເດວ 3D ກ່ອນທີ່ຈະຖາມເຈົ້າ. ແຕ່ລະໂຄງການຈະມີງົບແຍກຕ່າງຫາກ.
+What a program exports	ສິ່ງທີ່ໂປຣແກຣມສົ່ງອອກ
+What a program imports	ສິ່ງທີ່ໂປຣແກຣມນຳເຂົ້າ
+What are its main parts?	ພາກສ່ວນຫຼັກຂອງມັນມີຫຍັງແດ່?
+What brings you here?	ມີຫຍັງໃຫ້ຊ່ວຍເຫຼືອບໍ່?
+What can Craft Anything do?	Craft Anything ສາມາດເຮັດຫຍັງໄດ້ແດ່?
+What data was sent?	ຂໍ້ມູນໃດຖືກສົ່ງໄປແດ່?
+What do you want to look inside?	ເຈົ້າຕ້ອງການເບິ່ງຂ້າງໃນຂອງອັນໃດ?
+What do you want to make?	ເຈົ້າຕ້ອງການສ້າງຫຍັງ?
+What do you want to recreate?	ເຈົ້າຕ້ອງການສ້າງອັນໃດຄືນໃໝ່?
+What does it need from the page?	ມັນຕ້ອງການຫຍັງຈາກໜ້າເວັບ?
+What does it send over the internet?	ມັນສົ່ງຫຍັງຜ່ານອິນເຕີເນັດແດ່?
+What does this app do?	ແອັບນີ້ເຮັດຫຍັງໄດ້ແດ່?
+What does this app store?	ແອັບນີ້ເກັບຮັກສາຫຍັງແດ່?
+What does this contract do?	ສັນຍານີ້ເຮັດຫຍັງໄດ້ແດ່?
+What does this module do?	ໂມດູນນີ້ເຮັດຫຍັງໄດ້ແດ່?
+What does this program do?	ໂປຣແກຣມນີ້ເຮັດຫຍັງໄດ້ແດ່?
+What does {what} do?	{what} ເຮັດຫຍັງ?
+What happened in this build	ມີຫຍັງເກີດຂຶ້ນໃນລຸ້ນບິວນີ້
+What is it	ມັນແມ່ນຫຍັງ
+What is this?	ນີ້ແມ່ນຫຍັງ?
+What it calls	ສິ່ງທີ່ມັນຮຽກໃຊ້
+What kind of file is this?	ນີ້ແມ່ນໄຟລ໌ປະເພດໃດ?
+What permissions does it ask for?	ມັນຮ້ອງຂໍສິດອະນຸຍາດໃດແດ່?
+What pictures and textures are made with.	ສິ່ງທີ່ໃຊ້ສ້າງຮູບພາບ ແລະ ເທັກເຈີ.
+What settings are in here?	ມີການຕັ້ງຄ່າໃດແດ່ຢູ່ນີ້?
+What tables are in here?	ມີຕາຕະລາງໃດແດ່ຢູ່ນີ້?
+What we couldn't check	ສິ່ງທີ່ພວກເຮົາຍັງບໍ່ສາມາດກວດສອບໄດ້
+What would you like to find out?	ເຈົ້າຢາກຮູ້ສິ່ງໃດແດ່?
+What would you like to know about {name}?	ເຈົ້າຢາກຮູ້ຫຍັງກ່ຽວກັບ {name}?
+What's at this address	ມີຫຍັງຢູ່ທີ່ຢູ່ນີ້
+What's in this folder?	ມີຫຍັງຢູ່ໃນໂຟນເດີນີ້?
+What's inside this archive?	ມີຫຍັງຢູ່ໃນໄຟລ໌ບີບອັດນີ້?
+Whatever Settings → AI builds with.	ສິ່ງໃດກໍຕາມທີ່ເລືອກໄວ້ໃນ ການຕັ້ງຄ່າ → AI ຈະຖືກໃຊ້ສ້າງ.
+When a folder you pick has files	ເມື່ອໂຟນເດີທີ່ເຈົ້າເລືອກມີໄຟລ໌ຢູ່ແລ້ວ
+When the builder needs a choice made: show it to you and wait, or let it decide and say what it chose. Each project can choose for itself under its prompt box.	ເມື່ອຕົວສ້າງຕ້ອງມີການຕັດສິນໃຈ: ສະແດງໃຫ້ເຈົ້າເຫັນ ແລະ ລໍຖ້າ, ຫຼື ໃຫ້ມັນຕັດສິນໃຈເອງ ແລະ ແຈ້ງສິ່ງທີ່ເລືອກ. ແຕ່ລະໂຄງການສາມາດເລືອກເອງໄດ້ຢູ່ກ້ອງກ່ອງຂໍ້ຄວາມ.
+When you rebuild an app or game, start it once to picture its window and compare the rebuild with it. It runs that program.	ເມື່ອເຈົ້າສ້າງແອັບ ຫຼື ເກມຄືນໃໝ່, ໃຫ້ເປີດມັນຂຶ້ນມາໜຶ່ງຄັ້ງເພື່ອຖ່າຍພາບໜ້າຕ່າງ ແລະ ປຽບທຽບກັບຜົນທີ່ສ້າງໃໝ່. ມັນຈະແລ່ນໂປຣແກຣມນັ້ນ.
+Where am I	ຂ້ອຍຢູ່ໃສ
+Where is Ghidra installed?	Ghidra ຕິດຕັ້ງຢູ່ໃສ?
+Where is the program?	ໂປຣແກຣມຢູ່ໃສ?
+Where should new projects go?	ຄວນເກັບໂຄງການໃໝ່ໄວ້ໃສ?
+Where we found it	ບ່ອນທີ່ພວກເຮົາພົບເຫັນມັນ
+Whether they're the app to edit in place, or material the app starts from beside them.	ບໍ່ວ່າພວກມັນຈະເປັນແອັບທີ່ຕ້ອງແກ້ໄຂໂດຍກົງ, ຫຼື ເປັນວັດຖຸດິບທີ່ແອັບຈະເລີ່ມສ້າງໄວ້ຂ້າງໆ.
+Which AI answers your questions	AI ໃດຕອບຄຳຖາມຂອງເຈົ້າ
+Which file is the main program?	ໄຟລ໌ໃດແມ່ນໂປຣແກຣມຫຼັກ?
+Which files does it read or write?	ມັນອ່ານ ຫຼື ຂຽນໄຟລ໌ໃດແດ່?
+Which function is this in	ຕຳແໜ່ງນີ້ຢູ່ໃນຟັງຊັນໃດ
+Which servers does it talk to?	ມັນຕິດຕໍ່ກັບເຊີເວີໃດແດ່?
+Which servers were contacted?	ເຊີເວີໃດຖືກຕິດຕໍ່ໄປແດ່?
+Which websites does it load?	ມັນໂຫຼດເວັບໄຊໃດແດ່?
+Who builds what you make	ໃຜເປັນຜູ້ສ້າງສິ່ງທີ່ເຈົ້າຕ້ອງການ
+Who calls it	ໃຜເປັນຜູ້ຮຽກໃຊ້ມັນ
+Who can move funds?	ໃຜສາມາດໂອນເງິນໄດ້?
+Who signed this Windows program	ໃຜເປັນຜູ້ເຊັນລາຍເຊັນໂປຣແກຣມ Windows ນີ້
+Who uses this Android class?	ໃຜໃຊ້ຄລາສ Android ນີ້?
+Who uses this Java class?	ໃຜໃຊ້ຄລາສ Java ນີ້?
+Why we ask	ເຫດຜົນທີ່ພວກເຮົາຖາມ
+Window / focus info	ຂໍ້ມູນໜ້າຕ່າງ / ໂຟກັສ
+Windows resources	ຊັບພະຍາກອນ Windows
+Wireshark tools check	ການກວດສອບເຄື່ອງມື Wireshark
+Without it, Deep mode uses Craft Anything's own decompiler, which is rougher.	ຫາກບໍ່ມີມັນ, ໂໝດ Deep ຈະໃຊ້ຕົວດີຄອມໄພລ໌ຂອງ Craft Anything ເອງ ເຊິ່ງອາດຈະບໍ່ລະອຽດເທົ່າ.
+Work out a copy's size	ຄິດໄລ່ຂະໜາດຂອງສຳເນົາ
+Work out what an installed app is built on	ກວດສອບເບິ່ງວ່າແອັບທີ່ຕິດຕັ້ງແລ້ວສ້າງຂຶ້ນມາຈາກຫຍັງ
+Workbench	ໂຕະເຮັດວຽກ
+Worked it out	ຄິດໄລ່ສຳເລັດແລ້ວ
+Worked it out: computed step by step from things we saw.	ຄິດໄລ່ສຳເລັດແລ້ວ: ຄິດໄລ່ຕາມຂັ້ນຕອນຈາກສິ່ງທີ່ພວກເຮົາເຫັນ.
+Worked through {n} steps	ດຳເນີນການແລ້ວ {n} ຂັ້ນຕອນ
+Working on it	ພວມດຳເນີນການ
+Working on your answer	ພວມກຽມຄຳຕອບໃຫ້ເຈົ້າ
+Working out how much space a copy takes…	ພວມຄິດໄລ່ວ່າສຳເນົາໃຊ້ພື້ນທີ່ເທົ່າໃດ…
+Working…	ພວມເຮັດວຽກ…
+Working… ({n} steps so far)	ພວມເຮັດວຽກ… (ດຳເນີນການໄປແລ້ວ {n} ຂັ້ນຕອນ)
+Write a project file	ຂຽນໄຟລ໌ໂຄງການ
+Write a readable report	ຂຽນລາຍງານທີ່ອ່ານງ່າຍ
+Write comment	ຂຽນຄຳເຫັນ
+Write inline comment	ຂຽນຄຳເຫັນໃນແຖວ
+Write pseudo-C to a folder	ຂຽນ pseudo-C ໄປຍັງໂຟນເດີ
+Write the brief	ຂຽນບົດສະຫຼຸບຫຍໍ້
+Write the handoff	ຂຽນເອກະສານສົ່ງມອບ
+Wrote {what} to {}	ຂຽນ {what} ໄປຍັງ {} ແລ້ວ
+You answered: {a}	ເຈົ້າຕອບວ່າ: {a}
+You can add a Claude, ChatGPT or OpenRouter key, a local model (Ollama, LM Studio) or an agent you already use, later in Settings → AI.	ເຈົ້າສາມາດເພີ່ມຄີ Claude, ChatGPT ຫຼື OpenRouter, ໂມເດວພາຍໃນເຄື່ອງ (Ollama, LM Studio) ຫຼື ຕົວແທນທີ່ເຈົ້າໃຊ້ອື່ນໆ ໄດ້ພາຍຫຼັງໃນ ການຕັ້ງຄ່າ → AI.
+You chose:	ເຈົ້າເລືອກ:
+You're all set	ເຈົ້າພ້ອມແລ້ວ
+Your app is ready	ແອັບຂອງເຈົ້າພ້ອມແລ້ວ
+Your brains	AI ຂອງເຈົ້າ
+Your fal.ai key	fal.ai key ຂອງເຈົ້າ
+Your game is ready	ເກມຂອງເຈົ້າພ້ອມແລ້ວ
+Your message wasn't sent: another project was opened while its pictures were copied.	ບໍ່ໄດ້ສົ່ງຂໍ້ຄວາມຂອງເຈົ້າ: ມີການເປີດໂຄງການອື່ນໃນຂະນະທີ່ພວມສຳເນົາຮູບພາບ.
+Your own tool installs (optional)	ເຄື່ອງມືທີ່ເຈົ້າຕິດຕັ້ງເອງ (ເລືອກໄດ້)
+Your project starts as soon as it's done.	ໂຄງການຂອງເຈົ້າຈະເລີ່ມຕົ້ນທັນທີທີ່ສຳເລັດ.
+Your version	ເວີຊັນຂອງເຈົ້າ
+Your website is ready	ເວັບໄຊຂອງເຈົ້າພ້ອມແລ້ວ
+a new folder in {dir}	ໂຟນເດີໃໝ່ໃນ {dir}
+a picture	(ຮູບ 1 ຮູບ)
+about ${n}	ປະມານ ${n}
+address, e.g. http://192.168.1.20:11434/v1	ທີ່ຢູ່, ຕົວຢ່າງ: http://192.168.1.20:11434/v1
+and {n} more	ແລະ ອີກ {n} ລາຍການ
+arguments (optional)	ອາຣ໌ກິວເມັນ (ເລືອກໄດ້)
+call graph	ກຣາຟການຮຽກໃຊ້
+clean room	clean room
+command, https:// address or .wasm file	ຄຳສັ່ງ, ທີ່ຢູ່ https:// ຫຼື ໄຟລ໌ .wasm
+deep mode	ໂໝດ deep
+entry point	ຈຸດເລີ່ມຕົ້ນ (entry point)
+files	ໄຟລ໌
+findings	ຂໍ້ຄົ້ນພົບ
+first run	ການແລ່ນຄັ້ງທຳອິດ
+found on this computer; set up when you start	ພົບໃນຄອມພິວເຕີເຄື່ອງນີ້; ຕັ້ງຄ່າເມື່ອເຈົ້າເລີ່ມຕົ້ນ
+from the builder's own memory of the build	ຈາກຄວາມຈຳຂອງຕົວສ້າງກ່ຽວກັບການບິວ
+from the project's files	ຈາກໄຟລ໌ຂອງໂຄງການ
+id, e.g. docs	ID, ຕົວຢ່າງ: docs
+is required	ຈຳເປັນຕ້ອງໃສ່
+isn't available yet	ຍັງບໍ່ພ້ອມໃຊ້ງານເທື່ອ
+job result	ຜົນຮັບຂອງງານ
+job {title} panicked: {what}	ງານ {title} ເກີດຂໍ້ຜິດພາດຮ້າຍແຮງ: {what}
+just now	ຫາກໍ່ດຽວນີ້
+managed	ຈັດການອັດຕະໂນມັດ
+model (optional)	ໂມເດວ (ເລືອກໄດ້)
+must be a number	ຕ້ອງເປັນຕົວເລກ
+must be a whole number	ຕ້ອງເປັນຈຳນວນຖ້ວນ
+name, e.g. Studio box	ຊື່, ຕົວຢ່າງ: Studio box
+number	ຕົວເລກ
+objdump output	ຜົນອອກຂອງ objdump
+or start with /btw to just ask	ຫຼື ເລີ່ມຕົ້ນດ້ວຍ /btw ເພື່ອຖາມລ້າໆ
+pinned builds couldn't be read: {}	ບໍ່ສາມາດອ່ານລຸ້ນບິວທີ່ປັກໝຸດໄວ້ໄດ້: {}
+say how to use the files there	ບອກວິທີໃຊ້ໄຟລ໌ຢູ່ບ່ອນນັ້ນ
+scene	ສາກ
+scenes	ສາກ
+source map	ຊອຣ໌ສແມັບ
+start page	ໜ້າເລີ່ມຕົ້ນ
+the app is built beside your files, starting from them	ແອັບຖືກສ້າງຂຶ້ນຄຽງຂ້າງໄຟລ໌ຂອງເຈົ້າ, ໂດຍເລີ່ມຕົ້ນຈາກພວກມັນ
+the built-in engines	ເອນຈິນພາຍໃນ
+the prompt box changed height	ຄວາມສູງຂອງກ່ອງຂໍ້ຄວາມປ່ຽນໄປ
+title bar	ແຖບຫົວຂໍ້
+under $0.01	ຕ່ຳກວ່າ $0.01
+yesterday	ມື້ວານນີ້
+your files there are the app, edited in place	ໄຟລ໌ຢູ່ບ່ອນນັ້ນແມ່ນແອັບ, ແກ້ໄຂໂດຍກົງຢູ່ບ່ອນເກົ່າ
+{:.1} GB	{:.1} GB
+{:.1}M	{:.1}M
+{backend}: {input_tokens} in / {output_tokens} out{cost}	{backend}: ເຂົ້າ {input_tokens} / ອອກ {output_tokens}{cost}
+{cost} (estimate)	{cost} (ປະມານ)
+{c} · {size}	{c} · {size}
+{done} of {all} done	ສຳເລັດ {done} ຈາກ {all}
+{gb} GB for bigger ones	{gb} GB ສຳລັບອັນທີ່ໃຫຍ່ກວ່າ
+{gb} GB for programs up to {size}	{gb} GB ສຳລັບໂປຣແກຣມຂະໜາດສູງສຸດ {size}
+{gb} GB up to {size}	{gb} GB ສູງສຸດ {size}
+{held} of {n} requirements met	ບັນລຸ {held} ຈາກ {n} ຂໍ້ກຳນົດ
+{id} · {summary}	{id} · {summary}
+{in} in, {out} out.	ເຂົ້າ {in}, ອອກ {out}.
+{k}: {s}	{k}: {s}
+{lbl}  {}	{lbl}  {}
+{line}, and {n} more	{line}, ແລະ ອີກ {n} ລາຍການ
+{mb} MB	{mb} MB
+{name} builds what you make.	{name} ເປັນຜູ້ສ້າງສິ່ງທີ່ເຈົ້າຕ້ອງການ.
+{name} builds what you make; answers come from {brain}.	{name} ເປັນຜູ້ສ້າງສິ່ງທີ່ເຈົ້າຕ້ອງການ; ຄຳຕອບມາຈາກ {brain}.
+{name} can't be attached: a message takes pictures up to 20 MB.	ບໍ່ສາມາດແນບ {name} ໄດ້: ຂໍ້ຄວາມຮັບຮູບພາບຂະໜາດສູງສຸດບໍ່ເກີນ 20 MB.
+{name} can't be attached: it isn't a PNG, JPEG, GIF or WebP picture.	ບໍ່ສາມາດແນບ {name} ໄດ້: ມັນບໍ່ແມ່ນຮູບພາບ PNG, JPEG, GIF ຫຼື WebP.
+{name} is ready	{name} ພ້ອມແລ້ວ
+{name} is ready.	{name} ພ້ອມແລ້ວ.
+{name} isn't available yet in this build.	{name} ຍັງບໍ່ພ້ອມໃຊ້ງານໃນລຸ້ນບິວນີ້.
+{name} isn't on this computer yet.	ຍັງບໍ່ມີ {name} ໃນຄອມພິວເຕີເຄື່ອງນີ້ເທື່ອ.
+{name} key	{name} key
+{n} actions done so far	ດຳເນີນການແລ້ວ {n} ຢ່າງມາຮອດຕອນນີ້
+{n} days ago	{n} ມື້ກ່ອນ
+{n} h ago	{n} ຊົ່ວໂມງກ່ອນ
+{n} item(s)	{n} ລາຍການ
+{n} job(s) running	ພວມແລ່ນ {n} ງານ
+{n} min ago	{n} ນາທີກ່ອນ
+{n} picture(s) to match.	ຮູບພາບທີ່ຕ້ອງກົງກັນ {n} ຮູບ.
+{n} step(s) didn't work and were retried or skipped.	{n} ຂັ້ນຕອນບໍ່ໄດ້ຜົນ ແລະ ຖືກລອງໃໝ່ ຫຼື ຂ້າມໄປ.
+{n} tokens	{n} ໂທເຄັນ
+{n} · ${spent:.2} of ${budget:.2}	{n} · ${spent:.2} ຈາກ ${budget:.2}
+{n} · ${spent} of ${budget}	{n} · ${spent} ຈາກ ${budget}
+{scenes} {}	{scenes} {}
+{text}, {}	{text}, {}
+{title} hit a bug and stopped safely. ({what})	{title} ພົບບັກ ແລະ ຢຸດເຮັດວຽກຢ່າງປອດໄພ. ({what})
+{title} {id}	{title} {id}
+{title} · {:.0}%	{title} · {:.0}%
+{tool} finished	{tool} ສຳເລັດແລ້ວ
+{tool}: {}	{tool}: {}
+{what} panicked: {msg}	{what} ເກີດຂໍ້ຜິດພາດຮ້າຍແຮງ: {msg}
+{} GB	{} GB
+{} isn't available yet in this build.	{} ຍັງບໍ່ພ້ອມໃຊ້ງານໃນລຸ້ນບິວນີ້.
+{} item(s)	{} ລາຍການ
+{} key	{} key
+{} report.md	{} report.md
+{} {name}	{} {name}
+{} {said}	{} {said}
+{} {then}	{} {then}
+{} {v}	{} {v}
+{} {why}	{} {why}
+{} {} · {}{cost}	{} {} · {}{cost}
+{} · {mode}	{} · {mode}
+{}: {e}	{}: {e}
+{}: {some}{more}.	{}: {some}{more}.
+{}: {state}	{}: {state}
+{}h {:02}m	{}ຊົ່ວໂມງ {:02}ນາທີ
+{}m {:02}s	{}ນາທີ {:02}ວິນາທີ
+— use the filter to find the rest.	— ໃຊ້ຕົວກັ່ນຕອງເພື່ອຊອກຫາສ່ວນທີ່ເຫຼືອ.
+… {n} more	… ອີກ {n} ລາຍການ
+… {n} older	… ເກົ່າກວ່າ {n} ລາຍການ
+… {} more	… ອີກ {} ລາຍການ
+… {} older	… ເກົ່າກວ່າ {} ລາຍການ
+← Back	← ກັບຄືນ
+↑↓ to move · Enter to run · Esc to close	↑↓ ຍ້າຍ · Enter ແລ່ນ · Esc ປິດ
+Providers	ຜູ້ໃຫ້ບໍລິການ
+Harnesses	ຕົວເຊື່ອມຕໍ່ຕົວແທນ
+Nothing of this kind was found.	ບໍ່ພົບປະເພດນີ້.
+Another model	ໂມເດວອື່ນ
+Fold a project's plan	ພັບແຜນການຂອງໂຄງການ
+Fold the plan	ພັບແຜນການ
+The Claude desktop app is installed, but building needs Claude Code, its separate command-line tool. Install Claude Code, sign in to it once in a terminal, then look again.	ແອັບເດັສທັອບ Claude ຖືກຕິດຕັ້ງແລ້ວ, ແຕ່ການບິວຕ້ອງໃຊ້ Claude Code ເຊິ່ງເປັນເຄື່ອງມື command-line ແຍກຕ່າງຫາກ. ໃຫ້ຕິດຕັ້ງ Claude Code, ເຂົ້າສູ່ລະບົບໃນ terminal ໜຶ່ງຄັ້ງ, ແລ້ວລອງເບິ່ງໃໝ່.
+Unreal is here, but its bundled Clang C++ toolchain wasn't found.	ມີ Unreal ຢູ່ນີ້ແລ້ວ, ແຕ່ບໍ່ພົບທູລເຊນ Clang C++ ທີ່ມາພ້ອມກັນ.
+Add Unreal's Linux C++ toolchain	ເພີ່ມທູລເຊນ Linux C++ ຂອງ Unreal
+Run Engine/Build/BatchFiles/Linux/SetupToolchain.sh in the engine folder to install its bundled Clang toolchain. If you built Unreal from source, Setup.sh downloads the native toolchain instead. A system Clang may not match the engine's version.	ແລ່ນ Engine/Build/BatchFiles/Linux/SetupToolchain.sh ໃນໂຟນເດີເອນຈິນເພື່ອຕິດຕັ້ງທູລເຊນ Clang ທີ່ມາພ້ອມກັນ. ຖ້າເຈົ້າບິວ Unreal ຈາກຊອຣ໌ສ, Setup.sh ຈະດາວໂຫຼດທູລເຊນເນທີບແທນ. Clang ຂອງລະບົບອາດຈະບໍ່ກົງກັບເວີຊັນຂອງເອນຈິນ.
+Unreal is here, but it also needs Xcode.	ມີ Unreal ຢູ່ນີ້ແລ້ວ, ແຕ່ມັນຍັງຕ້ອງການ Xcode.
+About 60 GB, an Epic Games account, and Xcode.	ປະມານ 60 GB, ບັນຊີ Epic Games, ແລະ Xcode.
+File	ໄຟລ໌
+View	ມຸມມອງ
+Window	ໜ້າຕ່າງ
+Help	ຊ່ວຍເຫຼືອ
+Command palette	ຖາດຄຳສັ່ງ
+Craft Anything on GitHub	Craft Anything ເທິງ GitHub
+Report a problem…	ລາຍງານບັນຫາ…
+Quit Craft Anything	ອອກຈາກ Craft Anything
+About Craft Anything	ກ່ຽວກັບ Craft Anything
+Services	ບໍລິການ
+Hide Craft Anything	ເຊື່ອງ Craft Anything
+Hide others	ເຊື່ອງອື່ນໆ
+Show all	ສະແດງທັງໝົດ
+Close window	ປິດໜ້າຕ່າງ
+Full screen	ເຕັມໜ້າຈໍ
+Zoom	ຊູມ
+Bring all to front	ນຳທັງໝົດມາໄວ້ທາງໜ້າ
+Drag to give the plan more or less room; double-click to reset	ລາກເພື່ອປັບພື້ນທີ່ໃຫ້ແຜນການຫຼາຍຂຶ້ນ ຫຼື ໜ້ອຍລົງ; ກົດສອງເທື່ອເພື່ອຣີເຊັດ
+Copy the message	ສຳເນົາຂໍ້ຄວາມ
+Choose what the builder's approvals get	ເລືອກວິທີຈັດການການຮ້ອງຂໍອະນຸມັດຂອງຕົວສ້າງ
+Reading the web	ການອ່ານເວັບ
+Other commands	ຄຳສັ່ງອື່ນໆ
+Files outside the project	ໄຟລ໌ທີ່ຢູ່ນອກໂຄງການ
+Pushing and publishing	ການພຸຊ ແລະ ການເຜີຍແຜ່
+Deleting outside the project	ການລຶບຢູ່ນອກໂຄງການ
+System changes	ການປ່ຽນແປງລະບົບ
+Other tools	ເຄື່ອງມືອື່ນໆ
+Allow	ອະນຸຍາດ
+Ask	ຖາມ
+Refuse	ປະຕິເສດ
+After /approvals, type a kind and allow, ask, refuse or default, like /approvals publish ask. Kinds: {kinds}.	ຫຼັງຈາກ /approvals, ໃຫ້ພິມປະເພດ ແລະ allow, ask, refuse ຫຼື default ເຊັ່ນ: /approvals publish ask. ປະເພດ: {kinds}.
+There's no kind called {name}. Kinds: {kinds}.	ບໍ່ມີປະເພດທີ່ຊື່ວ່າ {name}. ປະເພດ: {kinds}.
+Approvals	ການອະນຸມັດ
+In this project, {kind}: {choice}.	ໃນໂຄງການນີ້, {kind}: {choice}.
+Couldn't change the approvals:	ບໍ່ສາມາດປ່ຽນແປງການອະນຸມັດໄດ້:
+What the builder may do without asking you, in this project.	ສິ່ງທີ່ຕົວສ້າງສາມາດເຮັດໄດ້ໂດຍບໍ່ຕ້ອງຖາມເຈົ້າ ໃນໂຄງການນີ້.
+Default follows Auto mode: with it on, what can be undone goes ahead and the rest is refused; with it off, the builder asks.	ຄ່າເລີ່ມຕົ້ນແມ່ນປະຕິບັດຕາມໂໝດອັດຕະໂນມັດ: ເມື່ອເປີດໄວ້, ສິ່ງທີ່ສາມາດຍົກເລີກໄດ້ຈະດຳເນີນການຕໍ່ ແລະ ສ່ວນທີ່ເຫຼືອຈະຖືກປະຕິເສດ; ເມື່ອປິດໄວ້, ຕົວສ້າງຈະຖາມກ່ອນ.
+Connecting to {name}… {seconds} s	ພວມເຊື່ອມຕໍ່ກັບ {name}… {seconds} ວິນາທີ
+Stopped adding {name}.	ຢຸດການເພີ່ມ {name} ແລ້ວ.
+It isn't there any more, so {program} runs in its place.	ມັນບໍ່ຢູ່ບ່ອນນັ້ນອີກແລ້ວ, ດັ່ງນັ້ນ {program} ຈຶ່ງແລ່ນແທນ.
+Use it	ໃຊ້ມັນ
+
+# Native update checks and verified installation.
+ArtCraft Launcher manages this app's version. Change its version there.	ArtCraft Launcher ເປັນຜູ້ຈັດການເວີຊັນຂອງແອັບນີ້. ໃຫ້ປ່ຽນເວີຊັນຢູ່ບ່ອນນັ້ນ.
+Check again	ກວດສອບອີກຄັ້ງ
+Check for Updates	ກວດສອບການອັບເດດ
+Check for Updates…	ກວດສອບການອັບເດດ…
+Checking for updates…	ພວມກວດສອບການອັບເດດ…
+Couldn't check for updates: {error}	ບໍ່ສາມາດກວດສອບການອັບເດດໄດ້: {error}
+Downloading and verifying the update…	ພວມດາວໂຫຼດ ແລະ ກວດສອບຄວາມຖືກຕ້ອງຂອງການອັບເດດ…
+No installer is available for this platform.	ບໍ່ມີຕົວຕິດຕັ້ງສຳລັບແພລດຟອຣ໌ມນີ້.
+Releases	ລຸ້ນປ່ອຍ
+Save your work and stop running tasks before installing an update.	ບັນທຶກວຽກຂອງເຈົ້າ ແລະ ຢຸດວຽກທີ່ພວມແລ່ນກ່ອນທີ່ຈະຕິດຕັ້ງການອັບເດດ.
+The update failed: {error}	ການອັບເດດຫຼົ້ມເຫຼວ: {error}
+The update worker stopped unexpectedly. Try checking again.	ຕົວດຳເນີນການອັບເດດຢຸດເຮັດວຽກກະທັນຫັນ. ກະລຸນາລອງກວດສອບອີກຄັ້ງ.
+This installation is managed externally. Update it with its package manager or open Releases.	ການຕິດຕັ້ງນີ້ຖືກຈັດການຈາກພາຍນອກ. ໃຫ້ອັບເດດດ້ວຍ package manager ຂອງມັນ ຫຼື ເປີດ ລຸ້ນປ່ອຍ.
+Update and restart	ອັບເດດ ແລະ ເລີ່ມຕົ້ນໃໝ່
+Update ready. Restarting…	ອັບເດດພ້ອມແລ້ວ. ພວມເລີ່ມຕົ້ນໃໝ່…
+Updated to {version}.	ອັບເດດເປັນ {version} ແລ້ວ.
+Use Releases or your package manager to update this installation.	ໃຊ້ ລຸ້ນປ່ອຍ ຫຼື package manager ຂອງເຈົ້າເພື່ອອັບເດດການຕິດຕັ້ງນີ້.
+You're up to date.	ເຈົ້າໃຊ້ເວີຊັນຫຼ້າສຸດແລ້ວ.
+{version} is available.	ມີເວີຊັນ {version} ພ້ອມໃຫ້ໃຊ້ງານແລ້ວ.
