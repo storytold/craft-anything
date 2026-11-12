@@ -788,6 +788,16 @@ Owner: open · Status: in progress
       discovery, MCP-only tool restrictions, model selection and fresh read-only questions;
       unit tests and CLI 1.0.105 with an isolated home and loopback model, all five access modes
       — claimed: qu-gg, branch `feature/r2.2-copilot-integration` (recorded during PR preparation)
+- [ ] CodeBuddy Code as a coding agent over ACP (`codebuddy --acp`): detection on PATH
+      (`codebuddy`), sign-in kept in its own CLI (`codebuddy login`), our tool server on
+      `session/new`, `session/load` to continue a session, and its model list. A build runs in its
+      `default` permission mode, so changes reach our approval policy. Only a deep build is
+      allowed: checked live against 2.183.0, its own `Read` runs without a permission request, so
+      a Clean room run, a deep chat and a question are refused, and a question is never handed a
+      server (its resource readers can't be refused). Setup writes
+      `~/.codebuddy/.mcp.json`. See [CodeBuddy Code](codebuddy.md).
+      Still to open: a live deep build through the app, reasoning depth on the session, notes
+      mid-turn
 - [x] Grok Build as a coding agent over ACP (`grok agent stdio`): discovery in `~/.grok/bin`,
       the person's own `grok login` (a missing `auth.json` is unknown, so an API key still
       starts), model and reasoning effort, and our MCP server on the session with `"type": "stdio"`

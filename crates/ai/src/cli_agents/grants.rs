@@ -94,6 +94,9 @@ const DECLARED: &[Declared] = &[
         approvals: Given::NotYet("its headless profile asks nothing of the host, and no run has checked whether an approval request reaches us"),
         mid_turn_notes: Given::No,
     },
+    // A build is asked through ACP's permission requests; its own reading never asks, so a chat
+    // or a question is refused instead ([`CodeBuddy`](crate::cli_agents::adapters::CodeBuddy)).
+    Declared { id: "codebuddy", path: Path::Acp, tool_server: Given::Yes, approvals: Given::Yes, mid_turn_notes: Given::No },
     // Any other CLI: the prompt as its last argument, its output streamed as text.
     Declared {
         id: "plain",

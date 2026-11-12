@@ -14,6 +14,7 @@ pub const ENV_KEYS: &[&str] = &[
     "APPDATA",
     "LOCALAPPDATA",
     "CLAUDE_CONFIG_DIR",
+    "CODEBUDDY_CONFIG_DIR",
     "CODEX_HOME",
     "GEMINI_CLI_HOME",
     "OPENCODE_CONFIG",
@@ -280,6 +281,10 @@ pub fn clients(host: &Host) -> Vec<Client> {
     let cc_dir = claude_dir.clone().unwrap_or_else(|| h.join(".claude"));
     add("claude_code", "Claude Code", cc_config, vec![cc_dir.clone()], Format::Jsonc, vec!["mcpServers"], Shape::Plain, Some(cc_dir.join("skills")));
 
+    // CodeBuddy Code (one folder holds its settings and its `.mcp.json`)
+    let cb = host.var("CODEBUDDY_CONFIG_DIR").unwrap_or_else(|| h.join(".codebuddy"));
+    add("codebuddy", "CodeBuddy Code", cb.join(".mcp.json"), vec![cb.clone()], Format::Jsonc, vec!["mcpServers"], Shape::Plain, Some(cb.join("skills")));
+
     // Claude Desktop
     let cd = host.app_data().join("Claude").join("claude_desktop_config.json");
     add("claude_desktop", "Claude Desktop", cd.clone(), parent(&cd), Format::Jsonc, vec!["mcpServers"], Shape::Plain, None);
@@ -468,7 +473,7 @@ mod tests {
     fn table_is_complete_and_ids_unique() {
         let host = Host::with_home("/home/u");
         let cs = clients(&host);
-        assert!(cs.len() >= 21);
+        assert!(cs.len() >= 22);
         let mut ids: Vec<_> = cs.iter().map(|c| c.id).collect();
         ids.sort();
         ids.dedup();
