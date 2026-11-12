@@ -617,6 +617,12 @@ only the first 30 distinct limitations in Markdown and HTML with no marker for t
 reader could mistake a capped list for everything the evidence said. Keep the display cap for
 readability but name how many were omitted in both formats; test one more limitation than the cap.
 
+**A reference list was cut and looked complete.** `native_strings_find` kept 32 references per
+string and gave no count or flag, while the tool promised a complete search and the browse tool
+already reported a full count. Keep the row cap for size but return the complete `reference_count`,
+a per-row `references_capped` flag and a tool limitation when any match was cut; test both a
+one-reference string and more than the cap.
+
 **A comparison list was taken for the whole set.** The application comparison cut added, removed,
 bundle-module and vendor rows at 2,000, and its summary counted those cut lists as totals; the
 export comparison cut each module's added/removed diff the same way. Keep a complete total beside

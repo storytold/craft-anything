@@ -3,7 +3,7 @@
 
 use super::native_common::{DEFAULT_LIMIT, address_or_cursor, ev, hex, image, name_of, native, page, params_json, select_document, spec};
 use crate::tool::{Ctx, Effects, Requires, ToolOutput, ToolSpec, Toolset, parse_params, schema_of};
-use craft_anything_disasm::slot_label;
+use craft_anything_disasm::{Xref, slot_label};
 use craft_anything_evidence::{Confidence, Coverage, ErrorCode, Limitation, Location, ToolError};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -526,35 +526,56 @@ fn native_functions_search(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutpu
     Ok(ToolOutput::evidence(e))
 }
 
+/// Most references listed for one matching string; `reference_count` stays complete.
+const MAX_STRING_REFERENCES: usize = 32;
+
+/// The first references, the complete count, and whether the list was cut.
+fn string_references(refs: &[Xref], function_of: impl Fn(u64) -> Option<String>) -> (Vec<Value>, usize, bool) {
+    let users = refs.iter().take(MAX_STRING_REFERENCES).map(|x| json!({"from": hex(x.from), "function": function_of(x.from)})).collect();
+    (users, refs.len(), refs.len() > MAX_STRING_REFERENCES)
+}
+
+fn references_capped_limitation(capped: bool) -> Option<Limitation> {
+    capped.then(|| {
+        Limitation::new("references_capped", format!("Only the first {MAX_STRING_REFERENCES} references are listed per string; reference_count is complete."))
+    })
+}
+
 fn native_strings_find(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
     let p: SearchParams = parse_params(params)?;
     select_document(ctx, &p.document)?;
     let m = Matcher::new(&p.pattern, p.mode, p.case_sensitive)?;
     let st = native(ctx)?;
     let mut rows = Vec::new();
+    let mut references_capped = false;
     for (i, s) in st.prog.strings.iter().enumerate() {
         if i % 4096 == 0 {
             ctx.cancel.check()?;
         }
         if m.is_match(&s.text) {
-            let users: Vec<Value> = st
-                .prog
-                .xrefs_to
-                .get(&s.addr)
-                .map(|v| {
-                    v.iter().take(32).map(|x| json!({"from": hex(x.from), "function": st.prog.function_containing(x.from).map(|f| f.name.clone())})).collect()
-                })
-                .unwrap_or_default();
-            rows.push(json!({"address": hex(s.addr), "text": s.text, "section": s.section, "references": users}));
+            let refs = st.prog.xrefs_to.get(&s.addr).map(Vec::as_slice).unwrap_or(&[]);
+            let (users, total, capped) = string_references(refs, |from| st.prog.function_containing(from).map(|f| f.name.clone()));
+            references_capped |= capped;
+            rows.push(json!({
+                "address": hex(s.addr),
+                "text": s.text,
+                "section": s.section,
+                "references": users,
+                "reference_count": total,
+                "references_capped": capped,
+            }));
         }
     }
     let (items, cov) = page(&rows, p.offset, p.limit);
-    let e = ev(ctx, "native_strings_find", params_json(&p))?
+    let mut b = ev(ctx, "native_strings_find", params_json(&p))?
         .result(json!({"matches": items, "total": rows.len()}))
         .summary(format!("{} strings match \"{}\".", rows.len(), p.pattern))
         .coverage(cov)
-        .limitation(Limitation::new("data_sections_only", "only strings stored in the file are searched (absence is not proof)"))
-        .build()?;
+        .limitation(Limitation::new("data_sections_only", "only strings stored in the file are searched (absence is not proof)"));
+    if let Some(l) = references_capped_limitation(references_capped) {
+        b = b.limitation(l);
+    }
+    let e = b.build()?;
     Ok(ToolOutput::evidence(e))
 }
 
@@ -669,6 +690,8 @@ fn native_inline_comment_read(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOu
 #[cfg(test)]
 mod tests {
     use super::super::native_common::test_support::*;
+    use super::*;
+    use craft_anything_disasm::XrefKind;
     use craft_anything_testkit as tk;
     use serde_json::json;
 
@@ -704,6 +727,9 @@ mod tests {
         assert_eq!(hit["name"], "puts");
         let r = call(&e, "native_strings_find", json!({"pattern": "CRAFT"}));
         assert_eq!(r["result"]["total"], 1);
+        let hit = &r["result"]["matches"][0];
+        assert_eq!(hit["reference_count"].as_u64().unwrap() as usize, hit["references"].as_array().unwrap().len());
+        assert_eq!(hit["references_capped"], false);
         let r = call(&e, "native_strings_find", json!({"pattern": "CRAFT", "case_sensitive": true}));
         assert_eq!(r["result"]["total"], 0);
         assert_eq!(call_err(&e, "native_strings_find", json!({"pattern": "(", "mode": "regex"})).code, craft_anything_evidence::ErrorCode::BadInput);
@@ -723,6 +749,23 @@ mod tests {
         assert_eq!(r["result"]["documents"].as_array().unwrap().len(), 1);
         assert!(call_err(&e, "native_functions_list", json!({"bogus": 1})).message.contains("unknown field"));
         assert!(call_err(&e, "native_functions_list", json!({"document": "nope"})).remediation.is_some());
+    }
+
+    /// A string with more than 32 references keeps its full count and says the list was cut.
+    #[test]
+    fn string_references_report_the_full_count_when_capped() {
+        let refs: Vec<Xref> = (0..33).map(|i| Xref { from: 0x1000 + i, to: 0x400240, kind: XrefKind::Data }).collect();
+        let (users, total, capped) = string_references(&refs, |from| (from % 2 == 0).then(|| "main".to_string()));
+        assert_eq!(total, 33);
+        assert_eq!(users.len(), 32);
+        assert!(capped);
+        assert_eq!(users[0]["function"], "main");
+        assert!(users[1]["function"].is_null());
+        let (_, total, capped) = string_references(&refs[..32], |_| None);
+        assert_eq!(total, 32);
+        assert!(!capped);
+        assert!(references_capped_limitation(true).is_some());
+        assert!(references_capped_limitation(false).is_none());
     }
 
     #[test]
