@@ -615,6 +615,21 @@ launch or preview was run for this documentation correction.
   on 2026-11-06 finished, called the Craft Anything server, and answered one permission request under a
   temporary ask-mode home. The person's own config was not changed. A config that approves every tool does not ask.
   See [grok.md](grok.md).
+- CodeBuddy (`codebuddy --acp`) is offered when adding a coding agent and speaks ACP by default.
+  A deep build runs with `--permission-mode default`, so every tool call comes to
+  `session/request_permission` and is decided once; a deep chat and a question run with
+  `--permission-mode plan`, where the CLI refuses writes and commands. The chosen model and depth
+  go through `session/set_config_option` (`model`, then `thought_level`, because a model change can
+  reset the depth). Our MCP server is added on the session without a `"type"` field. Extra
+  arguments are refused, and `acp = false` or an SSH host fails closed. Clean room is refused: the
+  adapter declares no file or terminal capability, so the CLI reads files itself in every mode.
+  Sign-in is the CLI's own (`/login` in a CLI session, or `CODEBUDDY_API_KEY`); nothing is read.
+  CodeBuddy reaches MCP tools through one wrapper (`DeferExecuteTool`), which the approval policy
+  unwraps to the real tool name. Checked against CodeBuddy 2.182.0, signed in: both config ids, a
+  live catalogue validation, `plan` refusing a `mkdir`, `default` sending a permission request,
+  and all our tools listed over the session. A full build was not reached: two turns explored
+  without writing, and `bypassPermissions` changed nothing, so the cause was the model, not the
+  approvals. See [codebuddy.md](codebuddy.md).
 - Maki (`maki -p`, or over ACP with `acp = true`) is offered when adding a coding agent and found by
   Detect. Over ACP it asks us before commands, our own tools and writes outside its working folder;
   writes inside that folder (a build's project folder, our own records included) and every read

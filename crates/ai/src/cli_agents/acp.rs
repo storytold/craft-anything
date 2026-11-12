@@ -7,7 +7,7 @@
 //! [`AcpCore`] is the protocol alone (lines in, lines and events out) so it's tested without a
 //! process; [`AcpConversation`] runs it against the agent through `craft_anything_platform`.
 
-use super::{McpCommand, display_for};
+use super::{MCP_NAME, McpCommand, display_for};
 use crate::model::Stop;
 use crate::{AgentEvent, Conversation, FailureKind, TurnFailure};
 use craft_anything_platform::sync::Mutex;
@@ -34,6 +34,7 @@ pub const ACP_AGENTS: &[(&str, &[&str])] = &[
     // Flags that belong to this mode (`--model`, `--no-leader`) go between `agent` and `stdio`.
     ("grok", &["agent"]),
     ("devin", &["acp"]),
+    ("codebuddy", &["--acp"]),
 ];
 
 /// Agents whose ACP mode takes the backend's model (`cli_model`), and the flag after the ACP
@@ -112,6 +113,17 @@ pub struct ModelMetadata {
 
 /// An ACP tool call in the approval policy's shape.
 fn policy_action(call: &Value) -> (String, Value) {
+    let kind = call.get("kind").and_then(Value::as_str).unwrap_or("other");
+    // Some agents reach every MCP tool through one wrapper, naming the tool in the input. The
+    // approval policy judges tools by name, so it is given the tool that really runs (CodeBuddy).
+    // Only a call of no recognised kind can be that wrapper: a standard edit or execute call keeps
+    // its own kind, so an input that merely mentions a `toolName` can't make the policy judge a
+    // different tool than the one about to run.
+    if kind == "other"
+        && let Some((tool, params)) = deferred_tool(call)
+    {
+        return (tool, params);
+    }
     let s = |p: &str| call.pointer(p).and_then(Value::as_str).map(str::to_string);
     let path =
         s("/locations/0/path").or_else(|| s("/rawInput/path")).or_else(|| s("/rawInput/file_path")).or_else(|| s("/rawInput/abs_path")).unwrap_or_default();
@@ -120,7 +132,7 @@ fn policy_action(call: &Value) -> (String, Value) {
         Some(Value::Array(parts)) => parts.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" "),
         _ => s("/title").unwrap_or_default(),
     };
-    match call.get("kind").and_then(Value::as_str).unwrap_or("other") {
+    match kind {
         "edit" | "delete" | "move" => ("Write".into(), json!({"file_path": path})),
         "execute" => ("Bash".into(), json!({"command": command})),
         "read" | "search" => ("Read".into(), json!({"file_path": path})),
@@ -128,6 +140,16 @@ fn policy_action(call: &Value) -> (String, Value) {
         "think" | "switch_mode" => ("TodoWrite".into(), Value::Null),
         _ => (s("/title").unwrap_or_else(|| "an unnamed tool".into()), call.get("rawInput").cloned().unwrap_or(Value::Null)),
     }
+}
+
+/// The tool a wrapper call names, and its input: CodeBuddy sends every MCP call as
+/// `{"toolName": "mcp__craft-anything__build_file_write", "params": {…}}`. Another server's tool
+/// keeps the wrapper, because its name means nothing to our approval policy.
+fn deferred_tool(call: &Value) -> Option<(String, Value)> {
+    let name = call.pointer("/rawInput/toolName").and_then(Value::as_str)?;
+    let tool = name.strip_prefix(&format!("mcp__{MCP_NAME}__"))?;
+    let params = call.pointer("/rawInput/params").cloned().unwrap_or_else(|| json!({}));
+    Some((tool.to_string(), params))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1472,6 +1494,23 @@ printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt
         assert_eq!(run("read", json!({"path": "/a"})).0, "Read");
         assert_eq!(run("fetch", json!({"url": "https://x"})).0, "WebFetch");
         assert_eq!(run("other", json!({})).0, "t", "unknown kinds are asked about by title");
+        // CodeBuddy sends every MCP call as one wrapper, naming the real tool in its input.
+        assert_eq!(
+            run("other", json!({"toolName": "mcp__craft-anything__build_file_write", "params": {"path": "app/index.html", "content": "x"}})),
+            ("build_file_write".to_string(), json!({"path": "app/index.html", "content": "x"}))
+        );
+        assert_eq!(
+            run("other", json!({"toolName": "mcp__other-server__read_file", "params": {"path": "/x"}})).0,
+            "t",
+            "another server's tool keeps its wrapper"
+        );
+        // A recognised kind is judged as itself, whatever its input mentions: a command that
+        // names one of our tools is still the command that runs.
+        assert_eq!(
+            run("execute", json!({"toolName": "mcp__craft-anything__build_file_read", "command": "rm -rf app"})),
+            ("Bash".to_string(), json!({"command": "rm -rf app"}))
+        );
+        assert_eq!(run("edit", json!({"toolName": "mcp__craft-anything__build_file_read", "file_path": "/w/app/x"})).0, "Write");
     }
 
     #[test]
