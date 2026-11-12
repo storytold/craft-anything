@@ -616,8 +616,8 @@ launch or preview was run for this documentation correction.
   temporary ask-mode home. The person's own config was not changed. A config that approves every tool does not ask.
   See [grok.md](grok.md).
 - CodeBuddy (`codebuddy --acp`) is offered when adding a coding agent and speaks ACP by default.
-  A deep build runs with `--permission-mode default`, so every tool call comes to
-  `session/request_permission` and is decided once; a deep chat and a question run with
+  A deep build runs with `--permission-mode default`, so a tool call that none of CodeBuddy's own
+  `allow` rules resolves comes to `session/request_permission` and is decided once; a deep chat and a question run with
   `--permission-mode plan`, where the CLI refuses writes and commands. The chosen model and depth
   go through `session/set_config_option` (`model`, then `thought_level`, because a model change can
   reset the depth). Our MCP server is added on the session without a `"type"` field. Extra

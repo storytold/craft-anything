@@ -886,20 +886,21 @@ impl AcpConversation {
         let name = display_for(&self.agent);
         let resume = self.lock().as_ref().and_then(|s| s.core.session_id()).or_else(|| self.resume.clone());
         let mut mcp = self.mcp.clone();
-        // A question starts no tool server, so that host isn't asked for one and a model read
-        // keeps its own deadline; its session keeps `.` as its folder.
-        if !self.question
-            && let Some(host) = self.remote.as_deref()
-        {
+        if let Some(host) = self.remote.as_deref() {
             let target = super::adapters::remote_acp_target(host);
-            // That host starts our server with the PATH its own session has: an absolute path is
-            // what connects there, as it is for Claude Code's remote runs.
-            if let Some(path) = target.cli {
+            // `session/new` names an absolute folder, which only that host knows. Sending `.` would
+            // be a session ACP doesn't allow, so a host that won't say stops the turn instead.
+            let Some(home) = target.home else {
+                return Err(craft_anything_evidence::ToolError::unavailable(format!("{name} didn't say which folder to work in on {host}."))
+                    .with_remediation("Check that `ssh <host>` works without a password prompt, then try again."));
+            };
+            self.cwd = PathBuf::from(home);
+            // A question starts no tool server; every other run needs the helper's own path, since
+            // that host starts it with the PATH its session has.
+            if !self.question
+                && let Some(path) = target.cli
+            {
                 mcp.command = path;
-            }
-            // ACP's `session/new` names an absolute folder: the one that host's session starts in.
-            if let Some(home) = target.home {
-                self.cwd = PathBuf::from(home);
             }
         }
         let mut core = AcpCore::new(&self.backend, &self.agent, &name, self.cwd.clone(), mcp, resume).with_auth(self.auth.clone());

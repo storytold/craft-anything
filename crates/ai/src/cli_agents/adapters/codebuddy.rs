@@ -37,8 +37,21 @@ impl AgentAdapter for CodeBuddy {
         directory: Option<&Path>,
         stop: &Stop,
     ) -> Result<Vec<models::AgentModel>, ToolError> {
-        let metadata = super::super::acp_model_metadata(config, options, directory, stop)?;
-        Ok(catalogue(&metadata, options))
+        match super::super::acp_model_metadata(config, options, directory, stop) {
+            Ok(metadata) => Ok(catalogue(&metadata, options)),
+            // A saved model this account no longer offers fails the session and hides the very
+            // list that says what it does offer: ask again with no choice applied.
+            Err(first) if options.cli_model.is_some() => {
+                stop.check()?;
+                let mut without = options.clone();
+                without.cli_model = None;
+                match super::super::acp_model_metadata(config, &without, directory, stop) {
+                    Ok(metadata) => Ok(catalogue(&metadata, &without)),
+                    Err(_) => Err(first),
+                }
+            }
+            Err(e) => Err(e),
+        }
     }
 
     fn validate_model(&self, config: &BackendConfig, options: &BackendOptions, directory: Option<&Path>, stop: &Stop) -> Result<(), ToolError> {
@@ -107,10 +120,10 @@ impl AgentAdapter for CodeBuddy {
         }
     }
 
-    /// A builder asks before every tool call: `default` sends each one to
-    /// `session/request_permission`, and our policy answers that call only (`allow_once`). A chat
-    /// and a question run in `plan`, where the CLI refuses every write and command itself. Both
-    /// were checked against CodeBuddy 2.182.0.
+    /// A builder asks before a tool call that none of CodeBuddy's own `allow` rules resolves:
+    /// `default` sends those to `session/request_permission`, and our policy answers that call only
+    /// (`allow_once`). A chat and a question run in `plan`, where the CLI refuses every write and
+    /// command itself. Both were checked against CodeBuddy 2.182.0.
     fn acp_mode_options(&self, _options: &BackendOptions, access: Access) -> Vec<String> {
         let mode = match access {
             Access::Build => "default",
@@ -155,10 +168,11 @@ impl AgentAdapter for CodeBuddy {
 
     /// Where to sign in, without guessing at a login subcommand: the CLI has no `login` command,
     /// and says `/login` (a slash command in its own session). A key in the environment works too
-    /// (the China build also needs `CODEBUDDY_INTERNET_ENVIRONMENT=internal`).
+    /// (the China build also needs `CODEBUDDY_INTERNET_ENVIRONMENT=internal`), and over `ssh` it
+    /// belongs on the host that runs the agent: ssh forwards none of our environment.
     fn sign_in_fix(&self) -> Option<String> {
         Some(
-            "Sign in with `/login` in a CodeBuddy CLI session in a terminal, or set CODEBUDDY_API_KEY for the computer Craft Anything runs on (with CODEBUDDY_INTERNET_ENVIRONMENT=internal for the China build), then try again. Craft Anything never sees the sign-in."
+            "Sign in with `/login` in a CodeBuddy CLI session on the computer CodeBuddy runs on (this one, or the SSH host), or set CODEBUDDY_API_KEY there (with CODEBUDDY_INTERNET_ENVIRONMENT=internal for the China build), then try again. Craft Anything never sees the sign-in."
                 .into(),
         )
     }
@@ -254,6 +268,7 @@ mod tests {
         assert_eq!(CodeBuddy.model_in_use(Some(&options)).as_deref(), Some("cb-model"));
         let fix = CodeBuddy.sign_in_fix().unwrap();
         assert!(fix.contains("/login") && fix.contains("CODEBUDDY_API_KEY") && fix.contains("CODEBUDDY_INTERNET_ENVIRONMENT") && fix.contains("never sees"));
+        assert!(fix.contains("SSH host"), "a remote run signs in there, not here: {fix}");
     }
 
     #[test]

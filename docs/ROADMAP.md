@@ -835,8 +835,9 @@ Owner: open · Status: in progress
 - [x] CodeBuddy CLI as a coding agent over ACP (`codebuddy --acp`): model and depth through
       `session/set_config_option` (`model`, `thought_level`), our MCP server on the session, and
       the CLI's own sign-in (`/login`, or `CODEBUDDY_API_KEY` with
-      `CODEBUDDY_INTERNET_ENVIRONMENT`). A build runs in `--permission-mode default`, so each tool
-      call is decided once; a chat and a question run in `plan`, which refuses writes and commands.
+      `CODEBUDDY_INTERNET_ENVIRONMENT`). A build runs in `--permission-mode default`, so a tool call
+      that its own allow rules don't settle is decided once; a chat and a question run in `plan`,
+      which refuses writes and commands.
       Clean room is refused, because the CLI reads files on its own in every mode. Extra arguments
       are refused, and the approval policy unwraps CodeBuddy's `DeferExecuteTool` wrapper to the
       real tool name. Verified against CodeBuddy 2.182.0, signed in: both config ids, live

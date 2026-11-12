@@ -7,8 +7,9 @@ another program, and that mode hands permission requests back to us.
 ## Setup
 
 1. Install the CodeBuddy CLI so `codebuddy` is on `PATH` (or pick the program with **Choose...**).
-2. Sign in. Either set `CODEBUDDY_API_KEY` for the computer Craft Anything runs on, or sign in with
-   the CLI itself in a terminal. The China build also needs
+2. Sign in. Either set `CODEBUDDY_API_KEY` on the computer CodeBuddy runs on (this one, or the SSH
+   host), or sign in with the CLI itself in a terminal there. ssh forwards none of our environment,
+   so a remote host needs its own sign-in or key. The China build also needs
    `CODEBUDDY_INTERNET_ENVIRONMENT=internal` for a key to authenticate; the overseas build leaves it
    unset, and the iOA build uses `ioa`. Craft Anything reads neither value and never sees the
    sign-in.
@@ -25,10 +26,10 @@ model = "codebuddy"
 enabled = true
 ```
 
-`model` names the agent. ACP is on for this agent. Do not set `acp = false` or an SSH host: those
-are refused rather than starting a run with no approval channel. Extra `args` are refused too: the
-documented command line is a single `--acp` flag, and an unknown flag could turn off the CLI's own
-permission asks.
+`model` names the agent. ACP is on for this agent, on this computer and over `ssh`. Do not set
+`acp = false`: it is refused rather than starting a run with no approval channel. Extra `args` are
+refused too: the documented command line is a single `--acp` flag, and an unknown flag could turn
+off the CLI's own permission asks.
 
 ## What runs
 
@@ -53,9 +54,10 @@ requests come back over the same connection and the approval policy decides them
 this computer. The marker is set inside that command line because ssh forwards none of our
 environment; without it, the remote CLI would act as the person and could loosen approvals.
 
-The session's folder is `.` until the host reports its own, which it is asked for once when the
-session starts; the tool server is started from the absolute path that host reports, when it
-reports one. A question starts no tool server, so it is not asked.
+The session's folder is the one that host reports, asked for once when the session starts; a host
+that won't say stops the run rather than being sent a relative folder, which ACP doesn't allow. The
+tool server is started from the absolute path that host reports too. A question starts no tool
+server, so only the folder is asked for.
 
 Live remote runs are unverified: the two hosts available when this landed had neither program
 installed.
@@ -83,11 +85,13 @@ Builds attach Craft Anything's MCP server on `session/new` as a stdio server nam
 `craft-anything`, with no `"type"` field (only Grok Build requires one). CodeBuddy also keeps the
 MCP servers from your own configuration.
 
-A deep build runs with `--permission-mode default`, so every tool call comes to
-`session/request_permission` and the approval policy decides that call only. A deep chat and a
-question run with `--permission-mode plan`, where the CLI refuses every write and command itself.
-Clean room is refused before CodeBuddy starts: the adapter declares no file or terminal capability,
-so the CLI reads files on its own in every mode, and `plan` does not stop a read.
+A deep build runs with `--permission-mode default`. A tool call that none of CodeBuddy's own `allow`
+rules resolves first comes to `session/request_permission`, and the approval policy decides that
+call only: `permissions.allow` entries from your settings or the project, and reads inside trusted
+directories, run without a request. A deep chat and a question run with `--permission-mode plan`,
+where the CLI refuses every write and command itself. Clean room is refused before CodeBuddy
+starts: the adapter declares no file or terminal capability, so the CLI reads files on its own in
+every mode, and `plan` does not stop a read.
 
 This client answers a permission request with the `allow_once` option, found by its `kind` rather
 than the CLI's own id (`allow`), so a grant never becomes `allow_always`.
