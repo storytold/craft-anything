@@ -2077,6 +2077,10 @@ Owner: open · Status: in progress
       — claimed: Afloat16, branch bugfix/r3.12-macho-zerofill-section-data
 - [x] Keep native address translations and reads inside both the mapped range and its file-backed bytes.
       — claimed: Afloat16, branch bugfix/r3.12-binary-padding
+- [ ] `native_strings_find` lists at most 32 references per string without a count or flag, though
+      its search is described as complete; add the complete reference count, a capped flag and a
+      limitation, as `native_strings_browse` already reports a count.
+      — claimed: AlexJoaquimPereira, branch bugfix/r3.12-string-reference-count
 - [x] List each Objective-C class and category address once when ordinary and non-lazy registration tables overlap, keeping distinct same-named definitions separate.
       — claimed: Afloat16, branch bugfix/r3.12-objc-nonlazy-identity-20261111
 - [x] Require complete Objective-C method record strides before reading absolute or relative method fields.
