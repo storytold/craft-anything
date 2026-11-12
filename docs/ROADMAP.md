@@ -491,6 +491,21 @@ been run live.
       with), so Ollama and LM Studio say it once the model is loaded: asked again after the first
       turn. Keep 24k when the server says nothing, and a budget the person set stays the most
       — claimed: youkaicountry, branch feature/r5.4-read-server-window
+- [x] Each AI's tool list is Auto, Lean or Full. Auto offers every tool when the
+      window is 64k or more and the lean builder list (#417) below that; the memory steps in the
+      system prompt follow the same choice. Today every local builder is lean, whatever its window.
+      `tools` in `[[ai.backends]]`; Auto decides on the conversation's budget
+      (`FULL_TOOLS_BUDGET`, a 64k window less its quarter) after the server is asked, and decides
+      again when a later answer changes it (Ollama says only once loaded); paid services keep every
+      tool. Only builders are trimmed: a chat keeps every tool whatever the setting
+      — claimed: youkaicountry, branch feature/r5.4-builder-tool-list
+- [x] Run a build live with the full list on a large local model (a 262k or 512k window), and note
+      in STATUS which models used the extra Core tools well.
+      A Qwen model with a 512k window: 2 of 3 full-list builds of "a scientific calculator" were
+      Ready, using the brief, handoff and finding tools; the third stopped when the model wrote a
+      call to a tool that doesn't exist as text
+- [ ] Run a build live with the lean list on a small local model, and note the result in STATUS
+- [ ] Each AI's tool list in Settings → AI (beside what Auto works out to) and `ai tools <name>`
 - [x] A builder that can't see pictures (the API loop) is told it can't, then sent to open
       screenshots with Read: the website capture lines and the `--screenshot` and reference-picture
       lines in `brief.rs`, the website check's "Open each pair", the reminder after each round, the
