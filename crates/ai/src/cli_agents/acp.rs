@@ -719,6 +719,9 @@ pub struct AcpConversation {
     /// The backend's stored key and its `authMethods` id, for an agent that asks the host to
     /// `authenticate` (`ACP_KEY_AGENTS`: Devin).
     auth: Option<(String, String)>,
+    /// The SSH host this session runs on, when it isn't this computer: there is no local folder to
+    /// start in, and the tool server is the one that host has.
+    remote: Option<String>,
 }
 
 impl AcpConversation {
@@ -815,6 +818,13 @@ impl AcpConversation {
         self
     }
 
+    /// Run the agent on another computer: `program` is then `ssh` and `args` its line, so there is
+    /// no local folder to start in, and the tool server must be found on that host.
+    pub fn with_remote(mut self, host: Option<String>) -> Self {
+        self.remote = host;
+        self
+    }
+
     /// Text put before each message, as the CLI runs do (who it works for, how to use our tools).
     pub fn with_preamble(mut self, preamble: String) -> Self {
         self.preamble = preamble;
@@ -860,6 +870,7 @@ impl AcpConversation {
             access_error: None,
             session_config: Vec::new(),
             auth: None,
+            remote: None,
         }
     }
 
@@ -874,7 +885,24 @@ impl AcpConversation {
         }
         let name = display_for(&self.agent);
         let resume = self.lock().as_ref().and_then(|s| s.core.session_id()).or_else(|| self.resume.clone());
-        let mut core = AcpCore::new(&self.backend, &self.agent, &name, self.cwd.clone(), self.mcp.clone(), resume).with_auth(self.auth.clone());
+        let mut mcp = self.mcp.clone();
+        // A question starts no tool server, so that host isn't asked for one and a model read
+        // keeps its own deadline; its session keeps `.` as its folder.
+        if !self.question
+            && let Some(host) = self.remote.as_deref()
+        {
+            let target = super::adapters::remote_acp_target(host);
+            // That host starts our server with the PATH its own session has: an absolute path is
+            // what connects there, as it is for Claude Code's remote runs.
+            if let Some(path) = target.cli {
+                mcp.command = path;
+            }
+            // ACP's `session/new` names an absolute folder: the one that host's session starts in.
+            if let Some(home) = target.home {
+                self.cwd = PathBuf::from(home);
+            }
+        }
+        let mut core = AcpCore::new(&self.backend, &self.agent, &name, self.cwd.clone(), mcp, resume).with_auth(self.auth.clone());
         core.question = self.question;
         core.sign_in_fix = self.adapter.sign_in_fix();
         core.typed_mcp = self.adapter.acp_mcp_stdio_type();
@@ -886,11 +914,13 @@ impl AcpConversation {
         let (shared, tx, busy) = (self.shared.clone(), self.tx.clone(), self.busy.clone());
         let shared_err = self.shared.clone();
         let tx_err = tx.clone();
-        let mut proc = self
-            .adapter
-            .process(&self.program)
-            .args(&self.args)
-            .cwd(&self.cwd)
+        let mut proc = self.adapter.process(&self.program).args(&self.args);
+        // A remote run is `ssh` here and the agent there: the folder this one is in means nothing,
+        // and the session names its own folder instead.
+        if self.remote.is_none() {
+            proc = proc.cwd(&self.cwd);
+        }
+        let mut proc = proc
             // Our own CLI, started from inside the agent, calls tools as an agent (not the person).
             .env(craft_anything_engine::AGENT_ENV, "1")
             .stdin(StdinMode::Piped)

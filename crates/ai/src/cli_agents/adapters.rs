@@ -218,6 +218,12 @@ pub trait AgentAdapter: Send + Sync {
     fn check_remote_tool_server(&self, _host: &str, _stop: &CancelToken) -> Result<(), ToolError> {
         Ok(())
     }
+    /// Whether its ACP mode works on another computer over `ssh`. ACP carries the approval channel
+    /// there, so a backend with an SSH host keeps ACP instead of falling back to a per-message run
+    /// that an ACP-only agent refuses. Default: the ACP mode needs this computer.
+    fn acp_over_ssh(&self) -> bool {
+        false
+    }
     /// Prepare this run's tool server on a remote SSH host (a config file there), returning the
     /// environment variable to set on the remote command. Default: the agent can't carry one.
     fn remote_tool_server(&self, _host: &str, _mcp: &McpCommand) -> Result<Option<(&'static str, String)>, ToolError> {
@@ -1063,6 +1069,47 @@ pub(super) fn remote_cli_path(host: &str) -> Option<String> {
     absolute_path_line(&out.stdout_text())
 }
 
+/// Where `craft-anything-cli` is on a host, and the absolute folder its session starts in, in one
+/// ssh round trip: ACP's `session/new` needs an absolute `cwd`, which this computer can't guess.
+pub(super) const REMOTE_ACP_TARGET_LINE: &str = "printf 'cli=%s\\n' \"$(command -v craft-anything-cli)\"; printf 'pwd=%s\\n' \"$(pwd)\"";
+
+/// What a remote ACP session needs from its host.
+#[derive(Default)]
+pub(super) struct RemoteAcpTarget {
+    /// Where the tool server is there, when its shell reports an absolute path.
+    pub cli: Option<String>,
+    /// The folder that host's session starts in, when it reports one.
+    pub home: Option<String>,
+}
+
+/// Ask the host once for both. A host that doesn't answer leaves both `None`, and the session
+/// keeps the bare program name and `.` as its folder.
+pub(super) fn remote_acp_target(host: &str) -> RemoteAcpTarget {
+    match ssh_run(host, REMOTE_ACP_TARGET_LINE, std::time::Duration::from_secs(15), None).ok().filter(|out| out.success) {
+        Some(out) => parse_target(&out.stdout_text()),
+        None => RemoteAcpTarget::default(),
+    }
+}
+
+/// Read [`REMOTE_ACP_TARGET_LINE`]'s answer by its labels, so a login banner can't be taken for
+/// either path.
+fn parse_target(text: &str) -> RemoteAcpTarget {
+    let mut target = RemoteAcpTarget::default();
+    for line in text.lines().map(str::trim) {
+        if let Some(value) = line.strip_prefix("cli=") {
+            target.cli = absolute(value);
+        } else if let Some(value) = line.strip_prefix("pwd=") {
+            target.home = absolute(value);
+        }
+    }
+    target
+}
+
+/// `value` when it names an absolute path; a shell function, alias or banner isn't one.
+fn absolute(value: &str) -> Option<String> {
+    value.starts_with('/').then(|| value.to_string())
+}
+
 /// The first line of `text` when it is an absolute path; a shell function, alias or banner isn't.
 fn absolute_path_line(text: &str) -> Option<String> {
     let line = text.lines().map(str::trim).find(|line| !line.is_empty())?;
@@ -1071,7 +1118,19 @@ fn absolute_path_line(text: &str) -> Option<String> {
 
 #[cfg(test)]
 mod remote_path_tests {
-    use super::absolute_path_line;
+    use super::{absolute_path_line, parse_target};
+
+    /// The host's answer is read by label: a login banner can't become the tool server's path, and
+    /// a missing helper leaves the bare name rather than taking the home folder for it.
+    #[test]
+    fn the_remote_target_needs_both_labels_and_absolute_paths() {
+        let t = parse_target("cli=/home/a/bin/craft-anything-cli\npwd=/home/a\n");
+        assert_eq!((t.cli.as_deref(), t.home.as_deref()), (Some("/home/a/bin/craft-anything-cli"), Some("/home/a")));
+        let t = parse_target("Welcome to box!\ncli=\npwd=/home/a\n");
+        assert_eq!((t.cli, t.home.as_deref()), (None, Some("/home/a")));
+        let t = parse_target("cli=craft-anything-cli\npwd=relative\n");
+        assert_eq!((t.cli, t.home), (None, None), "a shell function and a relative folder are not paths");
+    }
 
     #[test]
     fn only_an_absolute_path_is_taken_as_the_helper_location() {

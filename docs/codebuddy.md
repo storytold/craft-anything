@@ -41,6 +41,25 @@ codebuddy --acp --permission-mode default
 A deep chat and a question use `--permission-mode plan` instead. There is no subcommand, no
 trailing word, and no model flag on the command line.
 
+## On another computer
+
+Detect offers **CodeBuddy on <host>** for each concrete `Host` in `~/.ssh/config`, beside Claude
+Code and OpenCode. That is a suggestion, not proof: the host needs CodeBuddy and
+`craft-anything-cli` on its `PATH` (that CLI is the tool server there), and a build checks the
+helper before it starts.
+
+The session runs as `ssh <host> -- env CRAFT_ANYTHING_AGENT=1 codebuddy --acp …`, so permission
+requests come back over the same connection and the approval policy decides them exactly as on
+this computer. The marker is set inside that command line because ssh forwards none of our
+environment; without it, the remote CLI would act as the person and could loosen approvals.
+
+The session's folder is `.` until the host reports its own, which it is asked for once when the
+session starts; the tool server is started from the absolute path that host reports, when it
+reports one. A question starts no tool server, so it is not asked.
+
+Live remote runs are unverified: the two hosts available when this landed had neither program
+installed.
+
 ## Model and thinking
 
 Use the shared model picker (Settings → AI → **Change...**), or set `cli_model` on the same backend

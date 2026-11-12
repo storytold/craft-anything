@@ -627,9 +627,11 @@ launch or preview was run for this documentation correction.
   CodeBuddy reaches MCP tools through one wrapper (`DeferExecuteTool`), which the approval policy
   unwraps to the real tool name. Checked against CodeBuddy 2.182.0, signed in: both config ids, a
   live catalogue validation, `plan` refusing a `mkdir`, `default` sending a permission request,
-  and all our tools listed over the session. A full build was not reached: two turns explored
-  without writing, and `bypassPermissions` changed nothing, so the cause was the model, not the
-  approvals. See [codebuddy.md](codebuddy.md).
+  and all our tools listed over the session. An SSH host is offered in Detect and runs the same
+  ACP session through `ssh` (`acp_over_ssh`); that host needs `codebuddy` and
+  `craft-anything-cli`, and the build's preflight checks the helper there. A full build was not
+  reached: two turns explored without writing, and `bypassPermissions` changed nothing, so the
+  cause was the model, not the approvals. See [codebuddy.md](codebuddy.md).
 - Maki (`maki -p`, or over ACP with `acp = true`) is offered when adding a coding agent and found by
   Detect. Over ACP it asks us before commands, our own tools and writes outside its working folder;
   writes inside that folder (a build's project folder, our own records included) and every read

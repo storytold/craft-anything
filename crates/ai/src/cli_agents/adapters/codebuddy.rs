@@ -81,6 +81,17 @@ impl AgentAdapter for CodeBuddy {
         cli_can_start(craft_anything_platform::self_cli_path().as_deref(), stop)
     }
 
+    /// The session runs over `ssh`, and the helper it starts there is checked before a build.
+    fn check_remote_tool_server(&self, host: &str, stop: &CancelToken) -> Result<(), ToolError> {
+        remote_check(host, Some(stop))
+    }
+
+    /// `codebuddy --acp` speaks over stdio wherever it runs, so an SSH host carries the session
+    /// as it is; the permission requests come back through it.
+    fn acp_over_ssh(&self) -> bool {
+        true
+    }
+
     /// `--acp` is the whole command line. An extra argument could turn off the CLI's own
     /// permission asks, which is the only channel our approvals have here.
     fn acp_options(&self, _options: &BackendOptions, _access: Access) -> Vec<String> {
@@ -179,6 +190,7 @@ mod tests {
         let adapter = AgentAdapters::built_in().for_agent("codebuddy");
         assert!(adapter.ids().contains(&"codebuddy"), "registered, not the plain adapter");
         assert!(adapter.requires_acp() && !adapter.plain_fallback());
+        assert!(adapter.acp_over_ssh(), "the session runs over ssh too");
         assert!(adapter.has_model_catalog() && adapter.model_catalog_depends_on_selection());
         assert!(!adapter.supports_model_tuning());
         assert_eq!(super::super::acp::acp_args("codebuddy"), Some(&["--acp"][..]));
