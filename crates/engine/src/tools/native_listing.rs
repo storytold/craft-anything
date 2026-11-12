@@ -535,10 +535,17 @@ fn string_references(refs: &[Xref], function_of: impl Fn(u64) -> Option<String>)
     (users, refs.len(), refs.len() > MAX_STRING_REFERENCES)
 }
 
-fn references_capped_limitation(capped: bool) -> Option<Limitation> {
+fn references_capped_limitation(capped: bool, analysis_capped: bool) -> Option<Limitation> {
     capped.then(|| {
-        Limitation::new("references_capped", format!("Only the first {MAX_STRING_REFERENCES} references are listed per string; reference_count is complete."))
+        let completeness =
+            if analysis_capped { "the analysis xref limit was reached, so reference_count may also be incomplete." } else { "reference_count is complete." };
+        Limitation::new("references_capped", format!("Only the first {MAX_STRING_REFERENCES} references are listed per string; {completeness}"))
     })
+}
+
+/// The analysis's own cross-reference limit, when it kept only the first cross-references.
+fn xref_limit_limitation(limitations: &[(String, String)]) -> Option<Limitation> {
+    limitations.iter().find(|(code, _)| code == "xref_limit").map(|(code, message)| Limitation::new(code.clone(), message.clone()))
 }
 
 fn native_strings_find(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
@@ -572,7 +579,12 @@ fn native_strings_find(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, T
         .summary(format!("{} strings match \"{}\".", rows.len(), p.pattern))
         .coverage(cov)
         .limitation(Limitation::new("data_sections_only", "only strings stored in the file are searched (absence is not proof)"));
-    if let Some(l) = references_capped_limitation(references_capped) {
+    let xref_limit = xref_limit_limitation(&st.prog.limitations);
+    let analysis_capped = xref_limit.is_some();
+    if let Some(l) = xref_limit {
+        b = b.limitation(l);
+    }
+    if let Some(l) = references_capped_limitation(references_capped, analysis_capped) {
         b = b.limitation(l);
     }
     let e = b.build()?;
@@ -764,8 +776,15 @@ mod tests {
         let (_, total, capped) = string_references(&refs[..32], |_| None);
         assert_eq!(total, 32);
         assert!(!capped);
-        assert!(references_capped_limitation(true).is_some());
-        assert!(references_capped_limitation(false).is_none());
+        let plain = references_capped_limitation(true, false).unwrap();
+        assert!(plain.message.contains("reference_count is complete"), "{}", plain.message);
+        let limited = references_capped_limitation(true, true).unwrap();
+        assert!(limited.message.contains("analysis xref limit"), "{}", limited.message);
+        assert!(references_capped_limitation(false, false).is_none());
+        assert!(references_capped_limitation(false, true).is_none());
+        let lims = vec![("xref_limit".to_string(), "kept the first 10 cross-references".to_string())];
+        assert_eq!(xref_limit_limitation(&lims).unwrap().code, "xref_limit");
+        assert!(xref_limit_limitation(&[]).is_none());
     }
 
     #[test]
