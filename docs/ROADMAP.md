@@ -1130,7 +1130,7 @@ Owner: maintainers · Status: in progress
       study finds no program in it ("Couldn't find the program to decompile"), so Deep mode skips
       Ghidra, the console runs and the window picture. Study the program its `Info.plist` names
       — claimed: htcom-code, branch bugfix/r2.4-app-bundle-program
-- [ ] Since that fix, the console-run check reads an app bundle's `Info.plist` to name the original,
+- [x] Since that fix, the console-run check reads an app bundle's `Info.plist` to name the original,
       in Clean room too (review on #1759). Clean room takes the picked path's own name
       — claimed: htcom-code, branch bugfix/r2.4-clean-room-bundle-name
 
