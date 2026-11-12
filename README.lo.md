@@ -8,19 +8,19 @@
 </p>
 
 <p align="center">
-  <img src="assets/app-icon/hicolor/256x256/apps/ai.storyteller.craft-anything.png" width="128" height="128" alt="Craft Anything 아이콘: 파란 타일 위에 새겨진 까마귀">
+  <img src="assets/app-icon/hicolor/256x256/apps/ai.storyteller.craft-anything.png" width="128" height="128" alt="ໄອຄອນ Craft Anything: ຮູບນົກກາທີ່ສະຫຼັກຢູ່ເທິງແຜ່ນກະເບື້ອງສີຟ້າ">
 </p>
 
 <h1 align="center">Craft Anything</h1>
 
 <p align="center">
-  <a href="README.md">English</a> · <a href="README.ja.md">日本語</a> · <a href="README.zh.md">简体中文</a> · <a href="README.zh-hant.md">繁體中文</a> · <b>한국어</b> · <a href="README.es.md">Español</a> · <a href="README.fr.md">Français</a> · <a href="README.vi.md">Tiếng Việt</a> · <a href="README.pt.md">Português</a> · <a href="README.th.md">ไทย</a>
+  <a href="README.md">English</a> · <a href="README.ja.md">日本語</a> · <a href="README.zh.md">简体中文</a> · <a href="README.zh-hant.md">繁體中文</a> · <a href="README.ko.md">한국어</a> · <a href="README.es.md">Español</a> · <a href="README.fr.md">Français</a> · <a href="README.vi.md">Tiếng Việt</a> · <a href="README.pt.md">Português</a> · <a href="README.th.md">ไทย</a> · <b>ພາສາລາວ</b>
 </p>
 
 <p align="center">
-  <b>어떤 웹사이트, 앱, 게임이든 어떻게 동작하는지 파악하고, AI로 나만의 버전을 만들어 보세요. 순수 Rust로 만든 오픈소스 clean-room 엔진입니다.</b><br>
-  대상을 지정하고 원하는 것을 말하면, 실제 검사 도구로 원본을 분석한 뒤<br>
-  코딩 에이전트가 새 프로젝트를 빌드하고, 원본과 비교하며 결과를 다듬습니다.
+  <b>ເຂົ້າໃຈການເຮັດວຽກຂອງທຸກເວັບໄຊ, ແອັບ, ຫຼື ເກມ, ແລ້ວສ້າງເວີຊັນຂອງທ່ານເອງດ້ວຍ AI. ເຄື່ອງຈັກ clean-room ແບບໂອເພນຊອດທີ່ສ້າງດ້ວຍ Rust ລ້ວນໆ.</b><br>
+  ພຽງແຕ່ກຳນົດເປົ້າໝາຍ ແລະ ບອກສິ່ງທີ່ຕ້ອງການ, ລະບົບຈະວິເຄາະຕົ້ນສະບັບດ້ວຍເຄື່ອງມືກວດສອບຕົວຈິງ<br>
+  ຈາກນັ້ນຕົວແທນຂຽນໂຄດຈະສ້າງໂຄງການໃໝ່, ພ້ອມທັງປຽບທຽບກັບຕົ້ນສະບັບເພື່ອປັບປຸງຜົນລັບໃຫ້ສົມບູນ.
 </p>
 
 <p align="center">
@@ -31,38 +31,38 @@
 </p>
 
 <p align="center">
-  <a href="https://discord.gg/artcraft"><img alt="ArtCraft 커뮤니티 디스코드 참여하기" src="https://img.shields.io/badge/Join%20us%20on%20Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" height="40"></a>
+  <a href="https://discord.gg/artcraft"><img alt="ເຂົ້າຮ່ວມ Discord ຂອງຊຸມຊົນ ArtCraft" src="https://img.shields.io/badge/Join%20us%20on%20Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" height="40"></a>
 </p>
 
 <p align="center">
-  <a href="#downloads"><b>Craft Anything 다운로드</b></a> ·
+  <a href="#downloads"><b>ດາວໂຫຼດ Craft Anything</b></a> ·
   <a href="https://getartcraft.com/">ArtCraft</a> ·
-  <a href="https://getartcraft.com/apps">모든 Crafting Apps</a>
+  <a href="https://getartcraft.com/apps">ແອັບ Crafting ທັງໝົດ</a>
 </p>
 
 <br>
 
 <p align="center">
-  <img src="docs/images/project-website.png" alt="Craft Anything의 웹사이트 프로젝트: 검사는 아직 맞지 않는 부분과 각 페이지가 얼마나 비슷한지 보여 주고, 빌더는 자기 버전이 준비됐다고 말하며, 승인 카드는 명령을 실행하기 전에 묻고, 계획은 네 단계 중 두 단계가 끝났음을 보여 줌" width="100%">
+  <img src="docs/images/project-website.png" alt="ໂຄງການເວັບໄຊໃນ Craft Anything: ການກວດສອບສະແດງໃຫ້ເຫັນສ່ວນທີ່ຍັງບໍ່ກົງກັນ ແລະ ຄວາມຄືກັນຂອງແຕ່ລະໜ້າ, ຕົວສ້າງແຈ້ງວ່າເວີຊັນຂອງຕົນພ້ອມແລ້ວ, ບັດອະນຸມັດຖາມກ່ອນການດຳເນີນຄຳສັ່ງ, ແລະ ແຜນງານສະແດງວ່າສຳເລັດສອງຈາກສີ່ຂັ້ນຕອນແລ້ວ" width="100%">
   <br>
-  <sub>웹사이트 프로젝트: 각 검사는 빌드가 원본과 얼마나 비슷한지 보여 주고, 규칙을 벗어나는 작업은 직접 승인하며, 계획에서는 남은 일을 확인할 수 있습니다.</sub>
+  <sub>ໂຄງການເວັບໄຊ: ການກວດສອບແຕ່ລະຄັ້ງຈະສະແດງໃຫ້ເຫັນວ່າການສ້າງຄືກັບຕົ້ນສະບັບຫຼາຍປານໃດ, ວຽກທີ່ຢູ່ນອກກົດຕ້ອງໄດ້ຮັບການອະນຸມັດດ້ວຍຕົນເອງ, ແລະ ແຜນງານຊ່ວຍໃຫ້ເຫັນວຽກທີ່ຍັງເຫຼືອ.</sub>
 </p>
 
 > [!NOTE]
-> **ArtCraft는 다양한 분야의 예술가들이 모인 커뮤니티입니다.** 화가, 사진가,
-> 영화 제작자, 일러스트레이터, 디자이너, 애니메이터, 취미 창작자, 그리고 지난주에
-> 연필을 처음 든 사람까지. 무언가를 만든다면 여러분도 우리 일원입니다. **[디스코드에 인사하러 오세요](https://discord.gg/artcraft).**
+> **ArtCraft ແມ່ນຊຸມຊົນຂອງສິລະປິນຈາກຫຼາຍຂະແໜງການ.** ນັກແຕ້ມຮູບ, ຊ່າງຖ່າຍຮູບ,
+> ຜູ້ສ້າງຮູບເງົາ, ນັກແຕ້ມພາບປະກອບ, ນັກອອກແບບ, ນັກສ້າງແອນິເມຊັນ, ຜູ້ສ້າງສັນເປັນວຽກອະດິເລກ, ແລະ ຜູ້ທີ່ຫາກໍ່
+> ຈັບສໍເປັນຄັ້ງທຳອິດໃນອາທິດແລ້ວນີ້. ຖ້າທ່ານສ້າງສິ່ງໃດໜຶ່ງຂຶ້ນມາ, ທ່ານກໍແມ່ນໜຶ່ງໃນພວກເຮົາ. **[ມາທັກທາຍກັນໄດ້ທີ່ Discord](https://discord.gg/artcraft).**
 
 <p align="center">
-  <a href="#how-it-works">작동 방식</a> ·
-  <a href="#two-ways-to-use-it">두 가지 사용 방법</a> ·
+  <a href="#how-it-works">ວິທີການເຮັດວຽກ</a> ·
+  <a href="#two-ways-to-use-it">ສອງວິທີໃນການນຳໃຊ້</a> ·
   <a href="#ai">AI</a> ·
-  <a href="#built-for-agents">에이전트</a> ·
-  <a href="#under-the-hood">내부 구조</a> ·
-  <a href="#get-started">시작하기</a> ·
-  <a href="#status">현재 상태</a> ·
-  <a href="#downloads">다운로드</a> ·
-  <a href="https://discord.gg/artcraft">디스코드</a>
+  <a href="#built-for-agents">ຕົວແທນ (Agents)</a> ·
+  <a href="#under-the-hood">ໂຄງສ້າງພາຍໃນ</a> ·
+  <a href="#get-started">ເລີ່ມຕົ້ນນຳໃຊ້</a> ·
+  <a href="#status">ສະຖານະປະຈຸບັນ</a> ·
+  <a href="#downloads">ດາວໂຫຼດ</a> ·
+  <a href="https://discord.gg/artcraft">Discord</a>
 </p>
 
 <br>
@@ -70,85 +70,85 @@
 <table>
   <tr>
     <td width="25%" valign="top">
-      <h3><a id="-study-anything"></a>🔍 무엇이든 분석</h3>
-      웹사이트, 데스크톱 앱, 모바일 앱, 게임, 파일: 실제 검사 도구가 어떻게 만들어졌고 무엇을 하는지 알아내며, 모든 답의 근거를 함께 보여 줍니다.
+      <h3><a id="-study-anything"></a>🔍 ສຶກສາວິເຄາະທຸກຢ່າງ</h3>
+      ເວັບໄຊ, ແອັບເດັສທັອບ, ແອັບມືຖື, ເກມ, ໄຟລ໌: ເຄື່ອງມືກວດສອບຕົວຈິງຈະຄົ້ນຫາວ່າສິ່ງນັ້ນຖືກສ້າງຂຶ້ນມາແນວໃດ ແລະ ເຮັດວຽກຫຍັງ, ພ້ອມທັງສະແດງຫຼັກຖານປະກອບທຸກຄຳຕອບ.
     </td>
     <td width="25%" valign="top">
-      <h3><a id="-build-your-own"></a>🛠️ 나만의 버전 만들기</h3>
-      "이 웹사이트를 재현해 줘", "이 게임의 게임플레이를 Rust로 재현해 줘"처럼 원하는 것을 말하면, 코딩 에이전트가 요청한 스택으로 새 프로젝트를 만듭니다.
+      <h3><a id="-build-your-own"></a>🛠️ ສ້າງເວີຊັນຂອງທ່ານເອງ</h3>
+      ພຽງແຕ່ບອກສິ່ງທີ່ທ່ານຕ້ອງການ ເຊັ່ນ "ສ້າງເວັບໄຊນີ້ຄືນໃໝ່", "ສ້າງລະບົບການຫຼິ້ນຂອງເກມນີ້ຄືນໃໝ່ດ້ວຍ Rust", ຕົວແທນຂຽນໂຄດຈະສ້າງໂຄງການໃໝ່ຕາມສະແຕັກທີ່ທ່ານຮ້ອງຂໍ.
     </td>
     <td width="25%" valign="top">
-      <h3><a id="-checked-not-guessed"></a>✅ 추측이 아닌 검증</h3>
-      모든 빌드는 원본과 비교하며(세 가지 화면 너비의 페이지, 게임 자체 테스트, 앱 실행 결과), 충분히 비슷해질 때까지 다듬습니다.
+      <h3><a id="-checked-not-guessed"></a>✅ ກວດສອບຕົວຈິງ ບໍ່ແມ່ນການຄາດເດົາ</h3>
+      ທຸກໆການສ້າງຈະຖືກປຽບທຽບກັບຕົ້ນສະບັບ (ໜ້າເວັບໃນສາມຂະໜາດຄວາມກວ້າງໜ້າຈໍ, ການທົດສອບພາຍໃນຂອງເກມ, ຜົນການເຮັດວຽກຂອງແອັບ), ແລະ ປັບແຕ່ງຈົນກວ່າຈະຄືກັນພຽງພໍ.
     </td>
     <td width="25%" valign="top">
-      <h3><a id="-agent-ready"></a>🤖 에이전트 연동 지원</h3>
-      314개 도구는 각각 CLI 명령이자 MCP 도구이므로, 어떤 에이전트든 앱이 쓰는 같은 엔진을 조작할 수 있습니다. 검사하는 데 AI는 필요하지 않습니다.
+      <h3><a id="-agent-ready"></a>🤖 ພ້ອມຮອງຮັບຕົວແທນ</h3>
+      ເຄື່ອງມືທັງ 314 ຢ່າງລ້ວນແຕ່ເປັນຄຳສັ່ງ CLI ແລະ ເຄື່ອງມື MCP, ດັ່ງນັ້ນຕົວແທນໃດໆກໍສາມາດຄວບຄຸມເຄື່ອງຈັກດຽວກັນກັບທີ່ແອັບໃຊ້. ບໍ່ຈຳເປັນຕ້ອງມີ AI ໃນການກວດກາ.
     </td>
   </tr>
 </table>
 
 <br>
 
-## <a id="how-it-works"></a>작동 방식
+## <a id="how-it-works"></a>ວິທີການເຮັດວຽກ
 
-Craft Anything에서 대상을 지정하고 원하는 것을 말한 뒤 Start를 누르세요. 네 단계로 진행하며,
-결정이 필요할 때는 알기 쉬운 말로 직접 물어봅니다:
+ໃນ Craft Anything, ໃຫ້ກຳນົດເປົ້າໝາຍ ແລະ ບອກສິ່ງທີ່ຕ້ອງການ ແລ້ວກົດ Start. ລະບົບຈະດຳເນີນການຜ່ານສີ່ຂັ້ນຕອນ,
+ເມື່ອຕ້ອງການການຕັດສິນໃຈ, ລະບົບຈະຖາມໂດຍກົງດ້ວຍພາສາທີ່ເຂົ້າໃຈງ່າຍ:
 
-1. **Study:** 원본을 살펴봅니다. 화면 너비별 페이지, 코드, 파일, 실행 방식을 확인합니다.
-2. **Build:** 코딩 에이전트가 새 프로젝트를 만듭니다. 요청에 적힌 언어, 프레임워크 또는 엔진을 쓰고, 적힌 것이 없으면 기본값을 씁니다.
-3. **Check:** 빌드를 원본과 비교하고, 맞지 않는 부분을 나열합니다.
-4. **Ready:** 결과를 열거나, 플레이하거나, 미리 볼 수 있습니다. 바꿀 부분을 요청하면 다듬어 줍니다.
+1. **Study:** ກວດກາເບິ່ງຕົ້ນສະບັບ. ກວດເບິ່ງໜ້າເວັບຕາມຄວາມກວ້າງໜ້າຈໍ, ໂຄດ, ໄຟລ໌, ແລະ ວິທີການເຮັດວຽກ.
+2. **Build:** ຕົວແທນຂຽນໂຄດຈະສ້າງໂຄງການໃໝ່. ໂດຍໃຊ້ພາສາ, ເຟຣມເວີກ, ຫຼື ເຄື່ອງຈັກທີ່ລະບຸໄວ້ໃນຄຳຂໍ, ຖ້າບໍ່ໄດ້ລະບຸຈະໃຊ້ຄ່າເລີ່ມຕົ້ນ.
+3. **Check:** ປຽບທຽບສິ່ງທີ່ສ້າງຂຶ້ນກັບຕົ້ນສະບັບ, ແລະ ສະແດງລາຍການສ່ວນທີ່ຍັງບໍ່ກົງກັນ.
+4. **Ready:** ສາມາດເປີດ, ຫຼິ້ນ, ຫຼື ເບິ່ງຕົວຢ່າງຜົນລັບໄດ້. ຫາກຕ້ອງການປ່ຽນແປງສ່ວນໃດກໍສາມາດຮ້ອງຂໍເພື່ອປັບປຸງໄດ້.
 
 <table>
   <tr>
     <td width="50%" valign="top">
-      <img src="docs/images/make.png" alt="Make 화면: 재현할 웹사이트, 앱 또는 게임을 고르고, 주소를 입력하고, Clean room 또는 Deep 중 하나를 고르고, 원하는 것을 말한 뒤 Start를 누릅니다" width="100%"><br>
-      <sub><b>Make:</b> 재현할 대상을 고르고, 원하는 것을 말한 뒤 Start를 누르세요.</sub>
+      <img src="docs/images/make.png" alt="ໜ້າຈໍ Make: ເລືອກເວັບໄຊ, ແອັບ ຫຼື ເກມທີ່ຈະສ້າງຄືນໃໝ່, ປ້ອນທີ່ຢູ່, ເລືອກລະຫວ່າງ Clean room ຫຼື Deep, ບອກສິ່ງທີ່ຕ້ອງການ ແລ້ວກົດ Start" width="100%"><br>
+      <sub><b>Make:</b> ເລືອກເປົ້າໝາຍທີ່ຈະສ້າງຄືນໃໝ່, ບອກສິ່ງທີ່ຕ້ອງການ ແລ້ວກົດ Start.</sub>
     </td>
     <td width="50%" valign="top">
-      <img src="docs/images/project-game.png" alt="모든 단계가 끝난 뱀 게임 프로젝트와 게임 플레이 버튼" width="100%"><br>
-      <sub><b>Ready:</b> 게임을 플레이하거나, 아래에서 변경을 요청하세요.</sub>
+      <img src="docs/images/project-game.png" alt="ໂຄງການເກມງູທີ່ສຳເລັດທຸກຂັ້ນຕອນແລ້ວ ພ້ອມປຸ່ມຫຼິ້ນເກມ" width="100%"><br>
+      <sub><b>Ready:</b> ຫຼິ້ນເກມ ຫຼື ຮ້ອງຂໍການປ່ຽນແປງໄດ້ຢູ່ດ້ານລຸ່ມ.</sub>
     </td>
   </tr>
 </table>
 
-## <a id="two-ways-to-use-it"></a>두 가지 사용 방법
+## <a id="two-ways-to-use-it"></a>ສອງວິທີໃນການນຳໃຊ້
 
-- **Simple**(기본값): "What do you want to make?" 웹사이트, 앱 또는 게임을 고르고 설명한 뒤 Start를 누릅니다.
-  프로젝트 페이지에는 네 단계(Study → Build → Check → Ready), 에이전트가 하는 일을 쉬운 말로 적은 내용,
-  질문과 승인 카드, 결과가 원본과 얼마나 비슷한지, 결과나 폴더를 여는 버튼이 표시됩니다.
-  아래쪽 입력창에서 변경을 요청하세요. "Just look inside"는 결과물을 만들지 않고, 대상을 열어 질문만 할 수 있습니다(Deep 모드에서).
-- **Advanced**: 전체 기능을 갖춘 워크벤치입니다. 모든 도구(Ctrl/Cmd+K), 함수, 문자열, 의사 C 코드, 디스어셈블리,
-  16진수(hex), 호출 그래프, 근거, 미확인 사항, 작업, 로그, 에이전트 콘솔을 제공합니다.
+- **Simple** (ຄ່າເລີ່ມຕົ້ນ): "What do you want to make?" ເລືອກເວັບໄຊ, ແອັບ, ຫຼື ເກມ ແລ້ວອະທິບາຍສິ່ງທີ່ຕ້ອງການ ຈາກນັ້ນກົດ Start.
+  ໜ້າໂຄງການຈະສະແດງສີ່ຂັ້ນຕອນ (Study → Build → Check → Ready), ລາຍລະອຽດສິ່ງທີ່ຕົວແທນກຳລັງເຮັດດ້ວຍຄຳອະທິບາຍທີ່ເຂົ້າໃຈງ່າຍ,
+  ບັດຄຳຖາມ ແລະ ການອະນຸມັດ, ລະດັບຄວາມຄືກັນລະຫວ່າງຜົນລັບກັບຕົ້ນສະບັບ, ແລະ ປຸ່ມສຳລັບເປີດຜົນລັບ ຫຼື ເປີດໂຟນເດີ.
+  ສາມາດຮ້ອງຂໍການປ່ຽນແປງໄດ້ຈາກຊ່ອງປ້ອນຂໍ້ມູນດ້ານລຸ່ມ. ສ່ວນຕົວເລືອກ "Just look inside" ຈະບໍ່ສ້າງຜົນລັບ, ແຕ່ຈະເປີດເປົ້າໝາຍເພື່ອຖາມຄຳຖາມເທົ່ານັ້ນ (ໃນໂໝດ Deep).
+- **Advanced**: ໂຕະເຮັດວຽກ (Workbench) ທີ່ມີຟັງຊັນຄົບຖ້ວນ. ປະກອບມີເຄື່ອງມືທັງໝົດ (Ctrl/Cmd+K), ຟັງຊັນ, ສາຍອັກຂະຫຼະ, ໂຄດທຽມ C, ດິສແອັດແຊມບລີ,
+  ເລກຖານສິບຫົກ (Hex), ກຣາຟການເອີ້ນໃຊ້, ຫຼັກຖານ, ສິ່ງທີ່ຍັງບໍ່ທັນຢືນຢັນ, ໜ້າວຽກ, ບັນທຶກ (Logs), ແລະ ຄອນໂຊລຕົວແທນ.
 
-두 모드 모두 같은 엔진을 사용합니다.
+ທັງສອງໂໝດລ້ວນແຕ່ໃຊ້ເຄື່ອງຈັກດຽວກັນ.
 
-## <a id="clean-room-or-deep"></a>Clean room 또는 Deep
+## <a id="clean-room-or-deep"></a>Clean room ຫຼື Deep
 
-- **Clean room**(기본값): 코드, 파일, 페이지 소스 등 원본 내부는 일절 읽지 않습니다. Craft Anything은
-  오직 눈에 보이는 것만으로 작업합니다. 사용자가 추가한 이미지, 방문자가 보는 웹사이트(스크린샷, 보이는 텍스트,
-  측정한 레이아웃, 색상, 글꼴, 간격, 열어 본 메뉴), 그리고 허용한 경우 캡처한 앱 화면이 여기에 해당합니다.
-  내부를 들여다보는 도구는 거부되며, Deep 모드를 켜는 방법을 알려 줍니다.
-- **Deep**: 개인 용도로 모든 도구를 사용합니다. 프로그램의 코드와 파일은 내장 엔진(설치되어 있으면 Ghidra도)으로 읽고,
-  웹사이트의 JavaScript를 읽고 시작 페이지를 관찰하며, 빌더는 이 모두를 쓸 수 있습니다.
+- **Clean room** (ຄ່າເລີ່ມຕົ້ນ): ຈະບໍ່ອ່ານສິ່ງທີ່ຢູ່ພາຍໃນຕົ້ນສະບັບເລີຍ ເຊັ່ນ ໂຄດ, ໄຟລ໌, ຫຼື ຊອດໂຄດຂອງໜ້າເວັບ. Craft Anything
+  ຈະເຮັດວຽກສະເພາະກັບສິ່ງທີ່ເບິ່ງເຫັນດ້ວຍຕາເທົ່ານັ້ນ. ເຊິ່ງລວມເຖິງຮູບພາບທີ່ຜູ້ໃຊ້ເພີ່ມເຂົ້າໄປ, ເວັບໄຊທີ່ຜູ້ເຂົ້າຊົມເຫັນ (ຮູບຖ່າຍໜ້າຈໍ, ຂໍ້ຄວາມທີ່ເຫັນໄດ້,
+  ໂຄງຮ່າງທີ່ວັດແທກໄດ້, ສີສັນ, ຟອນຕົວໜັງສື, ໄລຍະຫ່າງ, ເມນູທີ່ເປີດເບິ່ງ), ແລະ ໜ້າຈໍແອັບທີ່ບັນທຶກໄວ້ໃນກໍລະນີທີ່ໄດ້ຮັບອະນຸຍາດ.
+  ເຄື່ອງມືທີ່ໃຊ້ສ່ອງເບິ່ງພາຍໃນຈະຖືກປະຕິເສດ, ພ້ອມທັງແນະນຳວິທີການເປີດໃຊ້ໂໝດ Deep.
+- **Deep**: ໃຊ້ງານເຄື່ອງມືທັງໝົດສຳລັບການນຳໃຊ້ສ່ວນຕົວ. ໂຄດ ແລະ ໄຟລ໌ຂອງໂປຣແກຣມຈະຖືກອ່ານດ້ວຍເຄື່ອງຈັກພາຍໃນ (ລວມທັງ Ghidra ຖ້າມີການຕິດຕັ້ງ),
+  ອ່ານ JavaScript ຂອງເວັບໄຊ ແລະ ສັງເກດເບິ່ງໜ້າເລີ່ມຕົ້ນ, ໂດຍທີ່ຕົວສ້າງສາມາດນຳໃຊ້ສິ່ງເຫຼົ່ານີ້ໄດ້ທັງໝົດ.
 
-제목 표시줄이나 Settings에서 전환하거나, `settings_set deep_mode true`로 바꾸거나, CLI를 한 번 실행할 때
-`--deep`(또는 `--clean-room`)을 붙여 전환합니다.
+ສາມາດສະຫຼັບໂໝດໄດ້ທີ່ແຖບຫົວຂໍ້ ຫຼື ໃນ Settings, ຫຼື ປ່ຽນດ້ວຍ `settings_set deep_mode true`, ຫຼື ຕື່ມ
+`--deep` (ຫຼື `--clean-room`) ເມື່ອຮັນຄຳສັ່ງ CLI ແຕ່ລະຄັ້ງ.
 
 <p align="center">
-  <img src="docs/images/workbench.png" alt="Advanced 워크벤치: 함수 목록, 선택한 함수의 의사 C 코드, 도구 호출로 질문에 답하는 에이전트, 근거 기록부" width="100%">
+  <img src="docs/images/workbench.png" alt="Advanced Workbench: ລາຍຊື່ຟັງຊັນ, ໂຄດທຽມ C ຂອງຟັງຊັນທີ່ເລືອກ, ຕົວແທນຕອບຄຳຖາມຜ່ານການເອີ້ນໃຊ້ເຄື່ອງມື, ບັນທຶກຫຼັກຖານ" width="100%">
   <br>
-  <sub><b>Advanced:</b> 함수, 의사 C 코드, 에이전트, 그리고 모든 답 뒤의 근거.</sub>
+  <sub><b>Advanced:</b> ຟັງຊັນ, ໂຄດທຽມ C, ຕົວແທນ, ແລະ ຫຼັກຖານທີ່ຢູ່ເບື້ອງຫຼັງທຸກໆຄຳຕອບ.</sub>
 </p>
 
 ## <a id="ai"></a>AI
 
-빌드하려면 컴퓨터에 코딩 에이전트가 있어야 합니다. **Claude Code**를 먼저 지원합니다. Craft Anything은 설치된 순정 `claude` 프로그램을 변조 없이 그대로 실행하며, 사용자의 기존 로그인을 사용합니다. Craft Anything은 계정을 열람하거나 다루지 않습니다. 이 사용에는 본인이 Anthropic과 맺은 약관이 적용됩니다. 방법과 이유는 [docs/claude-code.md](docs/claude-code.md)를 보세요. Codex 어댑터도 있지만 실제 설치 환경에서는 아직 검증되지 않았습니다. 질문과 분석에는 Anthropic, OpenAI, OpenRouter, 그리고 로컬 OpenAI 호환 서버를 사용할 수 있습니다(Settings → AI).
+ການສ້າງໂຄງການຮຽກຮ້ອງໃຫ້ມີຕົວແທນຂຽນໂຄດຢູ່ໃນເຄື່ອງຄອມພິວເຕີຂອງທ່ານ. ລະບົບຮອງຮັບ **Claude Code** ເປັນອັນດັບທຳອິດ. Craft Anything ຈະຮັນໂປຣແກຣມ `claude` ແທ້ທີ່ຕິດຕັ້ງຢູ່ໃນເຄື່ອງໂດຍກົງໂດຍບໍ່ມີການດັດແປງໃດໆ, ແລະ ໃຊ້ງານບັນຊີທີ່ເຂົ້າສູ່ລະບົບໄວ້ແລ້ວຂອງທ່ານ. Craft Anything ຈະບໍ່ເຂົ້າເບິ່ງ ຫຼື ຈັດການບັນຊີຂອງທ່ານ. ການນຳໃຊ້ນີ້ຢູ່ພາຍໃຕ້ເງື່ອນໄຂຂໍ້ຕົກລົງລະຫວ່າງທ່ານກັບ Anthropic. ສຳລັບວິທີການ ແລະ ເຫດຜົນ, ເບິ່ງໄດ້ທີ່ [docs/claude-code.md](docs/claude-code.md). ນອກຈາກນີ້ຍັງມີຕົວເຊື່ອມຕໍ່ Codex, ແຕ່ຍັງບໍ່ທັນໄດ້ຮັບການທົດສອບໃນສະພາບແວດລ້ອມການຕິດຕັ້ງຕົວຈິງ. ສຳລັບການຕັ້ງຄຳຖາມ ແລະ ການວິເຄາະ, ທ່ານສາມາດໃຊ້ Anthropic, OpenAI, OpenRouter, ແລະ ເຊີເວີພາຍໃນທີ່ຮອງຮັບຮູບແບບ OpenAI ໄດ້ (Settings → AI).
 
-## <a id="built-for-agents"></a>에이전트를 위한 설계
+## <a id="built-for-agents"></a>ອອກແບບມາເພື່ອຕົວແທນ
 
-모든 도구는 CLI 하위 명령이자 MCP 도구이므로, 에이전트는 앱 없이도 대상을 조사하거나 재구현 전체를 실행할 수 있습니다:
+ທຸກໆເຄື່ອງມືລ້ວນແຕ່ເປັນຄຳສັ່ງຍ່ອຍຂອງ CLI ແລະ ເຄື່ອງມື MCP, ດັ່ງນັ້ນຕົວແທນຈຶ່ງສາມາດສຳຫຼວດເປົ້າໝາຍ ຫຼື ດຳເນີນການສ້າງໃໝ່ທັງໝົດໄດ້ໂດຍບໍ່ຕ້ອງເປີດແອັບ:
 
 ```sh
 craft-anything-cli commands                                   # every tool, by toolset
@@ -156,21 +156,21 @@ craft-anything-cli mcp                                        # serve them to an
 craft-anything-cli rebuild https://example.com "Recreate this website"
 ```
 
-결과는 신뢰도, 범위, 한계가 적힌 근거 기록입니다. 큰 결과는 요약을 먼저 보여 주고, `core_evidence_browse`로 나눠 볼 수 있습니다. `craft-anything-cli setup`은 Craft Anything을 코딩 에이전트 앱에 연결합니다.
+ຜົນລັບແມ່ນບັນທຶກຫຼັກຖານທີ່ລະບຸລະດັບຄວາມໝັ້ນໃຈ, ຂອບເຂດ, ແລະ ຂໍ້ຈຳກັດ. ສຳລັບຜົນລັບຂະໜາດໃຫຍ່ຈະສະແດງບົດສະຫຼຸບກ່ອນ, ແລະ ສາມາດເບິ່ງແຍກເປັນໜ້າໄດ້ດ້ວຍ `core_evidence_browse`. ຄຳສັ່ງ `craft-anything-cli setup` ຈະເຊື່ອມຕໍ່ Craft Anything ເຂົ້າກັບແອັບຕົວແທນຂຽນໂຄດ.
 
-## <a id="under-the-hood"></a>내부 구조
+## <a id="under-the-hood"></a>ໂຄງສ້າງພາຍໃນ
 
-네이티브 프로그램, .NET, Java, Android, Apple, Electron/JavaScript, 웹사이트, 펌웨어, 패킷 캡처, 데이터베이스, 게임 파일을 위한 314개 도구(엔진에 298개, 나머지는 AI 및 설정 계층)를 갖춘 순수 Rust 리버스 엔지니어링 엔진입니다. 자체 디코더, 디스어셈블러, 디컴파일러는 외부 프로그램 없이 동작합니다. Deep 모드는 이 모두를 쓰며, 설치되어 있으면 Ghidra도 사용합니다. 데스크톱 앱(egui), CLI, MCP 서버를 구동하며, 일부는 WebAssembly로 브라우저에서도 실행됩니다. 전체 목록은 [docs/tools.md](docs/tools.md)에 있습니다.
+ເຄື່ອງຈັກວິສະວະກຳຍ້ອນຮອຍດ້ວຍ Rust ລ້ວນໆ ພ້ອມເຄື່ອງມື 314 ຢ່າງ (298 ຢ່າງໃນເຄື່ອງຈັກ, ສ່ວນທີ່ເຫຼືອແມ່ນມາຈາກຊັ້ນ AI ແລະ ການຕັ້ງຄ່າ) ສຳລັບໂປຣແກຣມເນທີບ, .NET, Java, Android, Apple, Electron/JavaScript, ເວັບໄຊ, ເຟີມແວ, ການດັກຈັບແພັກເກັດ, ຖານຂໍ້ມູນ, ແລະ ໄຟລ໌ເກມ. ຕົວຖອດລະຫັດ, ດິສແອັດແຊມເບຼີ, ແລະ ດີຄອມໄພເລີໃນຕົວສາມາດເຮັດວຽກໄດ້ໂດຍບໍ່ຕ້ອງອາໄສໂປຣແກຣມພາຍນອກ. ໂໝດ Deep ຈະໃຊ້ງານເຄື່ອງມືທັງໝົດນີ້ ແລະ ໃຊ້ Ghidra ນຳອີກຫາກມີການຕິດຕັ້ງໄວ້. ລະບົບນີ້ຂັບເຄື່ອນແອັບເດັສທັອບ (egui), CLI, ແລະ ເຊີເວີ MCP, ໂດຍບາງສ່ວນສາມາດເຮັດວຽກເທິງບຣາວເຊີຜ່ານ WebAssembly ໄດ້. ເບິ່ງລາຍການທັງໝົດໄດ້ທີ່ [docs/tools.md](docs/tools.md).
 
-## <a id="get-started"></a>시작하기
+## <a id="get-started"></a>ເລີ່ມຕົ້ນນຳໃຊ້
 
-**Rust 1.97 이상**이 필요합니다(하위 의존성에 필요하며, `rustup update`로 업데이트합니다). Debian 또는 Ubuntu에서는 데스크톱 앱에 다음 패키지도 필요합니다:
+ຕ້ອງການ **Rust 1.97 ຫຼື ໃໝ່ກວ່າ** (ຈຳເປັນສຳລັບແພັກເກັດທີ່ຂຶ້ນຕໍ່ກັນ, ອັບເດດໄດ້ດ້ວຍ `rustup update`). ສຳລັບ Debian ຫຼື Ubuntu, ແອັບເດັສທັອບຍັງຕ້ອງການແພັກເກັດຕໍ່ໄປນີ້ອີກດ້ວຍ:
 
 ```sh
 sudo apt-get install libxkbcommon-dev libwayland-dev libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev libgtk-3-dev
 ```
 
-그다음:
+ຈາກນັ້ນ:
 
 ```sh
 git clone https://github.com/storytold/craft-anything && cd craft-anything
@@ -179,7 +179,7 @@ cargo install --path apps/craft-anything-cli         # the CLI, as `craft-anythi
 craft-anything-cli doctor                            # checks the install, coding agents and engines
 ```
 
-빌드하려면 컴퓨터에 로그인된 코딩 에이전트가 있어야 합니다([AI](#ai) 참고). `doctor`가 빠진 것을 알려 줍니다. 명령줄에서 재구현하세요(질문은 터미널에 나옵니다):
+ການສ້າງໂຄງການຮຽກຮ້ອງໃຫ້ມີຕົວແທນຂຽນໂຄດທີ່ເຂົ້າສູ່ລະບົບໄວ້ໃນເຄື່ອງຄອມພິວເຕີຂອງທ່ານ (ເບິ່ງ [AI](#ai)). ຄຳສັ່ງ `doctor` ຈະແຈ້ງໃຫ້ຊາບວ່າມີຫຍັງຂາດຫາຍໄປ. ສ້າງຄືນໃໝ່ຜ່ານທາງແຖວຄຳສັ່ງ (ຄຳຖາມຈະສະແດງຂຶ້ນໃນເທີມິນອນ):
 
 ```sh
 craft-anything-cli rebuild https://example.com "Recreate this website"
@@ -188,47 +188,47 @@ craft-anything-cli rebuild https://example.com "Make the header blue" --continue
 craft-anything-cli rebuild - "Add a contact form" --project-folder "<your folder>" --existing edit
 ```
 
-새 프로젝트는 `Documents/Craft Anything`에 저장됩니다(Settings → General에서 바꿀 수 있습니다). 각 프로젝트 폴더에는 `craft.json`(요청, 대상, 상태, 기록), `capture/`(대상에서 기록한 것), `app/`(생성된 프로젝트), `checks/`(원본과의 각 비교), `investigation.cany/`(근거), `inbox/`(미답변 질문)가 들어 있습니다.
+ໂຄງການໃໝ່ຈະຖືກບັນທຶກໄວ້ໃນ `Documents/Craft Anything` (ສາມາດປ່ຽນໄດ້ໃນ Settings → General). ແຕ່ລະໂຟນເດີໂຄງການຈະປະກອບມີ `craft.json` (ຄຳຮ້ອງຂໍ, ເປົ້າໝາຍ, ສະຖານະ, ປະຫວັດ), `capture/` (ສິ່ງທີ່ບັນທຶກຈາກເປົ້າໝາຍ), `app/` (ໂຄງການທີ່ສ້າງຂຶ້ນ), `checks/` (ການປຽບທຽບແຕ່ລະຄັ້ງກັບຕົ້ນສະບັບ), `investigation.cany/` (ຫຼັກຖານ), ແລະ `inbox/` (ຄຳຖາມທີ່ຍັງບໍ່ທັນຕອບ).
 
-직접 고른 폴더에서 프로젝트를 시작할 수도 있습니다(Start 아래의 "Choose a folder…" 또는 `--project-folder`). 폴더에 이미 파일이 있다면 그 파일이 무엇인지 지정하면 됩니다. 빌더가 그 자리에서 바로 수정할 앱 자체인지, 아니면 시작점으로 삼을 참고 자료(이 경우 앱은 그 옆 `app/`에 빌드됨)인지 고를 수 있습니다(Settings → General에서 선택을 기억하게 할 수 있습니다). Settings → General에는 다른 폴더의 프로젝트 목록도 함께 표시되며, 목록에서 제거해도 목록에서만 빠질 뿐 실제 파일은 지워지지 않습니다.
+ທ່ານຍັງສາມາດເລີ່ມໂຄງການຈາກໂຟນເດີທີ່ເລືອກເອງໄດ້ (ກົດ "Choose a folder…" ຢູ່ກ້ອງ Start ຫຼື ໃຊ້ `--project-folder`). ຖ້າຫາກໃນໂຟນເດີມີໄຟລ໌ຢູ່ແລ້ວ ພຽງແຕ່ລະບຸວ່າໄຟລ໌ເຫຼົ່ານັ້ນແມ່ນຫຍັງ. ທ່ານສາມາດເລືອກໄດ້ວ່າ ແມ່ນຕົວແອັບເອງທີ່ຕົວສ້າງຈະແກ້ໄຂໂດຍກົງຢູ່ບ່ອນນັ້ນເລີຍ, ຫຼື ແມ່ນເອກະສານອ້າງອີງສຳລັບໃຊ້ເປັນຈຸດເລີ່ມຕົ້ນ (ໃນກໍລະນີນີ້ ແອັບຈະຖືກສ້າງຂຶ້ນໃນໂຟນເດີ `app/` ທີ່ຢູ່ຂ້າງກັນ) (ສາມາດຕັ້ງຄ່າໃຫ້ຈື່ການເລືອກໄດ້ໃນ Settings → General). ໃນ Settings → General ຍັງຈະສະແດງລາຍຊື່ໂຄງການຈາກໂຟນເດີອື່ນໆອີກດ້ວຍ, ເຊິ່ງການລຶບອອກຈາກລາຍຊື່ຈະເປັນພຽງການເອົາອອກຈາກລາຍການເທົ່ານັ້ນ ໂດຍບໍ່ໄດ້ລຶບໄຟລ໌ຕົວຈິງຖິ້ມ.
 
-## <a id="status"></a>현재 상태
+## <a id="status"></a>ສະຖານະປະຈຸບັນ
 
 > [!IMPORTANT]
-> **현재 상태:** Craft Anything은 Early Alpha 단계입니다. 지금 되는 것, 일부만 되는 것, 다음 계획은 다음과 같습니다:
+> **ສະຖານະປະຈຸບັນ:** Craft Anything ຢູ່ໃນໄລຍະ Early Alpha. ສິ່ງທີ່ໃຊ້ໄດ້ແລ້ວ, ສິ່ງທີ່ໃຊ້ໄດ້ບາງສ່ວນ, ແລະ ແຜນງານຕໍ່ໄປມີດັ່ງນີ້:
 >
-> - **지금 되는 것:** 데스크톱 앱(Simple 및 Advanced), CLI, MCP 서버. Claude Code를 빌더로 쓰는 웹사이트, 앱, 게임의 Study → Build → Check → Refine 워크플로. 세 가지 화면 너비의 웹사이트 검사. Unity, Unreal 또는 Godot 게임 재구현. Ghidra를 쓰는 Deep 모드. 이미지 및 3D 모델 생성(선택 사항, 본인의 fal.ai 키 사용). 플러그인(MCP 서버, 그리고 `wasm-plugins` 옵션으로 빌드할 때 WASM 컴포넌트).
-> - **부분적으로 됨:** API 키와 다른 코딩 에이전트로 빌드(구현은 되었지만 실제 실행은 아직 안 함), 앱과 게임의 동작 검사, 모의 대상(stand-in)으로만 테스트된 일부 엔진 도구.
-> - **다음:** 첫 공개 릴리스(Windows, macOS, Linux, FreeBSD용 설치 프로그램과 브라우저 뷰어는 CI에 준비되어 있음), 그다음 관리형 요금제.
+> - **ສິ່ງທີ່ໃຊ້ໄດ້ແລ້ວ:** ແອັບເດັສທັອບ (Simple ແລະ Advanced), CLI, ເຊີເວີ MCP. ຂະບວນການເຮັດວຽກ Study → Build → Check → Refine ສຳລັບເວັບໄຊ, ແອັບ, ແລະ ເກມ ໂດຍໃຊ້ Claude Code ເປັນຕົວສ້າງ. ການກວດສອບເວັບໄຊໃນສາມຂະໜາດຄວາມກວ້າງໜ້າຈໍ. ການສ້າງເກມ Unity, Unreal ຫຼື Godot ຄືນໃໝ່. ໂໝດ Deep ທີ່ໃຊ້ງານ Ghidra. ການສ້າງຮູບພາບ ແລະ ໂມເດວ 3D (ເລືອກໄດ້, ໂດຍໃຊ້ຄີ fal.ai ຂອງທ່ານເອງ). ປລັກອິນ (MCP server, ແລະ ຄອມໂພເນນ WASM ເມື່ອສ້າງດ້ວຍຕົວເລືອກ `wasm-plugins`).
+> - **ໃຊ້ໄດ້ບາງສ່ວນ:** ການສ້າງດ້ວຍ API key ແລະ ຕົວແທນຂຽນໂຄດອື່ນໆ (ມີການພັດທະນາແລ້ວ ແຕ່ຍັງບໍ່ທັນໄດ້ທົດລອງຮັນຕົວຈິງ), ການກວດສອບການເຮັດວຽກຂອງແອັບ ແລະ ເກມ, ເຄື່ອງມືເຄື່ອງຈັກບາງອັນທີ່ທົດສອບກັບເປົ້າໝາຍຈຳລອງເທົ່ານັ້ນ.
+> - **ແຜນງານຕໍ່ໄປ:** ການປ່ອຍເວີຊັນທຳອິດສູ່ສາທາລະນະ (ໂປຣແກຣມຕິດຕັ້ງສຳລັບ Windows, macOS, Linux, FreeBSD ແລະ ຕົວສະແດງຜົນເທິງບຣາວເຊີພ້ອມແລ້ວໃນ CI), ຈາກນັ້ນແມ່ນແພັກເກດແບບຈັດການໃຫ້.
 >
-> [docs/STATUS.md](docs/STATUS.md)에 자세한 내용과 각 부분을 확인한 방법이, [docs/tool-status.md](docs/tool-status.md)에 도구별 점검표가, [docs/ROADMAP.md](docs/ROADMAP.md)에 항목별 계획이 있습니다. 이슈를 남기거나, [디스코드](https://discord.gg/artcraft)에서 고장 난 부분을 알려 주세요.
+> ມີລາຍລະອຽດ ແລະ ວິທີການກວດສອບແຕ່ລະສ່ວນຢູ່ໃນ [docs/STATUS.md](docs/STATUS.md), ຕາຕະລາງກວດສອບແຍກຕາມເຄື່ອງມືໃນ [docs/tool-status.md](docs/tool-status.md), ແລະ ແຜນງານແຕ່ລະລາຍການໃນ [docs/ROADMAP.md](docs/ROADMAP.md). ສາມາດແຈ້ງບັນຫາ ຫຼື ແຈ້ງຈຸດທີ່ໃຊ້ການບໍ່ໄດ້ຜ່ານທາງ [Discord](https://discord.gg/artcraft).
 
-**책임 있는 사용.** Craft Anything은 본인이 소유하거나 살펴볼 권한이 있는 소프트웨어에만 사용하세요. DRM, 로그인, 안티치트를 절대 우회하지 않습니다. 재구현은 근거를 바탕으로 레이아웃, 스타일, 동작을 재현하며, 에이전트는 본인이 소유하거나 허가받았음을 확인하지 않는 한 로고, 사진, 텍스트를 복사하지 않도록 지시받습니다.
+**ການນຳໃຊ້ຢ່າງມີຄວາມຮັບຜິດຊອບ.** Craft Anything ແມ່ນໃຫ້ໃຊ້ສະເພາະກັບຊອບແວທີ່ທ່ານເປັນເຈົ້າຂອງ ຫຼື ມີສິດກວດກາເບິ່ງເທົ່ານັ້ນ. ລະບົບຈະບໍ່ຫຼີກລ່ຽງ DRM, ການເຂົ້າສູ່ລະບົບ, ຫຼື ລະບົບຕ້ານການໂກງຢ່າງເດັດຂາດ. ການສ້າງຄືນໃໝ່ຈະຈຳລອງໂຄງຮ່າງ, ຮູບແບບ, ແລະ ການເຮັດວຽກໂດຍອີງໃສ່ຫຼັກຖານ, ແລະ ຕົວແທນຈະໄດ້ຮັບຄຳສັ່ງບໍ່ໃຫ້ກ່າຍໂລໂກ້, ຮູບຖ່າຍ, ຫຼື ຂໍ້ຄວາມ ເວັ້ນເສຍແຕ່ຈະຢືນຢັນໄດ້ວ່າທ່ານເປັນເຈົ້າຂອງ ຫຼື ໄດ້ຮັບອະນຸຍາດແລ້ວ.
 
-## <a id="downloads"></a>다운로드
+## <a id="downloads"></a>ດາວໂຫຼດ
 
-GitHub의 [최신 릴리스](https://github.com/storytold/craft-anything/releases/latest)에 아래 모든 빌드가 있고, [전체 릴리스](https://github.com/storytold/craft-anything/releases)에는 이전 버전과 릴리스 노트가 있습니다. 파일 이름의 `<ver>`는 버전 번호이며, `SHA256SUMS.txt`에 모든 파일의 체크섬이 있습니다.
+ໃນ GitHub [ເວີຊັນປ່ອຍຫຼ້າສຸດ](https://github.com/storytold/craft-anything/releases/latest) ຈະມີທຸກໆບິລດ໌ຢູ່ດ້ານລຸ່ມນີ້, ແລະ [ເວີຊັນປ່ອຍທັງໝົດ](https://github.com/storytold/craft-anything/releases) ຈະມີເວີຊັນກ່ອນໜ້າພ້ອມທັງບັນທຶກປະຈຳເວີຊັນ. ສັນຍະລັກ `<ver>` ໃນຊື່ໄຟລ໌ແມ່ນໝາຍເລກເວີຊັນ, ແລະ `SHA256SUMS.txt` ມີຄ່າເຊັກຊຳຂອງທຸກໆໄຟລ໌.
 
 ### <a id="windows"></a>Windows
 
-| 빌드                              | 설치 프로그램                            | 포터블                                            |
+| ບິລດ໌                              | ໂປຣແກຣມຕິດຕັ້ງ                            | ແບບພົກພາ                                            |
 | --------------------------------- | ---------------------------------------- | ------------------------------------------------- |
-| x64 (64비트 Intel/AMD)            | `craft-anything-<ver>-windows-x64.msi`   | `craft-anything-<ver>-windows-x64-portable.zip`   |
-| arm64 (Snapdragon 및 기타 ARM PC) | `craft-anything-<ver>-windows-arm64.msi` | `craft-anything-<ver>-windows-arm64-portable.zip` |
-| x86 (32비트)                      | `craft-anything-<ver>-windows-x86.msi`   | `craft-anything-<ver>-windows-x86-portable.zip`   |
+| x64 (Intel/AMD 64 ບິດ)            | `craft-anything-<ver>-windows-x64.msi`   | `craft-anything-<ver>-windows-x64-portable.zip`   |
+| arm64 (Snapdragon ແລະ ARM PC ອື່ນໆ) | `craft-anything-<ver>-windows-arm64.msi` | `craft-anything-<ver>-windows-arm64-portable.zip` |
+| x86 (32 ບິດ)                      | `craft-anything-<ver>-windows-x86.msi`   | `craft-anything-<ver>-windows-x86-portable.zip`   |
 
-설치 프로그램과 실행 파일은 코드 서명되어 있습니다. 포터블 zip은 설정을 앱 옆에 보관합니다.
+ໂປຣແກຣມຕິດຕັ້ງ ແລະ ໄຟລ໌ເອັກຊີຄິວທ໌ໄດ້ຮັບການເຊັນກຳກັບໂຄດແລ້ວ. ໄຟລ໌ zip ແບບພົກພາຈະເກັບຮັກສາການຕັ້ງຄ່າໄວ້ຂ້າງໆແອັບ.
 
 ### <a id="macos"></a>macOS
 
-| 빌드                               | 파일                                           | 참고                                                   |
+| ບິລດ໌                               | ໄຟລ໌                                           | ໝາຍເຫດ                                                   |
 | ---------------------------------- | ---------------------------------------------- | ------------------------------------------------------ |
-| 앱, 유니버설(Apple 실리콘 + Intel) | `craft-anything-<ver>-macos-universal.dmg`     | 서명 및 공증됨                                         |
-| 명령줄 도구, 유니버설              | `craft-anything-cli-<ver>-macos-universal.zip` | 서명 및 공증됨. macOS가 막으면 아래를 참고하세요 |
+| ແອັບ, ຢູນິເວີຊັລ (Apple Silicon + Intel) | `craft-anything-<ver>-macos-universal.dmg`     | ເຊັນກຳກັບ ແລະ ຜ່ານການຮັບຮອງແລ້ວ                                         |
+| ເຄື່ອງມືແຖວຄຳສັ່ງ, ຢູນິເວີຊັລ              | `craft-anything-cli-<ver>-macos-universal.zip` | ເຊັນກຳກັບ ແລະ ຜ່ານການຮັບຮອງແລ້ວ. ຖ້າ macOS ບລັອກ ໃຫ້ເບິ່ງດ້ານລຸ່ມ |
 
-0.2.0 이후 버전은 앱 안에 명령줄 도구가 들어 있어서, 빌드할 때 별도 zip이 필요 없습니다. 앱 없이 명령줄만 쓰려는 경우에만 필요합니다.
+ເວີຊັນ 0.2.0 ເປັນຕົ້ນມາຈະມີເຄື່ອງມືແຖວຄຳສັ່ງລວມຢູ່ໃນແອັບແລ້ວ, ຈຶ່ງບໍ່ຈຳເປັນຕ້ອງມີໄຟລ໌ zip ແຍກຕ່າງຫາກເມື່ອສ້າງ. ໄຟລ໌ນີ້ຈຳເປັນສະເພາະເມື່ອຕ້ອງການໃຊ້ແຕ່ແຖວຄຳສັ່ງໂດຍບໍ່ມີແອັບເທົ່ານັ້ນ.
 
-브라우저로 zip을 내려받으면 "Apple could not verify craft-anything-cli"라며 멈출 수 있습니다(단독 프로그램은 공증 정보를 함께 담을 수 없어서, macOS가 온라인으로 확인해야 하기 때문입니다). 터미널로 내려받으면 이 확인을 거치지 않으므로, 대신 다음을 사용하세요:
+ຫາກດາວໂຫຼດໄຟລ໌ zip ຜ່ານບຣາວເຊີ ອາດຈະຕິດຂັດໂດຍມີຂໍ້ຄວາມແຈ້ງເຕືອນວ່າ "Apple could not verify craft-anything-cli" (ເນື່ອງຈາກໂປຣແກຣມດ່ຽວບໍ່ສາມາດແນບຂໍ້ມູນການຮັບຮອງໄປພ້ອມໄດ້, ເຮັດໃຫ້ macOS ຕ້ອງກວດສອບທາງອອນລາຍ). ຫາກດາວໂຫຼດຜ່ານເທີມິນອນຈະບໍ່ມີການກວດສອບນີ້, ດັ່ງນັ້ນໃຫ້ໃຊ້ຄຳສັ່ງຕໍ່ໄປນີ້ແທນ:
 
 ```sh
 ver=0.2.0   # change this to the version you want
@@ -239,68 +239,68 @@ mv "craft-anything-cli-$ver-macos-universal/craft-anything-cli" ~/.local/bin/
 ~/.local/bin/craft-anything-cli --version
 ```
 
-`craft-anything-cli`만으로 실행하려면 `~/.local/bin`을 `PATH`에 추가하세요.
+ຫາກຕ້ອງການຮັນດ້ວຍຄຳສັ່ງ `craft-anything-cli` ໂດຍກົງ, ໃຫ້ເພີ່ມ `~/.local/bin` ເຂົ້າໄປໃນ `PATH`.
 
-이미 막힌 파일이 있다면 휴지통으로 이동(Move to Bin) 대신 완료(Done)를 누른 뒤 `xattr -d com.apple.quarantine <path to craft-anything-cli>`를 실행하거나, 시스템 설정 → 개인정보 보호 및 보안 → 그래도 열기(Open Anyway)에서 허용하세요.
+ຖ້າມີໄຟລ໌ທີ່ຖືກບລັອກຢູ່ແລ້ວ, ໃຫ້ກົດ Done ແທນ Move to Bin ແລ້ວຮັນຄຳສັ່ງ `xattr -d com.apple.quarantine <path to craft-anything-cli>`, ຫຼື ອະນຸຍາດໃນ System Settings → Privacy & Security → Open Anyway.
 
-#### Mac 다운로드가 서명·공증되었는지 확인하기
+#### ການກວດສອບວ່າໄຟລ໌ດາວໂຫຼດສຳລັບ Mac ໄດ້ຮັບການເຊັນກຳກັບ ແລະ ຮັບຮອງແລ້ວຫຼືບໍ່
 
-Mac 릴리스는 Developer ID 인증서로 서명되고 Apple의 공증을 받습니다. 직접 확인하려면 터미널에서 다음을 실행하세요(`<ver>`는 버전, 경로는 본인 것으로 바꾸세요):
+ເວີຊັນປ່ອຍສຳລັບ Mac ແມ່ນໄດ້ຮັບການເຊັນກຳກັບດ້ວຍໃບຢັ້ງຢືນ Developer ID ແລະ ຜ່ານການຮັບຮອງຈາກ Apple. ຫາກຕ້ອງການກວດສອບດ້ວຍຕົນເອງ, ໃຫ້ຮັນຄຳສັ່ງຕໍ່ໄປນີ້ໃນເທີມິນອນ (ປ່ຽນ `<ver>` ເປັນເວີຊັນ ແລະ ປ່ຽນເສັ້ນທາງໄຟລ໌ຕາມຕົວຈິງຂອງທ່ານ):
 
 ```sh
-# 디스크 이미지: "accepted"와 "source=Notarized Developer ID"면 통과
+# ດິສກ໌ອິເມຈ: ຫາກຂຶ້ນ "accepted" ແລະ "source=Notarized Developer ID" ສະແດງວ່າຜ່ານ
 spctl --assess --type open --context context:primary-signature -v "craft-anything-<ver>-macos-universal.dmg"
-# 공증 티켓이 첨부됨: "The validate action worked!"가 출력됩니다
+# ແນບປີ້ການຮັບຮອງແລ້ວ: ຈະສະແດງຂໍ້ຄວາມ "The validate action worked!"
 xcrun stapler validate "craft-anything-<ver>-macos-universal.dmg"
 
-# 앱(디스크 이미지를 연 뒤): 서명이 검증되어야 합니다
+# ແອັບ (ຫຼັງຈາກເປີດດິສກ໌ອິເມຈ): ລາຍເຊັນກຳກັບຕ້ອງໄດ້ຮັບການຢືນຢັນ
 codesign --verify --deep --strict --verbose=2 "/Volumes/<disk image name>/Craft Anything.app"
 spctl --assess --type execute --verbose "/Volumes/<disk image name>/Craft Anything.app"
 
-# 명령줄 도구: 단독 프로그램은 티켓을 가질 수 없어 macOS가 온라인으로 확인합니다
+# ເຄື່ອງມືແຖວຄຳສັ່ງ: ໂປຣແກຣມດ່ຽວບໍ່ສາມາດບັນຈຸປີ້ຮັບຮອງໄດ້ ສະນັ້ນ macOS ຈະກວດສອບທາງອອນລາຍ
 codesign --verify --strict --verbose=2 ~/.local/bin/craft-anything-cli
 codesign -dv --verbose=4 ~/.local/bin/craft-anything-cli 2>&1 | grep Authority
 ```
 
-`Authority` 줄에 "Developer ID Application" 인증서가 나와야 합니다. 확인에 실패한 파일은 실행하지 말고, 출력과 릴리스 태그를 알려 주세요.
+ໃນແຖວ `Authority` ຈະຕ້ອງສະແດງໃບຢັ້ງຢືນ "Developer ID Application". ຫາກໄຟລ໌ໃດບໍ່ຜ່ານການກວດສອບ ຢ່າຮັນໄຟລ໌ນັ້ນ, ແລະ ກະລຸນາແຈ້ງຜົນຂໍ້ຄວາມທີ່ສະແດງພ້ອມທັງແທັກເວີຊັນປ່ອຍໃຫ້ພວກເຮົາຊາບ.
 
 ### <a id="linux"></a>Linux
 
-| 형식                 | x86_64                                       | aarch64 (ARM64)                               | 참고                                                                                                                |
+| ຮູບແບບ                 | x86_64                                       | aarch64 (ARM64)                               | ໝາຍເຫດ                                                                                                                |
 | -------------------- | -------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| AppImage             | `craft-anything-<ver>-linux-x86_64.AppImage` | `craft-anything-<ver>-linux-aarch64.AppImage` | 어디서나 실행. [AppImageUpdate](https://github.com/AppImageCommunity/AppImageUpdate)(`.zsync` 파일)로 자체 업데이트 |
-| Flatpak              | `craft-anything-<ver>-linux-x86_64.flatpak`  | `craft-anything-<ver>-linux-aarch64.flatpak`  | 샌드박스. `flatpak install --user <file>`                                                                           |
+| AppImage             | `craft-anything-<ver>-linux-x86_64.AppImage` | `craft-anything-<ver>-linux-aarch64.AppImage` | ຮັນໄດ້ທຸກບ່ອນ. ອັບເດດໃນຕົວດ້ວຍ [AppImageUpdate](https://github.com/AppImageCommunity/AppImageUpdate) (ໄຟລ໌ `.zsync`) |
+| Flatpak              | `craft-anything-<ver>-linux-x86_64.flatpak`  | `craft-anything-<ver>-linux-aarch64.flatpak`  | ແຊນບັອກ. `flatpak install --user <file>`                                                                           |
 | Debian/Ubuntu        | `craft-anything-<ver>-linux-x86_64.deb`      | `craft-anything-<ver>-linux-aarch64.deb`      |                                                                                                                     |
 | Fedora/RHEL/openSUSE | `craft-anything-<ver>-linux-x86_64.rpm`      | `craft-anything-<ver>-linux-aarch64.rpm`      |                                                                                                                     |
-| Tarball              | `craft-anything-<ver>-linux-x86_64.tar.gz`   | `craft-anything-<ver>-linux-aarch64.tar.gz`   | 원하는 곳에 압축 해제                                                                                               |
+| Tarball              | `craft-anything-<ver>-linux-x86_64.tar.gz`   | `craft-anything-<ver>-linux-aarch64.tar.gz`   | ແຕກໄຟລ໌ໄວ້ບ່ອນໃດກໍໄດ້ຕາມຕ້ອງການ                                                                                               |
 
-RISC-V(riscv64): `craft-anything-<ver>-linux-riscv64.tar.gz`, tarball만 제공합니다.
+RISC-V (riscv64): `craft-anything-<ver>-linux-riscv64.tar.gz`, ໃຫ້ບໍລິການສະເພາະໄຟລ໌ tarball ເທົ່ານັ້ນ.
 
 ### <a id="freebsd"></a>FreeBSD
 
-| 빌드   | 파일                                         |
+| ບິລດ໌   | ໄຟລ໌                                         |
 | ------ | -------------------------------------------- |
 | x86_64 | `craft-anything-<ver>-freebsd-x86_64.tar.gz` |
 
 ### <a id="web-webassembly"></a>Web (WebAssembly)
 
-| 빌드          | 파일                           | 참고                                                                                                                                                                           |
+| ບິລດ໌          | ໄຟລ໌                           | ໝາຍເຫດ                                                                                                                                                                           |
 | ------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 브라우저 뷰어 | `craft-anything-web-<ver>.zip` | 브라우저 안에서 파일이 무엇인지 분석해 알려 줌(파일은 브라우저를 벗어나지 않습니다). 폴더를 아무 정적 웹 서버에나 올리세요([packaging/web/README.md](packaging/web/README.md)) |
+| ຕົວສະແດງຜົນເທິງບຣາວເຊີ | `craft-anything-web-<ver>.zip` | ວິເຄາະ ແລະ ບອກວ່າໄຟລ໌ແມ່ນຫຍັງພາຍໃນບຣາວເຊີ (ໄຟລ໌ຈະບໍ່ຖືກສົ່ງອອກນອກບຣາວເຊີ). ອັບໂຫຼດໂຟນເດີໃສ່ເວັບເຊີເວີສະແຕຕິກໃດກໍໄດ້ ([packaging/web/README.md](packaging/web/README.md)) |
 
 <br>
 
 <p align="center">
-  <a href="https://discord.gg/artcraft"><img alt="ArtCraft 커뮤니티 디스코드 참여하기" src="https://img.shields.io/badge/Join%20us%20on%20Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" height="40"></a>
+  <a href="https://discord.gg/artcraft"><img alt="ເຂົ້າຮ່ວມ Discord ຂອງຊຸມຊົນ ArtCraft" src="https://img.shields.io/badge/Join%20us%20on%20Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" height="40"></a>
 </p>
 
-<h3 align="center"><a id="come-make-things-with-us"></a>우리 함께 만들어요</h3>
+<h3 align="center"><a id="come-make-things-with-us"></a>ມາສ້າງສັນສິ່ງຕ່າງໆໄປນຳກັນ</h3>
 
 <p align="center">
-  우리 디스코드에는 모든 분야의 창작자가 모입니다. 그림, 사진, 스케치, 영상 편집,
-  서체 디자인을 하는 분들부터 아직 무엇을 좋아하는지 알아가는 중인 사람들까지요. 작업 중인 것을 공유하고,
-  도움을 요청하고, 고장 난 부분을 알려 주고, 무엇을 할 수 있었으면 하는지 말해 주세요.
-  여러분이 어떤 작업을 하든, 작업을 시작한 지 얼마나 되었든, 이곳에서는 모두 환영합니다.
+  Discord ຂອງພວກເຮົາແມ່ນສູນລວມຜູ້ສ້າງສັນຈາກທຸກຂົງເຂດ. ຕັ້ງແຕ່ນັກແຕ້ມຮູບ, ນັກຖ່າຍຮູບ, ນັກແຕ້ມສະເກັດ, ນັກຕັດຕໍ່ວິດີໂອ,
+  ນັກອອກແບບຕົວອັກສອນ ໄປຈົນເຖິງຜູ້ທີ່ກຳລັງຄົ້ນຫາສິ່ງທີ່ຕົນເອງມັກ. ມາແບ່ງປັນຜົນງານທີ່ກຳລັງເຮັດ,
+  ຂໍຄວາມຊ່ວຍເຫຼືອ, ແຈ້ງສ່ວນທີ່ມີບັນຫາ, ແລະ ບອກສິ່ງທີ່ທ່ານຢາກໃຫ້ລະບົບເຮັດໄດ້.
+  ບໍ່ວ່າທ່ານຈະເຮັດວຽກຫຍັງ ຫຼື ຫາກໍ່ເລີ່ມຕົ້ນມາໄດ້ດົນປານໃດກໍຕາມ, ທີ່ນີ້ຍິນດີຕ້ອນຮັບທຸກຄົນສະເໝີ.
 </p>
 
 <p align="center">
@@ -314,42 +314,42 @@ RISC-V(riscv64): `craft-anything-<ver>-linux-riscv64.tar.gz`, tarball만 제공�
 
 ## <a id="the-craft-app-suite"></a>The Craft App Suite
 
-|                                                                                                                                                                                            | 앱                 | 용도                                                     | 코드                                                  | 자세히 보기                                             |
+|                                                                                                                                                                                            | ແອັບ                 | ການນຳໃຊ້                                                     | ໂຄດ                                                  | ເບິ່ງເພີ່ມເຕີມ                                             |
 |:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------:| ------------------ | -------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------- |
-| <img src="https://raw.githubusercontent.com/storytold/photocraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.photocraft.png" alt="" width="32" height="32">                     | **PhotoCraft**     | 이미지 편집: 레이어, 마스크, 텍스트, 실제 PSD 파일       | [GitHub](https://github.com/storytold/photocraft)     | [웹사이트](https://getartcraft.com/apps/photocraft)     |
-| <img src="https://raw.githubusercontent.com/storytold/vectorcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.vectorcraft.png" alt="" width="32" height="32">                   | **VectorCraft**    | 벡터 일러스트레이션                                      | [GitHub](https://github.com/storytold/vectorcraft)    | [웹사이트](https://getartcraft.com/apps/vectorcraft)    |
-| <img src="https://raw.githubusercontent.com/storytold/filmcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.filmcraft.png" alt="" width="32" height="32">                       | **FilmCraft**      | 영상 편집, 색보정, 사운드                                | [GitHub](https://github.com/storytold/filmcraft)      | [웹사이트](https://getartcraft.com/apps/filmcraft)      |
-| <img src="https://raw.githubusercontent.com/storytold/lightcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.lightcraft.png" alt="" width="32" height="32">                     | **LightCraft**     | 사진 보관함과 RAW 현상                                   | [GitHub](https://github.com/storytold/lightcraft)     | [웹사이트](https://getartcraft.com/apps/lightcraft)     |
-| <img src="https://raw.githubusercontent.com/storytold/pdfcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.pdfcraft.png" alt="" width="32" height="32">                         | **PdfCraft**       | PDF 읽기, 정리, 보호                                     | [GitHub](https://github.com/storytold/pdfcraft)       | [웹사이트](https://getartcraft.com/apps/pdfcraft)       |
-| <img src="https://raw.githubusercontent.com/storytold/effectcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.effectcraft.png" alt="" width="32" height="32">                   | **EffectCraft**    | 모션 그래픽과 시각 효과                                  | [GitHub](https://github.com/storytold/effectcraft)    | [웹사이트](https://getartcraft.com/apps/effectcraft)    |
-| <img src="https://raw.githubusercontent.com/storytold/designcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.designcraft.png" alt="" width="32" height="32">                   | **DesignCraft**    | 페이지 레이아웃과 출판                                   | [GitHub](https://github.com/storytold/designcraft)    | [웹사이트](https://getartcraft.com/apps/designcraft)    |
-| <img src="https://raw.githubusercontent.com/storytold/figcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.figcraft.png" alt="" width="32" height="32">                         | **FigCraft**       | 인터페이스 디자인과 프로토타이핑                         | [GitHub](https://github.com/storytold/figcraft)       | [웹사이트](https://getartcraft.com/apps/figcraft)       |
-| <img src="https://raw.githubusercontent.com/storytold/wordcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.wordcraft.png" alt="" width="32" height="32">                       | **WordCraft**      | 워드 프로세싱과 문서                                     | [GitHub](https://github.com/storytold/wordcraft)      | [웹사이트](https://getartcraft.com/apps/wordcraft)      |
-| <img src="https://raw.githubusercontent.com/storytold/soundcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.soundcraft.png" alt="" width="32" height="32">                     | **SoundCraft**     | 오디오 녹음과 편집                                       | [GitHub](https://github.com/storytold/soundcraft)     | [웹사이트](https://getartcraft.com/apps/soundcraft)     |
-| <img src="https://raw.githubusercontent.com/storytold/deckcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.deckcraft.png" alt="" width="32" height="32">                       | **DeckCraft**      | 프레젠테이션과 슬라이드 덱                               | [GitHub](https://github.com/storytold/deckcraft)      | [웹사이트](https://getartcraft.com/apps/deckcraft)      |
-| <img src="https://raw.githubusercontent.com/storytold/cadcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.cadcraft.png" alt="" width="32" height="32">                         | **CADCraft**       | 컴퓨터 지원 설계(CAD)                                    | [GitHub](https://github.com/storytold/cadcraft)       | [웹사이트](https://getartcraft.com/apps/cadcraft)       |
-| <img src="https://raw.githubusercontent.com/storytold/gridcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.gridcraft.png" alt="" width="32" height="32">                       | **GridCraft**      | 스프레드시트와 데이터                                    | [GitHub](https://github.com/storytold/gridcraft)      | [웹사이트](https://getartcraft.com/apps/gridcraft)      |
-| <img src="https://raw.githubusercontent.com/storytold/texturecraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.texturecraft.png" alt="" width="32" height="32">                 | **TextureCraft**   | 3D 텍스처 페인팅                                         | [GitHub](https://github.com/storytold/texturecraft)   | [웹사이트](https://getartcraft.com/apps/texturecraft)   |
-| <img src="https://raw.githubusercontent.com/storytold/materialcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.materialcraft.png" alt="" width="32" height="32">               | **MaterialCraft**  | 노드 기반 절차적 재질                                       | [GitHub](https://github.com/storytold/materialcraft)  | [웹사이트](https://getartcraft.com/apps/materialcraft)  |
-| <img src="https://raw.githubusercontent.com/storytold/craft-anything/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.craft-anything.png" alt="" width="32" height="32">             | **Craft Anything** | 원하는 소프트웨어를 분석하고, 나만의 작품을 만들어 보세요 | [GitHub](https://github.com/storytold/craft-anything) | [웹사이트](https://getartcraft.com/apps/craft-anything) |
-| <img src="https://raw.githubusercontent.com/tangency-labs/solidcraft/main/assets/icons/app/linux/exports/hicolor/64x64/apps/io.tangencylabs.solidcraft.png" alt="" width="32" height="32"> | **SolidCraft**     | Tangency Labs의 파라메트릭 3D CAD(커뮤니티 앱)           | [GitHub](https://github.com/tangency-labs/solidcraft) |                                                         |
+| <img src="https://raw.githubusercontent.com/storytold/photocraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.photocraft.png" alt="" width="32" height="32">                     | **PhotoCraft**     | ການແກ້ໄຂຮູບພາບ: ເລເຢີ, ໜ້າກາກ, ຂໍ້ຄວາມ, ໄຟລ໌ PSD ແທ້       | [GitHub](https://github.com/storytold/photocraft)     | [ເວັບໄຊ](https://getartcraft.com/apps/photocraft)     |
+| <img src="https://raw.githubusercontent.com/storytold/vectorcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.vectorcraft.png" alt="" width="32" height="32">                   | **VectorCraft**    | ພາບປະກອບແບບເວັກເຕີ                                      | [GitHub](https://github.com/storytold/vectorcraft)    | [ເວັບໄຊ](https://getartcraft.com/apps/vectorcraft)    |
+| <img src="https://raw.githubusercontent.com/storytold/filmcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.filmcraft.png" alt="" width="32" height="32">                       | **FilmCraft**      | ການຕັດຕໍ່ວິດີໂອ, ການປັບສີ, ສຽງ                                | [GitHub](https://github.com/storytold/filmcraft)      | [ເວັບໄຊ](https://getartcraft.com/apps/filmcraft)      |
+| <img src="https://raw.githubusercontent.com/storytold/lightcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.lightcraft.png" alt="" width="32" height="32">                     | **LightCraft**     | ຄັງຮູບພາບ ແລະ ການລ້າງໄຟລ໌ RAW                                   | [GitHub](https://github.com/storytold/lightcraft)     | [ເວັບໄຊ](https://getartcraft.com/apps/lightcraft)     |
+| <img src="https://raw.githubusercontent.com/storytold/pdfcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.pdfcraft.png" alt="" width="32" height="32">                         | **PdfCraft**       | ອ່ານ, ຈັດລະບຽບ, ແລະ ປົກປ້ອງ PDF                                     | [GitHub](https://github.com/storytold/pdfcraft)       | [ເວັບໄຊ](https://getartcraft.com/apps/pdfcraft)       |
+| <img src="https://raw.githubusercontent.com/storytold/effectcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.effectcraft.png" alt="" width="32" height="32">                   | **EffectCraft**    | ໂມຊັນກຣາຟິກ ແລະ ເອັບເຟັກສາຍຕາ                                  | [GitHub](https://github.com/storytold/effectcraft)    | [ເວັບໄຊ](https://getartcraft.com/apps/effectcraft)    |
+| <img src="https://raw.githubusercontent.com/storytold/designcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.designcraft.png" alt="" width="32" height="32">                   | **DesignCraft**    | ການຈັດວາງໜ້າ ແລະ ວຽກສິ່ງພິມ                                   | [GitHub](https://github.com/storytold/designcraft)    | [ເວັບໄຊ](https://getartcraft.com/apps/designcraft)    |
+| <img src="https://raw.githubusercontent.com/storytold/figcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.figcraft.png" alt="" width="32" height="32">                         | **FigCraft**       | ການອອກແບບອິນເຕີເຟສ ແລະ ຕົ້ນແບບ                         | [GitHub](https://github.com/storytold/figcraft)       | [ເວັບໄຊ](https://getartcraft.com/apps/figcraft)       |
+| <img src="https://raw.githubusercontent.com/storytold/wordcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.wordcraft.png" alt="" width="32" height="32">                       | **WordCraft**      | ການປະມວນຜົນຄຳ ແລະ ເອກະສານ                                     | [GitHub](https://github.com/storytold/wordcraft)      | [ເວັບໄຊ](https://getartcraft.com/apps/wordcraft)      |
+| <img src="https://raw.githubusercontent.com/storytold/soundcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.soundcraft.png" alt="" width="32" height="32">                     | **SoundCraft**     | ການອັດ ແລະ ຕັດຕໍ່ສຽງ                                       | [GitHub](https://github.com/storytold/soundcraft)     | [ເວັບໄຊ](https://getartcraft.com/apps/soundcraft)     |
+| <img src="https://raw.githubusercontent.com/storytold/deckcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.deckcraft.png" alt="" width="32" height="32">                       | **DeckCraft**      | ການນຳສະເໜີ ແລະ ສະໄລດ໌                               | [GitHub](https://github.com/storytold/deckcraft)      | [ເວັບໄຊ](https://getartcraft.com/apps/deckcraft)      |
+| <img src="https://raw.githubusercontent.com/storytold/cadcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.cadcraft.png" alt="" width="32" height="32">                         | **CADCraft**       | ການອອກແບບດ້ວຍຄອມພິວເຕີ (CAD)                                    | [GitHub](https://github.com/storytold/cadcraft)       | [ເວັບໄຊ](https://getartcraft.com/apps/cadcraft)       |
+| <img src="https://raw.githubusercontent.com/storytold/gridcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.gridcraft.png" alt="" width="32" height="32">                       | **GridCraft**      | ສະເປຣດຊີດ ແລະ ຂໍ້ມູນ                                    | [GitHub](https://github.com/storytold/gridcraft)      | [ເວັບໄຊ](https://getartcraft.com/apps/gridcraft)      |
+| <img src="https://raw.githubusercontent.com/storytold/texturecraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.texturecraft.png" alt="" width="32" height="32">                 | **TextureCraft**   | ການແຕ້ມລວດລາຍ 3D                                         | [GitHub](https://github.com/storytold/texturecraft)   | [ເວັບໄຊ](https://getartcraft.com/apps/texturecraft)   |
+| <img src="https://raw.githubusercontent.com/storytold/materialcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.materialcraft.png" alt="" width="32" height="32">               | **MaterialCraft**  | ວັດສະດຸແບບໂປຣຊີເຈີຣັລອີງຕາມໂນດ                                       | [GitHub](https://github.com/storytold/materialcraft)  | [ເວັບໄຊ](https://getartcraft.com/apps/materialcraft)  |
+| <img src="https://raw.githubusercontent.com/storytold/craft-anything/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.craft-anything.png" alt="" width="32" height="32">             | **Craft Anything** | ສຶກສາວິເຄາະຊອບແວທີ່ຕ້ອງການ, ແລ້ວສ້າງຜົນງານຂອງທ່ານເອງ | [GitHub](https://github.com/storytold/craft-anything) | [ເວັບໄຊ](https://getartcraft.com/apps/craft-anything) |
+| <img src="https://raw.githubusercontent.com/tangency-labs/solidcraft/main/assets/icons/app/linux/exports/hicolor/64x64/apps/io.tangencylabs.solidcraft.png" alt="" width="32" height="32"> | **SolidCraft**     | 3D CAD ແບບພາຣາມິຕຣິກ ຈາກ Tangency Labs (ແອັບຊຸມຊົນ)           | [GitHub](https://github.com/tangency-labs/solidcraft) |                                                         |
 
-## <a id="license-and-credits"></a>라이선스와 크레딧
+## <a id="license-and-credits"></a>ໃບອະນຸຍາດ ແລະ ເຄຣດິດ
 
-Craft Anything은 [MIT](LICENSE-MIT) 또는 [Apache-2.0](LICENSE-APACHE) 듀얼 라이선스이며, 원하는 쪽을 선택할 수 있습니다.
-Copyright (c) 2026 ArtCraft Team and the Craft Anything contributors ([CONTRIBUTORS.md](CONTRIBUTORS.md)). 필수 고지는 [NOTICE](NOTICE)에 있습니다.
+Craft Anything ໃຊ້ໃບອະນຸຍາດແບບຄູ່ [MIT](LICENSE-MIT) ຫຼື [Apache-2.0](LICENSE-APACHE), ໂດຍທ່ານສາມາດເລືອກຝ່າຍໃດກໍໄດ້ຕາມຕ້ອງການ.
+ສະຫງວນລິຂະສິດ (c) 2026 ArtCraft Team ແລະ ຜູ້ຮ່ວມປະກອບສ່ວນ Craft Anything ([CONTRIBUTORS.md](CONTRIBUTORS.md)). ແຈ້ງການທີ່ຈຳເປັນແມ່ນມີຢູ່ໃນ [NOTICE](NOTICE).
 
-동봉된 폰트, 아이콘, 이미지 및 기타 에셋은 각자의 오픈 라이선스를 유지합니다. 각 항목의 작성자, 출처, 라이선스는 [ATTRIBUTION.md](ATTRIBUTION.md)에 나와 있습니다.
+ຟອນ, ໄອຄອນ, ຮູບພາບ ແລະ ຊັບສິນອື່ນໆທີ່ແນບມານຳ ຍັງຄົງຮັກສາໃບອະນຸຍາດແບບເປີດຂອງແຕ່ລະອັນ. ຜູ້ສ້າງ, ແຫຼ່ງທີ່ມາ ແລະ ໃບອະນຸຍາດຂອງແຕ່ລະລາຍການແມ່ນລະບຸໄວ້ໃນ [ATTRIBUTION.md](ATTRIBUTION.md).
 
-스크린샷에 보이는 것은 그 용도로 만든 예시 프로젝트입니다: example.com, 뱀 게임, 작은 계산기 프로그램.
+ສິ່ງທີ່ປາກົດໃນຮູບຖ່າຍໜ້າຈໍແມ່ນໂຄງການຕົວຢ່າງທີ່ສ້າງຂຶ້ນເພື່ອຈຸດປະສົງດັ່ງກ່າວ: example.com, ເກມງູ, ໂປຣແກຣມຄິດໄລ່ເລກຂະໜາດນ້ອຍ.
 
-[`docs/brand/`](docs/brand/)에 있는 ArtCraft 이름, 워드마크, 로고는 ArtCraft Team의 상표이며 이 라이선스의 적용을 받지 않습니다. 수정하지 않은 상태에서만, 이 저장소와 Craft Anything의 일부로서만 사용할 수 있으며, 이때 [`docs/brand/LICENSE-brand.txt`](docs/brand/LICENSE-brand.txt)를 따라야 합니다. 포크와 수정본은 이를 제거해야 합니다.
+ຊື່ ArtCraft, ເຄື່ອງໝາຍຂໍ້ຄວາມ, ແລະ ໂລໂກ້ ທີ່ຢູ່ໃນ [`docs/brand/`](docs/brand/) ແມ່ນເຄື່ອງໝາຍການຄ້າຂອງ ArtCraft Team ແລະ ບໍ່ໄດ້ຢູ່ພາຍໃຕ້ໃບອະນຸຍາດນີ້. ສາມາດນຳໃຊ້ໄດ້ສະເພາະໃນສະພາບທີ່ບໍ່ມີການດັດແກ້, ເປັນສ່ວນໜຶ່ງຂອງຄັງເກັບໂຄດນີ້ ແລະ Craft Anything ເທົ່ານັ້ນ, ໂດຍຕ້ອງປະຕິບັດຕາມ [`docs/brand/LICENSE-brand.txt`](docs/brand/LICENSE-brand.txt). ໂຄງການທີ່ແຍກອອກໄປ ແລະ ສະບັບດັດແກ້ຕ້ອງລຶບສິ່ງເຫຼົ່ານີ້ອອກ.
 
 <p align="center">
   <a href="https://getartcraft.com/"><img alt="ArtCraft" src="docs/brand/artcraft-mark.svg" width="28"></a><br>
-  <sub><a href="https://getartcraft.com/">ArtCraft</a> 팀과 커뮤니티가 만들었습니다.</sub>
+  <sub>ສ້າງຂຶ້ນໂດຍທີມງານ ແລະ ຊຸມຊົນ <a href="https://getartcraft.com/">ArtCraft</a>.</sub>
 </p>
 
 ---
 
-<sub>이 문서는 [README.md](README.md)의 한국어 번역입니다. 내용이 다를 경우 영어판이 우선합니다.</sub>
+<sub>ເອກະສານນີ້ແມ່ນສະບັບແປພາສາລາວຂອງ [README.md](README.md). ຖ້າຫາກເນື້ອໃນແຕກຕ່າງກັນ ໃຫ້ຖືເອົາສະບັບພາສາອັງກິດເປັນຫຼັກ.</sub>
