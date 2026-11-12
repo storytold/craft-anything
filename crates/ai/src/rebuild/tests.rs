@@ -360,6 +360,38 @@ fn a_launcher_leads_to_the_game_and_its_files() {
 }
 
 #[test]
+fn a_mac_app_bundle_is_studied_through_the_program_it_names() {
+    let d = tempfile::tempdir().unwrap();
+    // The executable's name differs from the bundle's, and a bigger helper sits beside it.
+    let app = d.path().join("Tip Calculator.app");
+    let macos = app.join("Contents/MacOS");
+    std::fs::create_dir_all(&macos).unwrap();
+    std::fs::write(
+        app.join("Contents/Info.plist"),
+        r#"<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleExecutable</key><string>TipCalc</string></dict></plist>"#,
+    )
+    .unwrap();
+    std::fs::write(macos.join("TipCalc"), b"\xcf\xfa\xed\xfe").unwrap();
+    std::fs::write(macos.join("Helper"), vec![0u8; 4096]).unwrap();
+    assert_eq!(locate(&app, "app"), (macos.join("TipCalc"), None), "the program Info.plist names");
+
+    // Without an Info.plist, the program named like the bundle.
+    let bare = d.path().join("Notes.APP");
+    std::fs::create_dir_all(bare.join("Contents/MacOS")).unwrap();
+    std::fs::write(bare.join("Contents/MacOS/Notes"), b"\xcf\xfa\xed\xfe").unwrap();
+    assert_eq!(locate(&bare, "app").0, bare.join("Contents/MacOS/Notes"));
+
+    // A bundle with no program in it, and a folder that isn't a bundle, stay as picked.
+    let empty = d.path().join("Empty.app");
+    std::fs::create_dir_all(empty.join("Contents/MacOS")).unwrap();
+    assert_eq!(locate(&empty, "app"), (empty.clone(), None));
+    let plain = d.path().join("TipCalc");
+    std::fs::create_dir_all(&plain).unwrap();
+    std::fs::write(plain.join("TipCalc"), b"\xcf\xfa\xed\xfe").unwrap();
+    assert_eq!(locate(&plain, "app"), (plain.clone(), None), "only an app bundle is looked inside");
+}
+
+#[test]
 fn engine_stacks_get_their_own_steps_checks_and_play() {
     let ed = Path::new("C:/Engines/Unity/Editor/Unity.exe");
     let unity = stack_steps("Unity", Some(ed));

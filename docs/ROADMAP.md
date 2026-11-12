@@ -1126,7 +1126,7 @@ Owner: maintainers · Status: in progress
       the hit for `alpha` is recorded, and a program lldb can't debug says so
 - [ ] Window capture tried on macOS and Linux (only Windows so far); games behind a launcher
 - [ ] Short scripted input sessions (enigo) to record screens of the original
-- [ ] A macOS app bundle picked as an app target (`TipCalc.app`) is studied as a plain folder: the
+- [x] A macOS app bundle picked as an app target (`TipCalc.app`) is studied as a plain folder: the
       study finds no program in it ("Couldn't find the program to decompile"), so Deep mode skips
       Ghidra, the console runs and the window picture. Study the program its `Info.plist` names
       — claimed: htcom-code, branch bugfix/r2.4-app-bundle-program
