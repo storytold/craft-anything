@@ -450,7 +450,7 @@ been run live.
       then reached the model; on the CPU a second run wrote the call with a summary after it, so
       nothing ran (the open line on a call followed by a summary)
       — claimed: SoldierPePe, branch bugfix/r5.4-build-command-folder
-- [ ] Fall back to `app/` when `build_files_list`, `build_file_read`, `build_file_edit` or
+- [x] Fall back to `app/` when `build_files_list`, `build_file_read`, `build_file_edit` or
       `build_file_write` receives an `app/`-relative path from `build_command_run` output that
       does not exist at the workspace root (`in_project_or_app`)
       — claimed: d7do7e, branch bugfix/r5.4-build-tools-app-fallback
