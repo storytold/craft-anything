@@ -60,6 +60,7 @@ pub fn key_for(store: &crate::KeyStore, agent: &str, backend: &str, kind: crate:
 /// The arguments after `agent`'s ACP ones that pick `model`; none when its ACP mode isn't known
 /// to take one.
 pub fn model_args(agent: &str, model: Option<&str>) -> Vec<String> {
+    let agent = usual_agent(agent);
     let flag = ACP_MODEL_FLAGS.iter().find(|(id, _)| *id == agent).map(|(_, f)| *f);
     match (flag, model.map(str::trim).filter(|m| !m.is_empty())) {
         (Some(flag), Some(model)) => vec![flag.to_string(), model.to_string()],
@@ -72,7 +73,16 @@ const PROTOCOL_VERSION: u64 = 1;
 
 /// The arguments that start `agent` in ACP mode, if it has one.
 pub fn acp_args(agent: &str) -> Option<&'static [&'static str]> {
+    let agent = usual_agent(agent);
     ACP_AGENTS.iter().find(|(id, _)| *id == agent).map(|(_, a)| *a)
+}
+
+/// The table's name for `agent`: its adapter's usual id. A backend may be configured under any of
+/// an adapter's names (`cbc`, `code-buddy`), and the tables above name agents by id. An agent with
+/// no adapter (a fork's, the plain one) stands for itself.
+fn usual_agent(agent: &str) -> &str {
+    let usual = super::AgentAdapters::built_in().for_agent(agent).ids().first().copied();
+    usual.filter(|id| *id != agent).unwrap_or(agent)
 }
 
 /// What the core asks its driver to do.
@@ -1034,6 +1044,19 @@ impl Drop for AcpConversation {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A backend configured under an adapter's other names reaches the same ACP mode and model
+    /// flag as its id.
+    #[test]
+    fn an_agent_is_reached_under_any_of_its_names() {
+        for name in ["codebuddy", "code-buddy", "cbc"] {
+            assert_eq!(acp_args(name), Some(["--acp"].as_slice()), "{name}");
+            assert_eq!(model_args(name, Some("claude-sonnet-5")), ["--model", "claude-sonnet-5"], "{name}");
+        }
+        assert_eq!(acp_args("cbc"), acp_args("code-buddy"));
+        assert!(acp_args("unknown-agent").is_none());
+        assert!(model_args("unknown-agent", Some("m")).is_empty());
+    }
 
     #[test]
     fn copilot_uses_stdio_acp() {

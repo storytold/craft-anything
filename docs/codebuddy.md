@@ -62,5 +62,8 @@ enabled = true
 ## Still to confirm
 
 - A live deep build end to end through the app (the ACP exchange above was checked scripted).
-- Whether its reasoning depth can be set on the session (`configOptions` list one for the model),
-  and whether `session/prompt` takes notes mid-turn.
+- Whether reasoning depth can be set on the session: its `configOptions` list effort options, but
+  no run has shown a chosen depth reaching the session, so none is offered in the picker.
+- Whether `session/prompt` takes notes mid-turn (none is passed).
+- The list of models loads from a metadata session (checked live, 2.183.0); a backend may be
+  configured under `codebuddy`, `code-buddy` or `cbc`.

@@ -51,7 +51,7 @@ impl AgentAdapter for CodeBuddy {
         stop: &Stop,
     ) -> Result<Vec<models::AgentModel>, ToolError> {
         let metadata = super::super::acp_model_metadata(config, options, directory, stop)?;
-        Ok(catalogue(&metadata, options))
+        Ok(catalogue(&metadata))
     }
 
     fn model_in_use(&self, options: Option<&BackendOptions>) -> Option<String> {
@@ -101,11 +101,9 @@ impl AgentAdapter for CodeBuddy {
     }
 }
 
-/// Its models, at the depth the chosen one offers (the live list names its effort options).
-fn catalogue(metadata: &super::super::acp::ModelMetadata, options: &BackendOptions) -> Vec<models::AgentModel> {
-    let tuning = crate::model_options::ModelTuning::from_metadata(metadata.current_model.clone(), &metadata.config_options);
-    let active = options.cli_model.as_deref().map(str::trim).filter(|model| !model.is_empty()).unwrap_or(metadata.current_model.as_str());
-    let thinking: Vec<_> = tuning.reasoning.iter().filter_map(|choice| crate::Effort::parse(choice.value.as_str())).collect();
+/// Its models. No depth is offered: the live list names effort options, but nothing here sets one
+/// on the session, and advertising a depth that does nothing is worse than not offering it.
+fn catalogue(metadata: &super::super::acp::ModelMetadata) -> Vec<models::AgentModel> {
     let mut ids = metadata.models.clone();
     if !metadata.current_model.is_empty() {
         ids.push(metadata.current_model.clone());
@@ -116,7 +114,7 @@ fn catalogue(metadata: &super::super::acp::ModelMetadata, options: &BackendOptio
             ordered.push(id);
         }
     }
-    ordered.into_iter().map(|id| models::AgentModel { name: id.clone(), thinking: if id == active { thinking.clone() } else { Vec::new() }, id }).collect()
+    ordered.into_iter().map(|id| models::AgentModel { name: id.clone(), thinking: Vec::new(), id }).collect()
 }
 
 /// Its folder: `CODEBUDDY_CONFIG_DIR` when it's set (the person's choice), else `~/.codebuddy`.
@@ -160,6 +158,38 @@ mod tests {
         assert!(!CodeBuddy.plain_fallback());
         // No question: with no server it would read files with its own tools, which never ask.
         assert!(CodeBuddy.has_model_catalog() && !CodeBuddy.answers_questions());
+    }
+
+    /// The picker offers its models without depths: none is applied to a session yet.
+    #[test]
+    fn its_models_are_offered_without_a_depth_that_would_do_nothing() {
+        let metadata = super::super::super::acp::ModelMetadata {
+            models: vec!["claude-sonnet-5".into(), "glm-5.3".into()],
+            current_model: "claude-sonnet-5".into(),
+            config_options: vec![json!({"type": "select", "id": "reasoning_effort", "currentValue": "high",
+                "options": [{"value": "low", "name": "Low"}, {"value": "high", "name": "High"}]})],
+        };
+        let models = catalogue(&metadata);
+        assert_eq!(models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["claude-sonnet-5", "glm-5.3"]);
+        assert!(models.iter().all(|m| m.thinking.is_empty()), "{models:?}");
+    }
+
+    /// The list loads for a backend under one of its other names, though it refuses a question.
+    /// Live with CodeBuddy Code 2.183.0 (`cargo test -p craft-anything-ai --lib its_models_load_live
+    /// -- --ignored`).
+    #[test]
+    #[ignore = "starts a real CodeBuddy Code"]
+    fn its_models_load_live() {
+        let config = BackendConfig {
+            name: "CodeBuddy Code".into(),
+            kind: crate::BackendKind::AgentCli,
+            model: "cbc".into(),
+            base_url: None,
+            ssh_host: None,
+            enabled: true,
+        };
+        let models = CodeBuddy.model_choices(&config, &BackendOptions::default()).expect("a model list");
+        assert!(models.iter().any(|m| m == "claude-sonnet-5"), "{models:?}");
     }
 
     #[test]

@@ -622,6 +622,9 @@ pub struct CliSpec {
     /// Where Claude Code's session costs are kept, so a resumed turn's cost is what it added
     /// ([`claude_cost`]). None: a resumed turn has no cost.
     pub cost_totals: Option<PathBuf>,
+    /// A session opened only to read an agent's model list and settings: no prompt is sent, so it
+    /// isn't held to what a question is (an agent that can't hold a question can still list them).
+    pub metadata: bool,
 }
 
 /// What a building run needs besides the working folder.
@@ -668,6 +671,7 @@ impl CliSpec {
             preamble: None,
             logs: None,
             cost_totals: None,
+            metadata: false,
             adapters: AgentAdapters::built_in(),
             question: false,
             key: None,
@@ -703,11 +707,14 @@ pub fn builder_conversation(spec: CliSpec, approver: acp::Approver) -> Box<dyn C
 fn acp_for(spec: &CliSpec) -> Option<AcpConversation> {
     let agent = spec.config.model.clone();
     let adapter = spec.adapters.for_agent(&agent);
-    if spec.question && !adapter.answers_questions() {
+    // Reading the model list sends no prompt, so it isn't held to what a question is
+    // (`model_metadata_with_stop` drops the access refusal for it too).
+    if spec.question && !adapter.answers_questions() && !spec.metadata {
         return None;
     }
     let local = spec.config.ssh_host.as_deref().is_none_or(|h| h.trim().is_empty());
-    let acp_args = selected_acp_args(adapter.as_ref(), &agent, &spec.options).filter(|_| local)?;
+    // The adapter's own id names its ACP mode, whatever name the backend was configured under.
+    let acp_args = selected_acp_args(adapter.as_ref(), adapter.ids().first().copied().unwrap_or(&agent), &spec.options).filter(|_| local)?;
     // No program to start: the plain run reports why.
     let program = program_of(&spec.config, &spec.options).ok()?;
     // Same modes as the plain runner, including Clean room chat (no builder, not deep).
@@ -745,6 +752,7 @@ fn acp_for(spec: &CliSpec) -> Option<AcpConversation> {
 pub fn acp_model_choices(config: &BackendConfig, options: &BackendOptions) -> Result<Vec<String>, ToolError> {
     let mut spec = CliSpec::new(config.clone(), options.clone(), false, None);
     spec.question = true;
+    spec.metadata = true;
     spec.options.cli_model = None;
     spec.options.cli_context = None;
     spec.options.cli_reasoning_effort = None;
@@ -771,6 +779,7 @@ pub(crate) fn acp_model_metadata(
 ) -> Result<acp::ModelMetadata, ToolError> {
     let mut spec = CliSpec::new(config.clone(), options.clone(), false, directory.map(Path::to_path_buf));
     spec.question = true;
+    spec.metadata = true;
     spec.options.cli_context = None;
     spec.options.cli_reasoning_effort = None;
     spec.options.cli_thinking = None;
