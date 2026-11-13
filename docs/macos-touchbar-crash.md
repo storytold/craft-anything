@@ -48,6 +48,12 @@ arrows when optional craft-fonts are absent; a strict-glyph regression renders
 those hints in regular, medium and semibold. Modal smoke checks wait for their
 accessibility-tree frames after observing the asynchronous state change.
 
+The arrow regression constructs font definitions with no optional input, including
+the inherited medium and semibold families, even when CI embeds craft-fonts.
+An optional-input fixture separately checks inheritance. A negative mutation
+probe with an arrow-capable optional font compiled in failed on the missing
+U+2192 arrow after removing the bundled fallback, then passed after restoration.
+
 Accessibility remains enabled. No exception suppression, `unsafe` application
 code, private AppKit API, forced process exit, or vendored dependency is added.
 Normal preference saving, job cancellation and child-process cleanup retain
