@@ -716,6 +716,10 @@ Deep mode skipped Ghidra; the tests named their programs the local way on each s
 a Windows game on Linux. When a check answers one question, don't reuse it for a neighbouring one:
 studying a program and starting it are separate (`studies_as_program`), and test the other
 system's files on this one.
+The fix itself first missed one gate that starts it: runtime study's console runs checked the PE
+header but not the system, so a Windows console `.exe` would have been run on Linux (found in
+review). When a value starts reaching code it couldn't before, check every place that acts on it;
+every runtime start now asks `study::may_start`.
 
 **Keywords that only some code paths honour.** "…in Rust" picked Rust for apps but not for games, so
 a headless game rebuild stopped at once for want of Unity. It was found only by a live run. Run the
