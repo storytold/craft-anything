@@ -567,40 +567,48 @@ pub(crate) fn collect_network(
             _ => {}
         }
     }
-    // Optional JSON body outlines for JSON responses.
+    // Optional JSON body outlines for JSON responses. The cap counts JSON responses only, so a
+    // page's data isn't missed behind its scripts, styles and telemetry (#1811).
+    let mut outline_tally = None;
     if want_body_outlines {
-        let ids: Vec<String> = order.iter().take(200).cloned().collect();
-        for id in ids {
+        let is_json = |id: &str| reqs.get(id).and_then(|e| e.get("mime_type")).and_then(Value::as_str).is_some_and(|m| m.contains("json"));
+        let json_responses = order.iter().filter(|id| is_json(id)).count();
+        let (ids, mut skipped) = body_targets(&order, BODY_FETCH_CAP, is_json);
+        let (mut outlined, mut unavailable) = (0u64, 0u64);
+        for (n, id) in ids.iter().enumerate() {
             if dl.expired() {
+                skipped = skipped.saturating_add(ids.len().saturating_sub(n) as u64);
                 break;
             }
-            let is_json = reqs.get(&id).and_then(|e| e.get("mime_type")).and_then(Value::as_str).is_some_and(|m| m.contains("json"));
-            if !is_json {
-                continue;
-            }
-            if let Ok(body) = client.call("Network.getResponseBody", json!({"requestId": id}), None, dl)
-                && let Some(text) = body.get("body").and_then(Value::as_str)
-            {
+            let outline = client.call("Network.getResponseBody", json!({"requestId": id}), None, dl).ok().and_then(|body| {
+                let text = body.get("body").and_then(Value::as_str)?;
                 let decoded = if body.get("base64Encoded").and_then(Value::as_bool) == Some(true) {
-                    web_common::b64_decode(text).ok().and_then(|b| String::from_utf8(b).ok())
+                    web_common::b64_decode(text).ok().and_then(|b| String::from_utf8(b).ok())?
                 } else {
-                    Some(text.to_string())
+                    text.to_string()
                 };
-                if let Some(t) = decoded
-                    && let Ok(v) = serde_json::from_str::<Value>(&t)
-                    && let Some(entry) = reqs.get_mut(&id)
-                {
-                    entry["json_body_outline"] = web_common::json_outline(&v);
+                serde_json::from_str::<Value>(&decoded).ok().map(|v| web_common::json_outline(&v))
+            });
+            match (outline, reqs.get_mut(id)) {
+                (Some(o), Some(entry)) => {
+                    entry["json_body_outline"] = o;
+                    outlined = outlined.saturating_add(1);
                 }
+                _ => unavailable = unavailable.saturating_add(1),
             }
         }
+        outline_tally = Some(json!({"json_responses": json_responses, "outlined": outlined, "skipped": skipped, "unavailable": unavailable}));
     }
+    let mut body_tally = None;
     if content.response_body {
-        let ids: Vec<String> = order.iter().take(200).cloned().collect();
-        for id in ids {
+        let (ids, mut skipped) = body_targets(&order, BODY_FETCH_CAP, |_| true);
+        let mut kept_count = 0u64;
+        for (n, id) in ids.iter().enumerate() {
             if dl.expired() {
+                skipped = skipped.saturating_add(ids.len().saturating_sub(n) as u64);
                 break;
             }
+            kept_count = kept_count.saturating_add(1);
             let kept = match client.call("Network.getResponseBody", json!({"requestId": id}), None, dl) {
                 Ok(body) => {
                     let text = body.get("body").and_then(Value::as_str).unwrap_or_default();
@@ -613,13 +621,82 @@ pub(crate) fn collect_network(
                 }
                 Err(e) => json!({"state": "unavailable", "reason": e.message}),
             };
-            if let Some(entry) = reqs.get_mut(&id) {
+            if let Some(entry) = reqs.get_mut(id) {
                 entry["response_body"] = kept;
             }
         }
+        body_tally = Some(json!({"requests": order.len(), "fetched": kept_count, "skipped": skipped}));
     }
     let items: Vec<Value> = order.iter().filter_map(|id| reqs.get(id).cloned()).collect();
-    json!({"request_count": items.len(), "requests": items})
+    let mut out = json!({"request_count": items.len(), "requests": items});
+    if let Some(t) = outline_tally {
+        out["body_outlines"] = t;
+    }
+    if let Some(t) = body_tally {
+        out["response_bodies"] = t;
+    }
+    out
+}
+
+/// Most response bodies one capture asks the browser for: outlines count JSON responses only,
+/// kept bodies count every request.
+const BODY_FETCH_CAP: usize = 200;
+
+/// The first `cap` request ids that `wanted` accepts, in arrival order, and how many more it
+/// accepted past the cap.
+fn body_targets(order: &[String], cap: usize, mut wanted: impl FnMut(&str) -> bool) -> (Vec<String>, u64) {
+    let mut picked = Vec::new();
+    let mut over = 0u64;
+    for id in order {
+        if !wanted(id) {
+            continue;
+        }
+        if picked.len() < cap {
+            picked.push(id.clone());
+        } else {
+            over = over.saturating_add(1);
+        }
+    }
+    (picked, over)
+}
+
+/// The limitation for response bodies a walkthrough's `keep_bodies` didn't fetch.
+fn kept_body_limitation(network: &Value) -> Option<Limitation> {
+    let t = network.get("response_bodies")?;
+    let skipped = t.get("skipped").and_then(Value::as_u64).unwrap_or(0);
+    (skipped > 0).then(|| {
+        Limitation::new(
+            "response_bodies_skipped",
+            format!(
+                "{skipped} of {} request(s) have no kept response body: only the first {BODY_FETCH_CAP} are fetched, within the time limit.",
+                t.get("requests").and_then(Value::as_u64).unwrap_or(0)
+            ),
+        )
+    })
+}
+
+/// The limitations for JSON responses `web_page_show` didn't outline, read from its network tally.
+fn outline_limitations(result: &Value) -> Vec<Limitation> {
+    let Some(t) = result.pointer("/network/body_outlines") else { return Vec::new() };
+    let n = |k: &str| t.get(k).and_then(Value::as_u64).unwrap_or(0);
+    let mut out = Vec::new();
+    if n("skipped") > 0 {
+        out.push(Limitation::new(
+            "body_outlines_skipped",
+            format!(
+                "{} of {} JSON response(s) got no body outline: only the first {BODY_FETCH_CAP} are fetched, within the time limit.",
+                n("skipped"),
+                n("json_responses")
+            ),
+        ));
+    }
+    if n("unavailable") > 0 {
+        out.push(Limitation::new(
+            "body_outlines_unavailable",
+            format!("{} JSON response(s) had no readable JSON body when asked for it, so they have no outline.", n("unavailable")),
+        ));
+    }
+    out
 }
 
 fn collect_websockets(events: &[cdp::CdpEvent], secrets: &mut Secrets) -> Value {
@@ -835,6 +912,7 @@ fn passive_evidence(
     declared_secrets: usize,
     redactions: u64,
 ) -> Result<craft_anything_evidence::Evidence, ToolError> {
+    let outline_limits = outline_limitations(&result);
     let mut b = EvidenceBuilder::new(op, Subject { kind: "website".into(), sha256: None, name: Some(origin.to_string()) }, browser_env(clean_room, browser))
         .params(json!({"endpoint": browser.endpoint.origin, "sensitive_value_declarations": declared_secrets}))
         .result(result)
@@ -856,6 +934,9 @@ fn passive_evidence(
     }
     if declared_secrets > 0 {
         b = b.limitation(Limitation::new("secrets_redacted", format!("{redactions} occurrence(s) of {declared_secrets} declared value(s) were redacted")));
+    }
+    for l in outline_limits {
+        b = b.limitation(l);
     }
     b.build()
 }
@@ -2268,6 +2349,7 @@ fn web_walkthrough_record(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput
     } else {
         Value::Null
     };
+    let body_limit = kept_body_limitation(&network);
     let event_rows = if families.is_empty() {
         Value::Null
     } else {
@@ -2324,6 +2406,9 @@ fn web_walkthrough_record(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput
         .location(Location::new("url", start_url));
     if p.hidden_values.iter().any(|s| !s.is_empty()) {
         b = b.limitation(Limitation::new("secrets_redacted", format!("{} occurrence(s) of declared values were redacted", secrets.redactions)));
+    }
+    if let Some(l) = body_limit {
+        b = b.limitation(l);
     }
     Ok(ToolOutput::evidence(b.build()?))
 }

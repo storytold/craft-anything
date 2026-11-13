@@ -343,6 +343,10 @@ fn walkthrough_keeps_requested_network_content_redacted() {
     assert_eq!(req["response_header_values"]["set-cookie"], "«redacted»");
     assert_eq!(req["response_body"]["text"], "{\"id\":1,\"secret\":\"x\"}");
     assert_eq!(req["response_body"]["sha256"].as_str().unwrap().len(), 64);
+    let bodies = &v["result"]["network"]["response_bodies"];
+    assert_eq!(bodies["skipped"], 0, "{bodies}");
+    assert_eq!(bodies["fetched"], bodies["requests"], "{bodies}");
+    assert!(!v["limitations"].as_array().unwrap().iter().any(|l| l["code"] == "response_bodies_skipped"));
 
     let err = run(json!({"capture_network": false, "keep_bodies": {"response_body": true}})).unwrap_err();
     assert!(err.message.contains("capture_network"), "{}", err.message);
@@ -526,6 +530,61 @@ fn inspect_page_minimises_and_redacts() {
     // The response Set-Cookie header is reported only by presence, never by value.
     assert!(reqs.iter().any(|r| r["response_headers"]["credentials_present"].as_array().map(|a| a.iter().any(|c| c == "set-cookie")).unwrap_or(false)));
     assert_eq!(v["authority"], "earlier-record");
+}
+
+#[test]
+fn inspect_page_tallies_body_outlines() {
+    let (url, _) = fake_cdp();
+    let e = Engine::new(crate::testing::session());
+    let v = call(&e, "web_page_show", json!({"cdp_endpoint": url, "watch_ms": 200, "with_body_outlines": true})).unwrap();
+    let net = &v["result"]["network"];
+    assert!(net["requests"][0]["json_body_outline"].is_object(), "{net}");
+    assert_eq!(net["body_outlines"], json!({"json_responses": 1, "outlined": 1, "skipped": 0, "unavailable": 0}));
+    let codes: Vec<&str> = v["limitations"].as_array().unwrap().iter().filter_map(|l| l["code"].as_str()).collect();
+    assert!(!codes.iter().any(|c| c.starts_with("body_outlines")), "{codes:?}");
+    // Without outlines asked for, there is no tally.
+    let v = call(&e, "web_page_show", json!({"cdp_endpoint": url, "watch_ms": 200})).unwrap();
+    assert!(v["result"]["network"].get("body_outlines").is_none(), "{}", v["result"]["network"]);
+}
+
+/// A page's data often arrives after hundreds of scripts, styles and pings (#1811): the outline
+/// budget is spent on JSON responses only, and what's past it is counted.
+#[test]
+fn body_targets_count_only_wanted_requests() {
+    use super::{BODY_FETCH_CAP, body_targets};
+    let order: Vec<String> = (0..250).map(|n| format!("R{n}")).collect();
+    let json_ids = |id: &str| id.trim_start_matches('R').parse::<usize>().is_ok_and(|n| n >= 230 || n % 50 == 0);
+    let (picked, over) = body_targets(&order, BODY_FETCH_CAP, json_ids);
+    assert!(picked.contains(&"R234".to_string()), "a late JSON response is outlined");
+    assert_eq!(picked.len(), 25);
+    assert_eq!(over, 0);
+
+    let (picked, over) = body_targets(&order, 3, json_ids);
+    assert_eq!(picked, ["R0", "R50", "R100"]);
+    assert_eq!(over, 22, "every wanted request past the cap is counted");
+
+    let (picked, over) = body_targets(&order, BODY_FETCH_CAP, |_| true);
+    assert_eq!((picked.len(), over), (200, 50));
+    assert_eq!(body_targets(&[], 5, |_| true), (Vec::new(), 0));
+}
+
+#[test]
+fn skipped_bodies_become_limitations() {
+    use super::{kept_body_limitation, outline_limitations};
+    let codes = |ls: Vec<craft_anything_evidence::Limitation>| ls.into_iter().map(|l| l.code).collect::<Vec<_>>();
+    let tally = |skipped: u64, unavailable: u64| json!({"network": {"body_outlines": {"json_responses": 60, "outlined": 39, "skipped": skipped, "unavailable": unavailable}}});
+    assert_eq!(codes(outline_limitations(&tally(18, 3))), ["body_outlines_skipped", "body_outlines_unavailable"]);
+    let skipped = outline_limitations(&tally(18, 0));
+    assert!(skipped[0].message.contains("18 of 60 JSON response(s)"), "{}", skipped[0].message);
+    assert!(outline_limitations(&tally(0, 0)).is_empty());
+    assert!(outline_limitations(&json!({"network": null})).is_empty());
+    assert!(outline_limitations(&json!({})).is_empty());
+
+    let l = kept_body_limitation(&json!({"response_bodies": {"requests": 248, "fetched": 200, "skipped": 48}})).unwrap();
+    assert_eq!(l.code, "response_bodies_skipped");
+    assert!(l.message.contains("48 of 248 request(s)"), "{}", l.message);
+    assert!(kept_body_limitation(&json!({"response_bodies": {"requests": 2, "fetched": 2, "skipped": 0}})).is_none());
+    assert!(kept_body_limitation(&Value::Null).is_none());
 }
 
 #[test]
