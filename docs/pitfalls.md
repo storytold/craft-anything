@@ -620,9 +620,9 @@ readability but name how many were omitted in both formats; test one more limita
 **A reference list was cut and looked complete.** `native_strings_find` kept 32 references per
 string and gave no count or flag, while the tool promised a complete search and the browse tool
 already reported a full count. Keep the row cap for size but return `reference_count` (complete
-unless the analysis xref limit was reached), a per-row `references_capped` flag, a display-cap
-limitation and the analysis `xref_limit` limitation; test both a one-reference string and more
-than the cap.
+within the analysis unless its xref limit was reached), a per-row `references_capped` flag, a
+display-cap limitation and the analysis `xref_limit` limitation; test an engine-boundary program
+whose string exceeds the display cap while the analysis limit is reached, including paging.
 
 **A comparison list was taken for the whole set.** The application comparison cut added, removed,
 bundle-module and vendor rows at 2,000, and its summary counted those cut lists as totals; the
