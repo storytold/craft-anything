@@ -745,7 +745,12 @@ impl Worker {
                 &|| stop.is_cancelled(),
                 &mut || {},
             );
-            matches!(r, Ok(Ok(())))
+            // A refusal's reason reaches the agent: it says where to work and what to use instead.
+            match r {
+                Ok(Ok(())) => None,
+                Ok(Err(why)) => Some(why),
+                Err(e) => Some(e.message),
+            }
         })
     }
 

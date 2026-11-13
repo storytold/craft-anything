@@ -71,6 +71,24 @@ pub fn model_args(agent: &str, model: Option<&str>) -> Vec<String> {
 /// The ACP version we speak.
 const PROTOCOL_VERSION: u64 = 1;
 
+/// How long a turn may go without a word from the agent before it's stopped: the per-message CLI
+/// runner's limits, so both transports give up at the same point.
+fn quiet_for(builder: bool) -> Duration {
+    Duration::from_secs(if builder { super::BUILDER_QUIET_SECS } else { super::CHAT_QUIET_SECS })
+}
+
+/// How long the agent gets to answer a cancel before it's killed.
+const SILENT_GRACE: Duration = Duration::from_secs(10);
+
+/// A duration in words, for a message to the person.
+fn spoken(d: Duration) -> String {
+    match d.as_secs() {
+        secs @ 0..=59 => format!("{secs} seconds"),
+        secs if secs % 3600 == 0 => format!("{} hours", secs / 3600),
+        secs => format!("{} minutes", secs / 60),
+    }
+}
+
 /// The arguments that start `agent` in ACP mode, if it has one.
 pub fn acp_args(agent: &str) -> Option<&'static [&'static str]> {
     let agent = usual_agent(agent);
@@ -103,16 +121,23 @@ pub enum Out {
 }
 
 /// Decides a builder's permission request (`tool`, `input` as in [`Out::Decide`]); may block
-/// while the person is asked. True allows it.
-pub type Approver = Arc<dyn Fn(&str, &Value) -> bool + Send + Sync>;
+/// while the person is asked. `None` allows it; `Some(why)` refuses it and is what the agent is
+/// told, so a refused builder reads the reason (where to work, what to use instead) instead of a
+/// bare \"user rejected\" — CodeBuddy Code ends its turn on that, whatever the reason was.
+pub type Approver = Arc<dyn Fn(&str, &Value) -> Option<String> + Send + Sync>;
 
 /// The approver for a chat in Clean room (#564): the agent's own reading, writing, commands and
 /// fetching are refused (they'd reach the original), and what's left (planning, our tools, which
 /// our tool server limits itself) is allowed. There is no project to check paths against in a chat,
 /// so nothing of the agent's own is let through.
 pub fn clean_room_chat_approver() -> Approver {
-    Arc::new(|tool, _input| !matches!(tool, "Read" | "Write" | "Bash" | "WebFetch"))
+    Arc::new(|tool, _input| matches!(tool, "Read" | "Write" | "Bash" | "WebFetch").then(|| CLEAN_ROOM_CHAT_REFUSAL.to_string()))
 }
+
+/// What a Clean room chat tells the agent when it refuses its own reading, writing, commands and
+/// fetching.
+const CLEAN_ROOM_CHAT_REFUSAL: &str =
+    "This chat is in Clean room: nothing inside the original may be read. Describe what you would check and ask the person, or use the Craft Anything tools.";
 
 /// Session metadata only: no prompt is sent to discover a model's selectable settings.
 pub struct ModelMetadata {
@@ -122,15 +147,35 @@ pub struct ModelMetadata {
 }
 
 /// An ACP tool call in the approval policy's shape.
+///
+/// Agents differ in where the call's own arguments live. CodeBuddy Code sends a command under
+/// `rawInput` beside its own description of it, as a string or as an array of words; other
+/// agents name the fields differently. Read every shape an agent has been seen to use, and never
+/// let a description stand in for the command: the approval policy decides from the command, so
+/// a description was read as one, refused, and the refusal ended the builder's turn.
 fn policy_action(call: &Value) -> (String, Value) {
     let s = |p: &str| call.pointer(p).and_then(Value::as_str).map(str::to_string);
-    let path =
-        s("/locations/0/path").or_else(|| s("/rawInput/path")).or_else(|| s("/rawInput/file_path")).or_else(|| s("/rawInput/abs_path")).unwrap_or_default();
-    let command = match call.pointer("/rawInput/command") {
-        Some(Value::String(c)) => c.clone(),
-        Some(Value::Array(parts)) => parts.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" "),
-        _ => s("/title").unwrap_or_default(),
+    let path = s("/locations/0/path")
+        .or_else(|| s("/rawInput/path"))
+        .or_else(|| s("/rawInput/file_path"))
+        .or_else(|| s("/rawInput/filePath"))
+        .or_else(|| s("/rawInput/abs_path"))
+        .or_else(|| s("/rawInput/absolute_path"))
+        .or_else(|| s("/rawInput/notebook_path"))
+        .unwrap_or_default();
+    // A command as words in one string, or as an array of them (some agents send both forms of
+    // every field, some put the array in `rawInput` itself).
+    let worded = |p: &str| match call.pointer(p) {
+        Some(Value::String(c)) => Some(c.clone()),
+        Some(Value::Array(parts)) => Some(joined(parts)),
+        _ => None,
     };
+    let command = worded("/rawInput/command")
+        .or_else(|| worded("/rawInput/cmd"))
+        .or_else(|| worded("/rawInput/script"))
+        .or_else(|| worded("/command"))
+        .or_else(|| worded("/rawInput"))
+        .unwrap_or_default();
     match call.get("kind").and_then(Value::as_str).unwrap_or("other") {
         "edit" | "delete" | "move" => ("Write".into(), json!({"file_path": path})),
         "execute" => ("Bash".into(), json!({"command": command})),
@@ -139,6 +184,11 @@ fn policy_action(call: &Value) -> (String, Value) {
         "think" | "switch_mode" => ("TodoWrite".into(), Value::Null),
         _ => (s("/title").unwrap_or_else(|| "an unnamed tool".into()), call.get("rawInput").cloned().unwrap_or(Value::Null)),
     }
+}
+
+/// A command given as separate words, as the shell would join them.
+fn joined(parts: &[Value]) -> String {
+    parts.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" ")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -257,6 +307,17 @@ impl AcpCore {
     /// The agent's session, once it has one (to continue later with `session/load`).
     pub fn session_id(&self) -> Option<String> {
         self.session.clone()
+    }
+
+    /// Whether a prompt is with the agent: the only time it can fall silent mid-turn.
+    pub fn awaiting(&self) -> bool {
+        self.pending.values().any(|p| *p == Pending::Prompt)
+    }
+
+    /// Drop a prompt we gave up on (its `session/cancel` was never answered), so the next message
+    /// isn't held behind a turn that already ended here.
+    pub fn abandon_prompt(&mut self) {
+        self.pending.retain(|_, p| *p != Pending::Prompt);
     }
 
     /// The session a builder's turn was to continue can't be had ([`crate::Conversation::session_lost`]).
@@ -544,6 +605,22 @@ impl AcpCore {
         })]
     }
 
+    /// Refuse a permission request, saying why in the refusal's message. An agent that shows the
+    /// message to its model has something to act on; one that doesn't still sees the refusal.
+    pub fn refuse(&mut self, call_id: &str, why: &str) -> Vec<Out> {
+        let Some((id, options)) = self.asks.remove(call_id) else { return Vec::new() };
+        let pick = options
+            .iter()
+            .find(|o| o.get("kind").and_then(Value::as_str) == Some("reject_once"))
+            .or_else(|| options.iter().find(|o| o.get("kind").and_then(Value::as_str).is_some_and(|k| k.starts_with("reject"))))
+            .and_then(|o| o.get("optionId").cloned());
+        let outcome = match pick {
+            Some(option) => json!({"outcome": "selected", "optionId": option}),
+            None => json!({"outcome": "cancelled"}),
+        };
+        vec![Out::Send(json!({"jsonrpc": "2.0", "id": id, "result": {"outcome": outcome, "message": why}}).to_string())]
+    }
+
     /// Answer a permission request: the first option of the matching kind, once.
     pub fn answer(&mut self, call_id: &str, allow: bool) -> Vec<Out> {
         let Some((id, options)) = self.asks.remove(call_id) else { return Vec::new() };
@@ -659,10 +736,17 @@ impl Shared {
                 Out::Decide { call_id, tool, input } => {
                     let (sh, tx2, busy2, approver, id) = (shared.clone(), tx.clone(), busy.clone(), self.approver.clone(), call_id.clone());
                     let spawned = std::thread::Builder::new().name("acp-approval".into()).spawn(move || {
-                        let allow = approver.is_some_and(|a| a(&tool, &input));
+                        // The reason a refusal gives reaches the agent as its refusal, so a builder
+                        // that is told why (work inside the project, use a build command) can carry
+                        // on; some agents end their turn on any refusal, and a reason is all they
+                        // can act on before that.
+                        let decision = approver.as_ref().and_then(|a| a(&tool, &input));
                         let mut g = sh.lock().unwrap_or_else(PoisonError::into_inner);
                         if let Some(s) = g.as_mut() {
-                            let outs = s.core.answer(&id, allow);
+                            let outs = match &decision {
+                                Some(why) => s.core.refuse(&id, why),
+                                None => s.core.answer(&id, true),
+                            };
                             s.apply(outs, &sh, &tx2, &busy2);
                         }
                     });
@@ -708,6 +792,17 @@ pub struct AcpConversation {
     /// The backend's stored key and its `authMethods` id, for an agent that asks the host to
     /// `authenticate` (`ACP_KEY_AGENTS`: Devin).
     auth: Option<(String, String)>,
+    /// When the agent was last heard from: the reader thread's clock, read by `poll`. A turn that
+    /// goes quiet past its deadline ends with an error instead of leaving the conversation busy
+    /// for as long as the process lives.
+    last_line: Arc<craft_anything_platform::sync::Mutex<Instant>>,
+    /// A cancel this host sent after that deadline, past which the agent is killed.
+    abandoned: Option<Instant>,
+    /// A builder's turn may sit silent for hours (a clone, a big game's first look); a chat's may
+    /// not. Same limits as the per-message CLI runner.
+    builder: bool,
+    /// Replaces [`quiet`](Self::quiet_for)'s limit, for a test that can't wait it out.
+    quiet_override: Option<Duration>,
 }
 
 impl AcpConversation {
@@ -823,6 +918,12 @@ impl AcpConversation {
         self
     }
 
+    /// Whether this is a builder's turn, which may sit silent for hours (see [`quiet_for`]).
+    pub fn builder(mut self, builder: bool) -> Self {
+        self.builder = builder;
+        self
+    }
+
     /// `program args…` starts the agent in ACP mode; `cwd` is its working folder.
     pub fn new(backend: &str, agent: &str, program: String, args: Vec<String>, cwd: PathBuf, mcp: McpCommand, resume: Option<String>) -> Self {
         let (tx, rx) = std::sync::mpsc::channel();
@@ -849,6 +950,10 @@ impl AcpConversation {
             access_error: None,
             session_config: Vec::new(),
             auth: None,
+            last_line: Arc::new(craft_anything_platform::sync::Mutex::new(Instant::now())),
+            abandoned: None,
+            builder: false,
+            quiet_override: None,
         }
     }
 
@@ -874,6 +979,11 @@ impl AcpConversation {
         *self.lock() = Some(Shared { core, stdin: None, stderr: VecDeque::new(), approver: self.approver.clone() });
         let (shared, tx, busy) = (self.shared.clone(), self.tx.clone(), self.busy.clone());
         let shared_err = self.shared.clone();
+        // The reader thread stamps every line from the new process: only it sees its output.
+        let last_line = self.last_line.clone();
+        *last_line.lock().unwrap_or_else(PoisonError::into_inner) = Instant::now();
+        let last_line_for_reader = last_line;
+        self.abandoned = None;
         let tx_err = tx.clone();
         let mut proc = self
             .adapter
@@ -893,6 +1003,8 @@ impl AcpConversation {
                     let outs = s.core.line(l);
                     s.apply(outs, &shared, &tx, &busy);
                 }
+                drop(g);
+                *last_line_for_reader.lock().unwrap_or_else(PoisonError::into_inner) = Instant::now();
             })
             .on_stderr_line(move |l| {
                 if !l.trim().is_empty() {
@@ -911,6 +1023,7 @@ impl AcpConversation {
             .spawn()?;
         let stdin = proc.take_stdin();
         self.proc = Some(proc);
+        self.abandoned = None;
         let mut g = self.lock();
         if let Some(s) = g.as_mut() {
             s.stdin = stdin;
@@ -919,6 +1032,61 @@ impl AcpConversation {
         }
         let _ = self.tx.send(AgentEvent::Status { text: "Usage totals are unavailable over ACP. Check usage and billing in the agent CLI.".into() });
         Ok(())
+    }
+
+    /// Whether a message is with the agent (its `session/prompt` hasn't been answered).
+    fn acp_busy(&self) -> bool {
+        self.shared.lock().unwrap_or_else(PoisonError::into_inner).as_ref().is_some_and(|s| s.core.awaiting())
+    }
+
+    /// A turn whose agent has said nothing for [`QUIET`] ends here: a cancel is sent first (an
+    /// agent that is only slow may still answer), and one that stays silent past [`SILENT_GRACE`]
+    /// is killed. Without this an agent that stops talking mid-message keeps the conversation busy
+    /// as long as its process lives — up to the 24-hour deadline — with nothing in the feed.
+    fn watch_for_silence(&mut self, events: &mut Vec<AgentEvent>) {
+        let running = self.proc.as_mut().is_some_and(|p| !p.is_finished());
+        if running {
+            let quiet = self.quiet_override.unwrap_or_else(|| quiet_for(self.builder));
+            self.check_silence(quiet, events);
+        }
+    }
+
+    fn check_silence(&mut self, quiet: Duration, events: &mut Vec<AgentEvent>) {
+        let silent_for = self.last_line.lock().unwrap_or_else(PoisonError::into_inner).elapsed();
+        let Some(abandoned) = self.abandoned else {
+            if silent_for < quiet || !self.acp_busy() {
+                return;
+            }
+            // Ask it to stop: an agent that was only slow may answer with a plain "Stopped.". Its
+            // prompt stops counting as a message in progress either way, so the next one isn't held
+            // behind a turn that already ended here.
+            self.with_core(|c| {
+                let out = c.cancel();
+                c.abandon_prompt();
+                out
+            });
+            self.abandoned = Some(Instant::now());
+            self.busy.store(false, Ordering::SeqCst);
+            self.failure = Some(TurnFailure::new(FailureKind::Transient));
+            events.push(AgentEvent::Error {
+                message: format!("{} has said nothing for {}, so this turn was stopped.", display_for(&self.agent), spoken(quiet)),
+                remediation: Some(format!(
+                    "Try again; if it keeps going quiet, check that {} works in a terminal, or choose another agent in Settings → AI.",
+                    display_for(&self.agent)
+                )),
+                log: None,
+            });
+            events.push(AgentEvent::TurnDone { backend: self.backend.clone(), input_tokens: 0, output_tokens: 0, cost_usd: None, cost_is_estimate: false });
+            return;
+        };
+        // Its own answer to the cancel is the next task's; one that never comes isn't left running.
+        if abandoned.elapsed() >= SILENT_GRACE {
+            if let Some(p) = self.proc.as_mut() {
+                p.kill_and_wait(SILENT_GRACE);
+            }
+            self.abandoned = None;
+            *self.last_line.lock().unwrap_or_else(PoisonError::into_inner) = Instant::now();
+        }
     }
 
     fn with_core(&mut self, f: impl FnOnce(&mut AcpCore) -> Vec<Out>) {
@@ -1017,6 +1185,7 @@ impl Conversation for AcpConversation {
             });
             events.push(AgentEvent::TurnDone { backend: self.backend.clone(), input_tokens: 0, output_tokens: 0, cost_usd: None, cost_is_estimate: false });
         }
+        self.watch_for_silence(&mut events);
         events
     }
 
@@ -1121,6 +1290,69 @@ mod tests {
 
     fn events(outs: Vec<Out>) -> Vec<AgentEvent> {
         outs.into_iter().filter_map(|o| if let Out::Event(e) = o { Some(e) } else { None }).collect()
+    }
+
+    /// A prompt given up on (its `session/cancel` never answered) no longer counts as a message
+    /// in progress, so the next message isn't held behind a turn that already ended here.
+    #[test]
+    fn a_prompt_never_answered_does_not_hold_the_next_message() {
+        let mut c = core(None);
+        c.start();
+        assert!(c.prompt("What does it do?").is_empty(), "held until the session is ready");
+        c.line(r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":false}}}"#);
+        let prompt = sent(&c.line(r#"{"jsonrpc":"2.0","id":2,"result":{"sessionId":"s-1"}}"#));
+        assert_eq!(prompt[0]["method"], "session/prompt");
+        assert!(c.awaiting(), "the prompt is with the agent");
+        // The agent says nothing more: this is what the silence limit sends it.
+        assert!(sent(&c.cancel()).iter().any(|m| m["method"] == "session/cancel"));
+        c.abandon_prompt();
+        assert!(!c.awaiting(), "a turn given up on isn't still in progress");
+        assert!(!c.prompt("Are you still there?").is_empty(), "the next message goes out");
+    }
+
+    /// The whole point of the limit: an agent that answers one word and then goes quiet ends the
+    /// turn here instead of leaving it busy for as long as its process lives.
+    #[test]
+    #[ignore = "starts a real process"]
+    fn a_real_agent_that_goes_quiet_stops_the_turn() {
+        let mut c = AcpConversation::new("Hang", "gemini-cli", "node".into(), vec!["/tmp/cbtest/hang.js".into()], PathBuf::from("/tmp"), core(None).mcp, None);
+        c.quiet_override = Some(Duration::from_secs(2));
+        c.send("go");
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let mut seen = Vec::new();
+        while Instant::now() < deadline {
+            seen.extend(c.poll());
+            if seen.iter().any(|e| matches!(e, AgentEvent::TurnDone { .. })) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(!c.is_busy(), "the turn ended: {seen:?}");
+        assert!(seen.iter().any(|e| matches!(e, AgentEvent::Error { message, .. } if message.contains("said nothing for 2 seconds"))), "{seen:?}");
+        drop(c);
+    }
+
+    /// A turn that has been given up on doesn't end twice: the error and `TurnDone` come once,
+    /// with the silence limit in words.
+    #[test]
+    fn a_silent_turn_is_stopped_once_with_its_limit_in_words() {
+        let mut c = AcpConversation::new("Gemini", "gemini-cli", "/opt/bin/gemini".into(), Vec::new(), PathBuf::from("/w"), core(None).mcp, None);
+        c.quiet_override = Some(Duration::from_secs(1));
+        // No process yet: nothing is in progress, so nothing is given up on.
+        let mut events = Vec::new();
+        c.watch_for_silence(&mut events);
+        assert!(events.is_empty(), "{events:?}");
+        assert!(c.abandoned.is_none());
+    }
+
+    /// The silence limit is the per-message runner's, and reads in words for the person.
+    #[test]
+    fn a_quiet_turn_gives_up_at_the_same_point_as_a_cli_turn() {
+        assert_eq!(quiet_for(false), Duration::from_secs(super::super::CHAT_QUIET_SECS));
+        assert_eq!(quiet_for(true), Duration::from_secs(super::super::BUILDER_QUIET_SECS));
+        assert_eq!(spoken(Duration::from_secs(900)), "15 minutes");
+        assert_eq!(spoken(Duration::from_secs(8 * 3600)), "8 hours");
+        assert_eq!(spoken(Duration::from_secs(30)), "30 seconds");
     }
 
     #[test]
@@ -1496,6 +1728,30 @@ printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt
         assert_eq!(run("read", json!({"path": "/a"})).0, "Read");
         assert_eq!(run("fetch", json!({"url": "https://x"})).0, "WebFetch");
         assert_eq!(run("other", json!({})).0, "t", "unknown kinds are asked about by title");
+    }
+
+    /// The call CodeBuddy Code actually sent on 2026-11-13 (from its session log), whose command sat
+    /// beside a description in `rawInput` and was asked sandbox-free: the policy got the description
+    /// only, refused it, and the builder's turn ended. Every field it names must reach the policy.
+    #[test]
+    fn a_codebuddy_command_reaches_the_policy_with_its_own_words() {
+        let call = json!({
+            "kind": "execute",
+            "title": "ls -la \"/w/GeWu/phz/\" | head -50",
+            "rawInput": {
+                "command": "ls -la \"/w/GeWu/phz/\" | head -50",
+                "description": "列出 phz 目录内容",
+                "dangerouslyDisableSandbox": true
+            }
+        });
+        let (tool, input) = policy_action(&call);
+        assert_eq!(tool, "Bash");
+        assert_eq!(input["command"], json!("ls -la \"/w/GeWu/phz/\" | head -50"), "not its description");
+        // A command given as words, and the other names agents have used for the same field.
+        assert_eq!(policy_action(&json!({"kind": "execute", "rawInput": {"command": ["cargo", "test"]}})).1["command"], json!("cargo test"));
+        assert_eq!(policy_action(&json!({"kind": "execute", "rawInput": {"cmd": "make test"}})).1["command"], json!("make test"));
+        assert_eq!(policy_action(&json!({"kind": "execute", "rawInput": ["npm", "run", "build"]})).1["command"], json!("npm run build"));
+        assert_eq!(policy_action(&json!({"kind": "edit", "rawInput": {"file_path": "/w/app/a.rs"}})).1, json!({"file_path": "/w/app/a.rs"}));
     }
 
     #[test]

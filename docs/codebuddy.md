@@ -16,6 +16,13 @@ remains to confirm.
   with `session/set_config_option` on the session it opens.
 - Permissions: a build runs in CodeBuddy's `default` permission mode, so a change it wants to make
   reaches our approval policy (`session/request_permission`) instead of being decided by the agent.
+  Its requests put the command under `rawInput.command` beside its own description of it (as a
+  string, or as words); the policy reads the command from every shape agents have been seen to
+  send and never from the description. A refusal carries the policy's reason back as the request's
+  `message`, so a builder that is told to stay inside the project or use a build command has
+  something to act on. CodeBuddy ends its turn on any refusal it receives (its trace records it as
+  `cancel_reason: "user_rejected"`), whatever the reason: so a request it can't approve, like a
+  command that skips its sandbox, must not be one a build depends on.
 - Checked live against CodeBuddy Code 2.183.0 (2026-11-12): `--acp` answers with
   `protocolVersion: 1` and `loadSession: true`; `session/new` takes our server; a prompt's MCP call
   and a `Write` both sent a permission request, which we answered; a `Read` ran **without** one,
@@ -25,6 +32,11 @@ remains to confirm.
   `ReadMcpResource`) can't be refused at all, which is why a question is never handed a server.
 - Sign-in stays in the CLI: `codebuddy login`. Its folder is `~/.codebuddy`, or
   `CODEBUDDY_CONFIG_DIR` when set.
+- A turn whose agent stops talking ends by itself: the same limits the per-message runner uses
+  apply to the conversation (a chat 15 minutes, a builder 8 hours without a line), after which
+  `session/cancel` is sent, the turn is reported as stopped, and an agent that doesn't answer
+  within 10 seconds is killed. Before this a stalled turn kept the conversation busy for as long
+  as its process lived.
 - Its headless `stream-json` (`codebuddy -p --output-format stream-json`) is a viable native path,
   but has no permission-prompt tool (there a build must run with approvals off), so it isn't used.
 

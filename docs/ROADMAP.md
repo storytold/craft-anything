@@ -798,6 +798,22 @@ Owner: open · Status: in progress
       `~/.codebuddy/.mcp.json`. See [CodeBuddy Code](codebuddy.md).
       Still to open: a live deep build through the app, reasoning depth on the session, notes
       mid-turn
+- [x] An ACP permission request's own arguments reach the approval policy: a command is read from
+      `rawInput.command` (a string or words), `cmd`, `script` and `rawInput` given as words, never
+      from the agent's description or title, which the policy refused so that a builder's first
+      command ended its turn; a refusal carries the policy's reason back in the request's
+      `message`. Checked with the call CodeBuddy Code 2.183.0 sent on 2026-11-13 (from its session
+      log, kept as a test) and `cargo test -p craft-anything-ai`; a live deep build that runs its
+      commands is still to be seen.
+- [ ] A request CodeBuddy Code can't approve without the person (a command that skips its sandbox,
+      `dangerouslyDisableSandbox`) ends its turn on the refusal: decide what a build gets there
+      (let the command run sandboxed, or refuse the turn with the reason in the feed) — **decision**
+- [x] An ACP turn that goes silent ends instead of staying busy forever: the agent's last line
+      is timed against the same limits the per-message runner uses (a chat 15 minutes, a builder
+      8 hours), the turn then sends `session/cancel` and reports the stop, and an agent that
+      doesn't answer the cancel within 10 seconds is killed. A prompt given up on no longer holds
+      the next message. Checked with a stand-in ACP agent that answers one word and then goes
+      quiet (it ended the turn after its limit); not yet against CodeBuddy Code itself.
 - [x] Grok Build as a coding agent over ACP (`grok agent stdio`): discovery in `~/.grok/bin`,
       the person's own `grok login` (a missing `auth.json` is unknown, so an API key still
       starts), model and reasoning effort, and our MCP server on the session with `"type": "stdio"`

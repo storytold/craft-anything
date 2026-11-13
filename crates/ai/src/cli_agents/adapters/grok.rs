@@ -353,7 +353,7 @@ mod tests {
         let record = permissions.clone();
         let approver: super::super::acp::Approver = std::sync::Arc::new(move |tool: &str, _input: &serde_json::Value| {
             record.lock().unwrap().push(tool.to_string());
-            true
+            None
         });
         let mut spec = super::super::CliSpec::new(
             crate::BackendConfig {

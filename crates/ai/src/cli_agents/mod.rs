@@ -735,6 +735,7 @@ fn acp_for(spec: &CliSpec) -> Option<AcpConversation> {
     let auth = acp::key_auth_method(&agent).map(str::to_string).zip(spec.key.clone());
     Some(
         AcpConversation::new(&spec.config.name, &agent, program, args, cwd, mcp, if spec.question { None } else { spec.resume.clone() })
+            .builder(spec.builder.is_some())
             .with_validation(adapter.validate_options(&spec.options))
             .with_access_limit(adapter.validate_access(access))
             .with_adapter(adapter)
@@ -924,6 +925,15 @@ fn nothing_done(backend: &str) -> AgentEvent {
 /// builder turn, since a hung hook alone never touches stdout again to reset it).
 const RESULT_GRACE: Duration = Duration::from_secs(5);
 
+/// How long a turn may go without the agent saying anything before it's stopped. A builder turn may
+/// take hours and sit silent for long stretches (Ghidra's first look at a big game, an engine
+/// build, the person answering a question); a chat may not. Both transports use these: the
+/// per-message runner as its idle deadline, and ACP's one long-lived agent as its silence limit —
+/// without one there, an agent that stopped talking mid-message left the conversation busy for as
+/// long as its process lived.
+pub(crate) const BUILDER_QUIET_SECS: u64 = 8 * 3600;
+pub(crate) const CHAT_QUIET_SECS: u64 = 15 * 60;
+
 /// One message as one run of the agent's program (here or over SSH), its events sent on `tx`
 /// as they come. Returns the `TurnDone` that ends the turn, whatever happened, for the caller to
 /// send once the conversation can take the next message. The session it reports is kept for the
@@ -1032,7 +1042,7 @@ fn run_cli(spec: &CliSpec, text: &str, retry: bool, tx: &Sender<AgentEvent>, sto
     // game, an engine build, or the person answering a question. Claude Code's own limits are
     // raised to match, so nothing cuts a long clone short (its defaults stop a quiet tool call at
     // 30 minutes and a background build at 10).
-    let (turn, quiet) = if builder { (24 * 3600, 8 * 3600) } else { (30 * 60, 15 * 60) };
+    let (turn, quiet) = if builder { (24 * 3600, BUILDER_QUIET_SECS) } else { (30 * 60, CHAT_QUIET_SECS) };
     let mut env = agent_env(builder, spec.options.effort);
     let tool_env = match &remote {
         None => adapter.mcp_env(&mcp),
@@ -2262,9 +2272,10 @@ mod tests {
     fn a_clean_room_acp_chat_refuses_the_agents_own_actions() {
         let approve = acp::clean_room_chat_approver();
         for tool in ["Read", "Write", "Bash", "WebFetch"] {
-            assert!(!approve(tool, &serde_json::json!({"file_path": "/original/secret.txt"})), "{tool}");
+            let why = approve(tool, &serde_json::json!({"file_path": "/original/secret.txt"}));
+            assert!(why.as_ref().is_some_and(|why| why.contains("Clean room")), "{tool}: {why:?}");
         }
-        assert!(approve("TodoWrite", &serde_json::Value::Null));
+        assert_eq!(approve("TodoWrite", &serde_json::Value::Null), None);
     }
 
     #[test]
