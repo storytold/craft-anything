@@ -72,6 +72,9 @@ fn first_run_ai_step_can_add_a_server_by_its_address() {
     h.get_by_label("I'm new to this").click();
     h.run_steps(3);
     assert_eq!(h.state().state.first_run, FirstRunStep::Brain);
+    assert!(h.query_by_label("Server address").is_none(), "the form waits on its own tab");
+    h.get_by_label("Custom endpoint").click();
+    h.run_steps(3);
     let _ = h.get_by_label("Server address");
     let _ = h.get_by_label("AI name");
     // The demo already has an AI, so "we didn't find one" isn't said.
@@ -1326,6 +1329,51 @@ fn model_server() -> String {
     url
 }
 
+/// A stand-in model server that answers each path in `routes` with its body and any other request
+/// with 404, as a server that doesn't know the path would. Its address, ending in `/v1`.
+fn routed_model_server(routes: &'static [(&'static str, &'static str)]) -> String {
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let url = format!("http://{}/v1", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        for mut s in listener.incoming().flatten() {
+            let _ = s.set_nonblocking(false);
+            let _ = s.set_read_timeout(Some(Duration::from_secs(5)));
+            // The whole header, however TCP split it.
+            let (mut head, mut buf) = (Vec::new(), [0u8; 1024]);
+            while !head.windows(4).any(|w| w == b"\r\n\r\n") && head.len() < 16 * 1024 {
+                match s.read(&mut buf) {
+                    Ok(n) if n > 0 => head.extend_from_slice(buf.get(..n).unwrap_or_default()),
+                    _ => break,
+                }
+            }
+            let head = String::from_utf8_lossy(&head);
+            let path = head.split_whitespace().nth(1).unwrap_or_default();
+            let (status, body) = routes.iter().find(|(route, _)| *route == path).map_or(("404 Not Found", "{}"), |(_, body)| ("200 OK", *body));
+            let _ = write!(s, "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+        }
+    });
+    url
+}
+
+/// Settings → AI on the Custom endpoint tab, with an own server typed into the form and its
+/// models listed.
+fn custom_form_listing(name: &str, url: &str) -> Harness<'static, CraftApp> {
+    let mut h = harness(|| {
+        let mut a = demo::app(demo::engine(Mode::Experienced, true));
+        a.state.settings_open = true;
+        a.state.settings_tab = craft_anything_ui_egui::state::SettingsTab::Ai;
+        a
+    });
+    h.run_steps(2);
+    h.state_mut().state.detect_tab = Some(craft_anything_ui_egui::detect_tabs::DetectTab::Custom);
+    h.state_mut().server_form = craft_anything_ui_egui::ServerForm { name: name.into(), address: url.into(), ..Default::default() };
+    assert!(wait(&mut h, |a| !a.server_form.choice.models.is_empty()), "the server's models are listed");
+    h.get_by_label("Add").scroll_to_me();
+    h.run_steps(3);
+    h
+}
+
 /// #123, #127: the model an AI uses is changed in Settings → AI from the ones it lists.
 #[test]
 fn an_ais_model_is_changed_in_settings() {
@@ -1388,23 +1436,74 @@ fn an_ai_server_is_added_by_its_address() {
         a
     });
     h.run_steps(2);
-    h.get_by_label("Add an AI by its address");
+    h.state_mut().state.detect_tab = Some(craft_anything_ui_egui::detect_tabs::DetectTab::Custom);
+    h.run_steps(2);
+    h.get_by_label("Custom LLM endpoint");
     h.state_mut().server_form = craft_anything_ui_egui::ServerForm { name: "Studio box".into(), address: url.clone(), ..Default::default() };
     h.run_steps(1);
-    // The AI settings page scrolls, and the key row added in #1486 puts the form's Add button
-    // below its visible part. A pointer click there lands outside the scroll area, so scroll the
-    // page first, as a person would.
-    h.event(egui::Event::PointerMoved(egui::pos2(640.0, 400.0)));
-    h.event(egui::Event::MouseWheel {
-        unit: egui::MouseWheelUnit::Point,
-        delta: egui::vec2(0.0, -300.0),
-        phase: egui::TouchPhase::Move,
-        modifiers: egui::Modifiers::NONE,
-    });
-    h.run_steps(20);
+    h.get_by_label("Add").scroll_to_me();
+    h.run_steps(3);
     h.get_by_label("Add").click();
     assert!(wait(&mut h, |a| a.backends.iter().any(|b| b.name == "Studio box" && b.model == "qwen3:8b")), "added with a model that can chat");
     assert!(h.state().server_form.name.is_empty(), "the form empties once it's added");
+}
+
+/// An own server that lists only an embedding model is never added with it. The list stays on
+/// Automatic (nothing is picked for the person), so Add asks the server as it did before there was
+/// a list, and says it has no model that can chat.
+#[test]
+fn a_server_with_no_chat_model_is_not_added_from_its_list() {
+    let url = routed_model_server(&[("/v1/models", r#"{"object":"list","data":[{"id":"nomic-embed-text"}]}"#)]);
+    let mut h = custom_form_listing("Embed box", &url);
+    let form = &h.state().server_form;
+    assert_eq!(form.choice.models, ["nomic-embed-text"]);
+    assert!(form.choice.chosen().is_empty(), "nothing is picked from a list with no chat model: {:?}", form.choice);
+    h.get_by_label("Add").click();
+    assert!(
+        wait(&mut h, |a| a.state.toasts.iter().any(|(text, error)| *error && text.contains("doesn't list a model that can chat"))),
+        "{:?}",
+        h.state().state.toasts
+    );
+    assert!(h.state().server_form.connecting.is_none());
+    h.state_mut().refresh_backends();
+    h.run_steps(3);
+    assert!(h.state().backends.iter().all(|b| b.name != "Embed box"), "it wasn't added");
+    assert!(h.state().hub.config().backends.iter().all(|b| b.config.name != "Embed box"), "nothing was saved");
+    assert_eq!(h.state().server_form.name, "Embed box", "what was typed is kept to fix it");
+}
+
+/// An own server's list doesn't decide its model: with nothing picked, Add uses the chat model the
+/// server has loaded, not the first one it lists (asking for that one could unload the other).
+/// A model the person picks from the list is used as it is.
+#[test]
+fn an_own_server_is_added_with_its_loaded_model_unless_one_is_picked() {
+    let url = routed_model_server(&[
+        ("/v1/models", r#"{"object":"list","data":[{"id":"deepseek-r1:8b"},{"id":"qwen3:8b"}]}"#),
+        ("/api/ps", r#"{"models":[{"name":"qwen3:8b","model":"qwen3:8b"}]}"#),
+    ]);
+    let mut h = custom_form_listing("Loaded box", &url);
+    assert!(h.state().server_form.choice.chosen().is_empty(), "the list starts on Automatic: {:?}", h.state().server_form.choice);
+    h.get_by_label("Add").click();
+    assert!(wait(&mut h, |a| a.backends.iter().any(|b| b.name == "Loaded box")), "{:?}", h.state().state.toasts);
+    assert_eq!(
+        h.state().backends.iter().find(|b| b.name == "Loaded box").map(|b| b.model.as_str()),
+        Some("qwen3:8b"),
+        "the loaded model, not the list's first"
+    );
+    // Picked by the person: that model, loaded or not.
+    h.state_mut().server_form = craft_anything_ui_egui::ServerForm { name: "Picked box".into(), address: url.clone(), ..Default::default() };
+    assert!(wait(&mut h, |a| !a.server_form.choice.models.is_empty()));
+    h.get_by_label("Model").scroll_to_me();
+    h.run_steps(3);
+    h.get_by_label("Model").click();
+    h.run_steps(2);
+    h.get_by_label("deepseek-r1:8b").click();
+    h.run_steps(2);
+    assert_eq!(h.state().server_form.choice.chosen(), "deepseek-r1:8b");
+    h.get_by_label("Add").scroll_to_me();
+    h.run_steps(3);
+    h.get_by_label("Add").click();
+    assert!(wait(&mut h, |a| a.backends.iter().any(|b| b.name == "Picked box" && b.model == "deepseek-r1:8b")), "{:?}", h.state().state.toasts);
 }
 
 /// #53: an agent app installed where it isn't looked for gets its program chosen in Settings → AI,
@@ -1586,6 +1685,8 @@ fn claude_codes_account_folder_is_set_in_settings() {
     // Added already, so it's offered again under the next free name, on the coding agents' tab.
     h.state_mut().state.detect_tab = Some(craft_anything_ui_egui::detect_tabs::DetectTab::Harnesses);
     h.run_steps(2);
+    h.get_by_label("Add another").scroll_to_me();
+    h.run_steps(3);
     h.get_by_label("Add another").click();
     assert!(wait(&mut h, |a| a.backends.iter().any(|b| b.name == "Claude Code 2" && b.model == "claude-code")));
 }
@@ -2862,13 +2963,24 @@ fn ai_discovery_controls_have_even_spacing() {
         h.run_steps(4);
         let providers = h.get_by_label(&format!("Providers ({count})")).rect();
         let harnesses = h.get_by_label(&format!("Harnesses ({count})")).rect();
+        let custom = h.get_by_label("Custom endpoint").rect();
         let detect = h.get_by_label("Detect").rect();
-        assert!(!providers.intersects(detect) && !harnesses.intersects(detect), "controls overlap at {width}: {providers:?}, {harnesses:?}, {detect:?}");
+        assert!(
+            [providers, harnesses, custom].iter().all(|tab| !tab.intersects(detect)),
+            "controls overlap at {width}: {providers:?}, {harnesses:?}, {custom:?}, {detect:?}"
+        );
         let tab_gap = harnesses.left() - providers.right();
-        let action_gap = detect.left() - harnesses.right();
-        assert!(tab_gap > 0.0 && action_gap > 0.0, "controls need a visible gap at {width}");
-        assert!((tab_gap - action_gap).abs() <= 1.0, "spacing differs at {width}: {tab_gap} vs {action_gap}");
-        assert!(providers.top() < detect.bottom() && detect.top() < providers.bottom(), "controls share a row at {width}");
+        let custom_gap = custom.left() - harnesses.right();
+        assert!(tab_gap > 0.0 && (tab_gap - custom_gap).abs() <= 1.0, "tab spacing differs at {width}: {tab_gap} vs {custom_gap}");
+        if detect.top() < custom.bottom() {
+            // Detect fits on the tabs' row: the same gap after the last tab.
+            let action_gap = detect.left() - custom.right();
+            assert!(action_gap > 0.0, "controls need a visible gap at {width}");
+            assert!((tab_gap - action_gap).abs() <= 1.0, "spacing differs at {width}: {tab_gap} vs {action_gap}");
+        } else {
+            // It wraps with them: the next row starts where the tabs do.
+            assert!((detect.left() - providers.left()).abs() <= 0.5, "Detect wrapped to {detect:?}, tabs start at {providers:?}");
+        }
         h.get_by_label(&format!("Harnesses ({count})")).click();
         h.run_steps(2);
         assert_eq!(h.state().state.detect_tab, Some(craft_anything_ui_egui::detect_tabs::DetectTab::Harnesses));
@@ -3331,4 +3443,211 @@ fn a_very_long_app_file_name_keeps_start_inside_the_window() {
     let content = h.ctx.content_rect();
     let start = h.get_by_label("Start").rect();
     assert!(start.left() >= 0.0 && start.right() <= content.right(), "Start ({start:?}) stays inside the window ({content:?})");
+}
+
+fn ai_settings() -> egui_kittest::Harness<'static, CraftApp> {
+    let mut h = harness(|| {
+        let mut a = demo::app(demo::engine(Mode::Experienced, true));
+        a.state.settings_open = true;
+        a.state.settings_tab = craft_anything_ui_egui::state::SettingsTab::Ai;
+        a.state.backend = Some("Claude".into());
+        a
+    });
+    h.run_steps(3);
+    h
+}
+
+/// The "In use" chip is as tall as the buttons beside it, and sits level with them.
+#[test]
+fn an_ais_status_chip_is_as_tall_as_its_buttons() {
+    let h = ai_settings();
+    let chip = h.get_by_label("In use").rect();
+    let test = h.get_all_by_label("Build with this").next().expect("a button in the chip's row").rect();
+    assert_eq!(chip.height(), test.height(), "chip {chip:?} vs button {test:?}");
+    assert_eq!(chip.top(), test.top(), "chip {chip:?} vs button {test:?}");
+}
+
+/// The row says what kind of AI it is in words.
+#[test]
+fn an_ais_row_names_its_kind() {
+    let h = ai_settings();
+    let _ = h.get_by_label_contains("Anthropic API");
+}
+
+/// On the Custom endpoint tab, Test and Add are the same height, and the status line keeps its
+/// place whether or not it has anything to say.
+#[test]
+fn the_custom_form_keeps_its_buttons_level_and_its_status_line_put() {
+    let mut h = ai_settings();
+    h.state_mut().state.detect_tab = Some(craft_anything_ui_egui::detect_tabs::DetectTab::Custom);
+    h.run_steps(3);
+    let (add, test) = (h.get_by_label("Add").rect(), h.get_all_by_label("Test").last().expect("the form Test button").rect());
+    assert_eq!(add.height(), test.height(), "Add {add:?} vs Test {test:?}");
+    assert_eq!(add.top(), test.top());
+    // Every control in the form has one left edge and one right edge, and Add ends there too.
+    let edges = |h: &Harness<'static, CraftApp>| {
+        ["Service", "AI name", "Server address", "API key", "Model"].map(|l| {
+            let r = h.get_by_label(l).rect();
+            (l, r.left(), r.right())
+        })
+    };
+    let fields = edges(&h);
+    for (l, left, right) in fields {
+        assert!((left - fields[0].1).abs() < 0.5, "{l} starts at {left}, Service at {}", fields[0].1);
+        assert!((right - fields[0].2).abs() < 0.5, "{l} ends at {right}, Service at {}", fields[0].2);
+    }
+    assert!((add.right() - fields[0].2).abs() < 0.5, "Add ends at {}, the fields at {}", add.right(), fields[0].2);
+    let _ = h.get_by_label("Service");
+    h.state_mut().server_form.address = "http://127.0.0.1:9/v1".into();
+    h.run_steps(3);
+    let after = h.get_by_label("Add").rect();
+    assert_eq!(add.top(), after.top(), "typing an address moved the buttons");
+}
+
+/// Another service in the form drops the last one's model list and pick, so Add can't save a model
+/// from one server with another's address.
+#[test]
+fn a_new_service_in_the_custom_form_drops_the_old_models() {
+    let mut h = ai_settings();
+    h.state_mut().state.detect_tab = Some(craft_anything_ui_egui::detect_tabs::DetectTab::Custom);
+    h.state_mut().server_form.choice.models = vec!["qwen3:8b".into()];
+    h.state_mut().server_form.choice.picked = "qwen3:8b".into();
+    h.run_steps(3);
+    h.get_by_label("Add").scroll_to_me();
+    h.run_steps(3);
+    h.get_by_label("Service").click();
+    h.run_steps(2);
+    h.get_by_label("OpenRouter").click();
+    h.run_steps(2);
+    let form = &h.state().server_form;
+    assert_eq!(craft_anything_ai::providers::services()[form.service].name, "OpenRouter");
+    assert!(form.choice.models.iter().all(|m| m != "qwen3:8b") && form.choice.picked != "qwen3:8b", "{:?}", form.choice);
+}
+
+/// A key typed for one service is dropped when another is picked, so it is never sent to the new one.
+#[test]
+fn a_new_service_in_the_custom_form_drops_the_typed_key() {
+    let mut h = ai_settings();
+    h.state_mut().state.detect_tab = Some(craft_anything_ui_egui::detect_tabs::DetectTab::Custom);
+    h.state_mut().server_form.key = "sk-test-0000".into();
+    h.run_steps(3);
+    h.get_by_label("Add").scroll_to_me();
+    h.run_steps(3);
+    h.get_by_label("Service").click();
+    h.run_steps(2);
+    h.get_by_label("OpenRouter").click();
+    h.run_steps(2);
+    assert!(h.state().server_form.key.is_empty());
+}
+
+/// Test needs a web address, not a name: an unnamed server can be tried before it is added.
+#[test]
+fn an_unnamed_server_in_the_custom_form_can_be_tested() {
+    let mut h = ai_settings();
+    h.state_mut().state.detect_tab = Some(craft_anything_ui_egui::detect_tabs::DetectTab::Custom);
+    h.state_mut().server_form.address = "not an address".into();
+    h.run_steps(3);
+    h.get_all_by_label("Test").last().expect("the form Test button").click_accesskit();
+    h.run_steps(2);
+    assert!(h.state().server_form.test.is_none(), "no web address, no test");
+    h.state_mut().server_form.address = "http://127.0.0.1:9/v1".into();
+    h.run_steps(2);
+    h.get_all_by_label("Test").last().expect("the form Test button").click_accesskit();
+    h.run_steps(2);
+    assert!(h.state().server_form.test.is_some(), "a test started with no name");
+}
+
+/// A key card lists the models its key offers once a key is pasted, and Connect uses the one chosen.
+#[test]
+fn a_key_card_picks_a_model() {
+    let url = model_server();
+    let card = craft_anything_ai::Detected {
+        suggestion: craft_anything_ai::BackendConfig {
+            name: "Keyed".into(),
+            kind: craft_anything_ai::BackendKind::OpenaiCompatible,
+            model: "nomic-embed-text".into(),
+            base_url: Some(url),
+            ssh_host: None,
+            enabled: true,
+        },
+        reason: "Paste your key".into(),
+        needs_key: true,
+    };
+    let mut h = harness(move || {
+        let mut a = demo::app(demo::engine(Mode::Experienced, true));
+        a.state.settings_open = true;
+        a.state.settings_tab = craft_anything_ui_egui::state::SettingsTab::Ai;
+        a.detected = Some(vec![card]);
+        a
+    });
+    h.run_steps(3);
+    assert!(h.query_by_label("2 models found").is_none(), "nothing to list without a key");
+    h.state_mut().key_inputs.insert("Keyed".into(), "sk-test-12345678".into());
+    let start = Instant::now();
+    while h.query_by_label("2 models found").is_none() && start.elapsed() < Duration::from_secs(10) {
+        h.run_steps(2);
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let _ = h.get_by_label("2 models found");
+    let (combo, connect) = (h.get_by_label("Model").rect(), h.get_by_label("Add").rect());
+    assert!((combo.center().y - connect.center().y).abs() < 1.0, "the picker {combo:?} and the button {connect:?} share a centre");
+    h.get_by_label("Model").scroll_to_me();
+    h.run_steps(3);
+    h.get_by_label("Model").click();
+    h.run_steps(2);
+    h.get_by_label("qwen3:8b").click();
+    h.run_steps(2);
+    h.get_by_label("Add").click();
+    assert!(wait(&mut h, |a| a.backends.iter().any(|b| b.name == "Keyed" && b.model == "qwen3:8b")), "Connect uses the chosen model");
+}
+
+/// A row's buttons wrap, and every line of them starts where the first one does.
+#[test]
+fn an_ais_buttons_wrap_to_the_column_they_start_in() {
+    let mut h = harness_sized(egui::vec2(900.0, 900.0), || {
+        let mut a = demo::app(demo::engine(Mode::Experienced, true));
+        a.state.settings_open = true;
+        a.state.settings_tab = craft_anything_ui_egui::state::SettingsTab::Ai;
+        a.state.backend = Some("Claude".into());
+        a
+    });
+    h.run_steps(3);
+    let chip = h.get_by_label("In use").rect();
+    let mut tops: Vec<(f32, f32)> = Vec::new();
+    for l in ["In use", "Build with this", "Extract with this", "Turn off", "Test", "Remove Claude"] {
+        if let Some(n) = h.query_by_label(l) {
+            let r = n.rect();
+            if r.top() >= chip.top() - 1.0 && r.top() < chip.top() + 200.0 {
+                tops.push((r.top(), r.left()));
+            }
+        }
+    }
+    tops.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)));
+    let mut lines: Vec<(f32, f32)> = Vec::new();
+    for (top, left) in tops {
+        if !lines.iter().any(|(t, _)| (t - top).abs() < 4.0) {
+            lines.push((top, left));
+        }
+    }
+    eprintln!("LINES {lines:?} chip {chip:?}");
+    assert!(lines.len() >= 2, "the row didn't wrap, so this checks nothing: {lines:?}");
+    for (top, left) in &lines {
+        assert!((left - chip.left()).abs() < 0.5, "the line at {top} starts at {left}, the first at {}", chip.left());
+    }
+}
+
+/// The form's caption sits at the form's left edge on the first run too, not centred over it.
+#[test]
+fn the_first_run_form_caption_is_left_aligned() {
+    let mut h = harness(|| demo::app(demo::engine(Mode::Beginner, false)));
+    h.run_steps(3);
+    h.get_by_label("I'm new to this").click();
+    h.run_steps(3);
+    h.get_by_label("Custom endpoint").click();
+    h.run_steps(3);
+    let caption = h.get_by_label("Custom LLM endpoint").rect();
+    let field = h.get_by_label("Server address").rect();
+    let service = h.get_by_label("Service").rect();
+    assert!(caption.left() < service.left() - 40.0, "caption {caption:?} vs fields {service:?}");
+    assert!((service.left() - field.left()).abs() < 0.5 && (service.right() - field.right()).abs() < 0.5);
 }
