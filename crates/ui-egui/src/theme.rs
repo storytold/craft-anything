@@ -196,8 +196,9 @@ impl Tokens {
     }
 }
 
+/// Stable context-local key for the active theme tokens.
 fn tokens_id() -> egui::Id {
-    egui::Id::new("craft-anything-theme")
+    egui::Id::unique("craft-anything-theme")
 }
 
 // ---- fonts -------------------------------------------------------------------------------------
@@ -221,6 +222,12 @@ include!(concat!(env!("OUT_DIR"), "/craft_fonts.rs"));
 /// Install DM Sans (three weights: body, labels and bold for headings; it has no static
 /// SemiBold), JetBrains Mono (code), plus any craft-fonts as fallbacks.
 pub fn install_fonts(ctx: &egui::Context) {
+    ctx.set_fonts(font_definitions(CRAFT_FONTS));
+}
+
+/// Construct complete family stacks from bundled faces and the supplied optional font input.
+/// Passing no optional faces also excludes them from the inherited medium/semibold stacks.
+fn font_definitions(optional: &[CraftFont]) -> FontDefinitions {
     let mut fonts = FontDefinitions::default();
     let mut add = |name: &str, bytes: &'static [u8]| {
         fonts.font_data.insert(name.to_owned(), Arc::new(FontData::from_static(bytes)));
@@ -230,7 +237,7 @@ pub fn install_fonts(ctx: &egui::Context) {
     add("DMSans-Bold", DM_SANS_BOLD);
     add("JetBrainsMono", JETBRAINS_MONO);
     let mut fallbacks = Vec::new();
-    for f in CRAFT_FONTS {
+    for f in optional {
         let name = format!("craft:{}:{}", f.family, f.style);
         fonts.font_data.insert(name.clone(), Arc::new(FontData::from_static(f.bytes)));
         if f.style.eq_ignore_ascii_case("regular") {
@@ -241,6 +248,9 @@ pub fn install_fonts(ctx: &egui::Context) {
     let fallbacks = sans_first(fallbacks);
     fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "DMSans".to_owned());
     fonts.families.entry(FontFamily::Monospace).or_default().insert(0, "JetBrainsMono".to_owned());
+    // Navigation hints use arrows absent from DM Sans and egui's new minimal sans stack.
+    // This bundled fallback keeps those glyphs available even without optional craft-fonts.
+    fonts.families.entry(FontFamily::Proportional).or_default().push("JetBrainsMono".to_owned());
     for fam in [FontFamily::Proportional, FontFamily::Monospace] {
         fonts.families.entry(fam).or_default().extend(fallbacks.iter().cloned());
     }
@@ -250,7 +260,7 @@ pub fn install_fonts(ctx: &egui::Context) {
         stack.extend(base.iter().cloned());
         fonts.families.insert(FontFamily::Name(fam.into()), stack);
     }
-    ctx.set_fonts(fonts);
+    fonts
 }
 
 /// Fallback faces, most wanted first. A stable sort keeps the manifest's order inside a rank.
@@ -647,6 +657,39 @@ mod tests {
         assert_eq!(fallback_rank("craft:Unknown Face:Regular"), FallbackRank::Other);
         assert_eq!(fallback_rank("craft:BIZ UDMincho:Regular"), FallbackRank::Serif);
         assert_eq!(fallback_rank("craft:BIZ UDPGothic:Regular"), FallbackRank::Local);
+    }
+
+    /// Supplied optional faces are inherited by weighted families; an empty input excludes them.
+    #[test]
+    fn optional_font_input_controls_all_inherited_families() {
+        let optional = [CraftFont { family: "Test Optional Arrow", style: "Regular", scripts: &["Latn"], bytes: JETBRAINS_MONO }];
+        let populated = font_definitions(&optional);
+        let empty = font_definitions(&[]);
+        let name = "craft:Test Optional Arrow:Regular";
+        assert!(populated.font_data.contains_key(name));
+        assert!(!empty.font_data.contains_key(name));
+        for family in [FontFamily::Proportional, FontFamily::Monospace, FontFamily::Name("medium".into()), FontFamily::Name("semibold".into())] {
+            assert!(populated.families.get(&family).unwrap().iter().any(|font| font == name), "{family:?}");
+            assert!(empty.families.get(&family).unwrap().iter().all(|font| !font.starts_with("craft:")), "{family:?}");
+        }
+    }
+
+    /// Bundled fonts must render navigation arrows even when optional font packages are absent.
+    #[test]
+    fn navigation_arrows_do_not_require_optional_fonts() {
+        let ctx = egui::Context::default();
+        // CI compiles optional fonts in: bypass them explicitly, not via a build-time assumption.
+        let fonts = font_definitions(&[]);
+        assert!(fonts.font_data.keys().all(|name| !name.starts_with("craft:")));
+        assert!(fonts.families.values().flatten().all(|name| !name.starts_with("craft:")));
+        ctx.set_fonts(fonts);
+        ctx.set_missing_glyph_policy(egui::MissingGlyphPolicy::Panic);
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            for font in [FontId::proportional(14.0), medium(14.0), semibold(14.0)] {
+                ui.label(egui::RichText::new("Settings → AI ← ↑ ↓").font(font));
+            }
+        });
+        output.textures_delta.clear();
     }
 
     /// Releases are built with craft-fonts (#19), and so is CI; a build without them has only
