@@ -676,8 +676,9 @@ See [ROADMAP.md](ROADMAP.md) for the ordered plan.
 
 When app files can be compared, a build stops after two consecutive completed builder turns leave them unchanged.
 The versioned `inbox/build-progress.json` record keeps that count when the project is reopened or
-Try again is pressed. A record this version can't read still stops the run, and the error says the
-file is Craft Anything's, that something else changed it, and to rename or delete it to go on; every
+Try again is pressed. A record that can't be read still stops the run, and the error says the file
+is Craft Anything's, that something else changed it, and to rename or delete it to go on. A record
+from a newer version stops it too, and that error says to update Craft Anything instead. Every
 brief names `craft.json`, `feed.json` and `inbox/` as records a builder must not write (an OpenCode
 builder once kept its own notes in this file). File contents and executable permissions decide progress, so rewriting
 identical bytes does not reset it. An actual app edit or a new nonempty request starts another
