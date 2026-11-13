@@ -557,6 +557,11 @@ been run live.
       on a helper thread and the wait checks the job's cancel, so Stop beside "Connecting to…"
       ends it at once (`AiHub::add_server_until`); the request given up on ends by its own limits
       — claimed: FuryNocturn, branch bugfix/r5.4-stop-adding-a-server
+- [x] Adding a server by its address with a model named still asked it for `/models` and refused
+      it when that failed, so a hosted service with no model list (or one that lists only some of
+      its models) couldn't be added from Settings → AI or the first run's AI step. A named model is
+      now saved as given, without the request; the list is asked for only when no model is named
+      — branch bugfix/r5.4-named-model-skips-model-list
 
 ### R5.5 API-key builds fail in words people can use
 Owner: open · Status: todo
