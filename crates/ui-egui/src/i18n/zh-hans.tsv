@@ -1488,3 +1488,4 @@ Updated to {version}.	已更新至 {version}。
 Use Releases or your package manager to update this installation.	请通过“发行版本”或软件包管理器更新此安装。
 You're up to date.	已是最新版本。
 {version} is available.	{version} 已可用。
+Detection looks at this computer: whether the API keys in your environment are set, model servers running here or on your network (their model list is requested), the coding agents you already installed, and the SSH hosts configured in your settings (suggestions only). No project files or prompts are uploaded, and nothing is added unless you choose it.	检测会查看这台计算机上的：环境变量中的 API 密钥是否已设置、在本机或网络上运行的模型服务器（会询问其模型列表）、已安装的编程代理，以及设置中配置的 SSH 主机（仅作建议）。不会上传项目文件或提示词，也不会在你选择之前添加任何内容。

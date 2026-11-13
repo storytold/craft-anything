@@ -947,3 +947,4 @@ yesterday	昨日
 … {n} more	… ほか {n} 件
 … {n} older	… 古いもの {n} 件
 Connecting to {name}… {seconds} s	{name} に接続中… {seconds} 秒
+Detection looks at this computer: whether the API keys in your environment are set, model servers running here or on your network (their model list is requested), the coding agents you already installed, and the SSH hosts configured in your settings (suggestions only). No project files or prompts are uploaded, and nothing is added unless you choose it.	検出はこのコンピュータの次のものを見ます: 環境変数の API キーが設定されているか、この PC やネットワーク上で動いているモデルサーバー(モデル一覧を問い合わせます)、インストール済みのコーディングエージェント、設定に登録された SSH ホスト(候補としてのみ)。プロジェクトのファイルやプロンプトはアップロードせず、選ぶまで追加もしません。

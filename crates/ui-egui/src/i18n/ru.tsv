@@ -1488,3 +1488,4 @@ Updated to {version}.	Обновлено до {version}.
 Use Releases or your package manager to update this installation.	Обновите эту установку через выпуски или менеджер пакетов.
 You're up to date.	Установлена последняя версия.
 {version} is available.	Доступна версия {version}.
+Detection looks at this computer: whether the API keys in your environment are set, model servers running here or on your network (their model list is requested), the coding agents you already installed, and the SSH hosts configured in your settings (suggestions only). No project files or prompts are uploaded, and nothing is added unless you choose it.	Поиск смотрит на этом компьютере: заданы ли ключи API в вашем окружении, серверы моделей здесь или в вашей сети (у них запрашивается список моделей), уже установленные агенты и SSH-хосты из ваших настроек (только подсказки). Файлы проектов и запросы не отправляются, и ничего не добавляется, пока вы не выберете.

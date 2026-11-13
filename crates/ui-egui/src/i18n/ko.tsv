@@ -1488,3 +1488,4 @@ Updated to {version}.	{version}(으)로 업데이트되었습니다.
 Use Releases or your package manager to update this installation.	릴리스 또는 패키지 관리자를 사용하여 이 설치를 업데이트하세요.
 You're up to date.	최신 버전입니다.
 {version} is available.	{version} 버전을 사용할 수 있습니다.
+Detection looks at this computer: whether the API keys in your environment are set, model servers running here or on your network (their model list is requested), the coding agents you already installed, and the SSH hosts configured in your settings (suggestions only). No project files or prompts are uploaded, and nothing is added unless you choose it.	검색은 이 컴퓨터에서 다음을 봅니다: 환경 변수의 API 키가 설정되어 있는지, 이곳이나 네트워크에서 실행 중인 모델 서버(모델 목록을 물어봅니다), 이미 설치된 코딩 에이전트, 설정에 등록된 SSH 호스트(제안용). 프로젝트 파일이나 프롬프트는 업로드하지 않으며, 선택하기 전에는 추가하지 않습니다.
