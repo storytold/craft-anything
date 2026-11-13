@@ -1488,3 +1488,9 @@ Updated to {version}.	{version} sürümüne güncellendi.
 Use Releases or your package manager to update this installation.	Bu kurulumu güncellemek için Sürümler’i veya paket yöneticinizi kullanın.
 You're up to date.	En güncel sürümdesiniz.
 {version} is available.	{version} sürümü kullanılabilir.
+Interface font	Arayüz yazı tipi
+The font for the whole window.	Tüm pencere için yazı tipi.
+Add a font file…	Yazı tipi dosyası ekle…
+That file is not a .ttf or .otf font.	Bu dosya bir .ttf veya .otf yazı tipi değil.
+That font file is too large.	Bu yazı tipi dosyası çok büyük.
+That file is not a font this app can read.	Bu dosya bu uygulamanın okuyabileceği bir yazı tipi değil.

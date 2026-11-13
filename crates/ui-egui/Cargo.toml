@@ -31,6 +31,8 @@ craft-update = { git = "https://github.com/storytold/craft-libs", rev = "6ac2a6a
 
 # Native open/save dialogs, always shown from a worker thread (never blocks a frame).
 rfd = { workspace = true }
+# The parser epaint uses; a font egui cannot read would panic it, so it is checked first.
+skrifa = "0.44"
 # Pictures pasted from the clipboard (see `paste`).
 arboard = { workspace = true }
 pollster = "0.4"

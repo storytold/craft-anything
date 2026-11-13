@@ -1488,3 +1488,9 @@ Updated to {version}.	Aktualizováno na {version}.
 Use Releases or your package manager to update this installation.	Aktualizujte tuto instalaci přes vydání nebo správce balíčků.
 You're up to date.	Máte nejnovější verzi.
 {version} is available.	Je dostupná verze {version}.
+Interface font	Písmo rozhraní
+The font for the whole window.	Písmo pro celé okno.
+Add a font file…	Přidat soubor písma…
+That file is not a .ttf or .otf font.	Tento soubor není písmo .ttf nebo .otf.
+That font file is too large.	Tento soubor písma je příliš velký.
+That file is not a font this app can read.	Tento soubor není písmo, které tato aplikace umí přečíst.
