@@ -208,6 +208,11 @@ call it and make them `wait` for the result, not `run_steps(n)`.
 request with the next scripted reply, so when the agent began asking the server for its context
 window before the first chat, that question took the chat's reply. A stand-in says which requests
 it was scripted for and answers anything else as a real server that doesn't know would.
+**A test kit that got stricter with the egui it came with.** storytold's egui fork brought an
+`egui_kittest` that fails on a glyph no font has and on an input with no accessible name, and finds
+nothing in a dialog on its first frame (a sizing pass). Tests build without craft-fonts, so they call
+`allow_missing_glyphs`; name the control (`widgets::named`) rather than turning the check off; step once
+more after opening a dialog.
 
 ## Building and running
 
@@ -976,6 +981,12 @@ levels down), and make an install use a copy already found outside our store. Te
 backends from older versions or found from a key got a new id on every run. A fallback id for one
 run is a workaround, not a fix: give each saved provider backend its id once, at startup, before
 any session lock is held (`AiHub::ensure_session_id`), and test a restart keeps the same id.
+
+**A column that took the whole row, right to left.** In a row that runs right to left, `ui.vertical`
+puts its column on the far left and the next column gets no width (egui's "Negative size" in Arabic
+Settings). Use `widgets::down()` for columns, set a window's width before `widgets::reading`, and wrap
+egui's `Grid` (no right-to-left layout) in `widgets::ltr`. Render every snapshot scene in the new
+language: unit tests drew none of these.
 
 ## Agent tooling
 
