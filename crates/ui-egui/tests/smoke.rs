@@ -4265,6 +4265,28 @@ fn advanced_mode_keeps_projects_and_their_questions_in_sight() {
 }
 
 #[test]
+fn opening_a_same_content_copy_keeps_the_target_and_conversation() {
+    let dir = tempfile::tempdir().unwrap();
+    let original = dir.path().join("original.txt");
+    let copy = dir.path().join("copy.txt");
+    std::fs::write(&original, "the same target content").unwrap();
+    std::fs::copy(&original, &copy).unwrap();
+    let first = original.clone();
+    let mut h = harness(move || {
+        let mut app = demo::app(demo::engine(Mode::Experienced, true));
+        demo::deep(&mut app);
+        app.open_path(first);
+        app
+    });
+    assert!(wait(&mut h, |a| a.view.active_target().is_some_and(|t| t.path == original)));
+    h.state_mut().state.chat.push(ChatItem::User("Keep this question".into()));
+    h.state_mut().open_path(copy.clone());
+    assert!(wait(&mut h, |a| a.settings.recent.first() == Some(&copy)), "the second open completed");
+    assert_eq!(h.state().view.active_target().unwrap().path, original);
+    assert!(h.state().state.chat.iter().any(|item| matches!(item, ChatItem::User(text) if text == "Keep this question")));
+}
+
+#[test]
 fn opening_the_workbench_from_a_project_opens_its_own_target() {
     use craft_anything_engine::workspace::{TargetRef, Workspace};
     use craft_anything_ui_egui::state::Fill;

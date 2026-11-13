@@ -992,6 +992,59 @@ mod tests {
     /// After an open, a busy session leaves the old snapshot: the list waits for the new one
     /// rather than loading with the old target's tool.
     #[test]
+    fn an_empty_workbench_retries_a_busy_session_and_loads_the_jar() {
+        use craft_anything_engine::{Engine, Mode, Session, Settings};
+        use std::time::Duration;
+
+        let engine =
+            std::sync::Arc::new(Engine::new(Session::new(Settings { mode: Mode::Experienced, first_run_done: true, deep_mode: true, ..Default::default() })));
+        let mut app = crate::demo::app(engine.clone());
+        let ctx = egui::Context::default();
+        crate::CraftApp::setup_context(&ctx);
+        app.state.rail = RailKind::Classes;
+        assert!(app.view.active_target().is_none());
+        let path = std::path::PathBuf::from("/samples/notes.jar");
+        engine.session().add_target(craft_anything_engine::target::Target::from_bytes(
+            path.clone(),
+            "notes.jar".into(),
+            craft_anything_testkit::java::notes_jar(),
+        ));
+        let busy = engine.session();
+        app.handle_done(crate::jobs::Finished {
+            job: 0,
+            result: Ok(crate::Done::Opened { path: path.clone(), result: Ok(json!({"path": path, "name": "notes.jar"})) }),
+        });
+        // No toast, spinner, job or user event should be needed to wake the empty view.
+        app.state.toasts.clear();
+        for frame in 0..8 {
+            let raw = egui::RawInput { time: Some(frame as f64 * 0.25), ..Default::default() };
+            let mut output = ctx.run_ui(raw, |ui| app.tick(ui.ctx()));
+            if frame >= 2 {
+                // egui subtracts its predicted frame duration from the requested delay.
+                let delay = output.viewport_output[&egui::ViewportId::ROOT].repaint_delay;
+                assert!((Duration::from_millis(50)..=Duration::from_millis(100)).contains(&delay), "{delay:?}");
+            }
+            output.textures_delta.clear();
+            assert!(app.view_dirty);
+            assert!(app.view.active_target().is_none());
+            assert!(matches!(app.state.lists.get(&RailKind::Classes), None | Some(Fill::Idle)));
+        }
+        drop(busy);
+        let start = std::time::Instant::now();
+        loop {
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| app.show(ui));
+            output.textures_delta.clear();
+            if matches!(app.state.lists.get(&RailKind::Classes), Some(Fill::Ready(e)) if e.operation == "java_classes_find") {
+                break;
+            }
+            assert!(start.elapsed() < Duration::from_secs(10), "{:?}", app.state.lists.get(&RailKind::Classes));
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(!app.view_dirty);
+        assert_eq!(app.view.active_target().unwrap().path, path);
+    }
+
+    #[test]
     fn the_rail_waits_for_a_fresh_snapshot() {
         let mut app = crate::demo::app(crate::demo::engine(craft_anything_engine::Mode::Experienced, true));
         app.view.active = Some("t_old".into());

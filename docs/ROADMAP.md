@@ -2489,6 +2489,7 @@ Gaps found while using the app for real projects.
       Claimed: ilijachrchev, branch bugfix/2434-esc-in-prompt
 - [x] "Open in the workbench" on a project opens the project's own target (a local app or file) and
       loads the workbench list in Deep mode; it used to only switch screens, so the workbench showed nothing (#1107)
+      A busy session retries its snapshot on a timer, including when no previous target was open.
       — claimed: Agapenordev, branch bugfix/r2.9-workbench-opens-project-target
 
 ### R2.10 Pinned builds

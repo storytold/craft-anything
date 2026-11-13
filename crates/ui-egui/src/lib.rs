@@ -2124,9 +2124,10 @@ impl CraftApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
         }
         self.refresh_view();
+        // A busy session needs another snapshot attempt even when the workbench is empty.
         // A conversation and jobs are checked on a timer; runs repaint the window themselves
         // (`RunOptions::wake`), so only a slow check covers them.
-        if self.conversation.as_ref().is_some_and(|c| c.is_busy()) || self.jobs.busy() {
+        if self.view_dirty || self.conversation.as_ref().is_some_and(|c| c.is_busy()) || self.jobs.busy() {
             ctx.request_repaint_after(Duration::from_millis(100));
         } else if self.runs.any_busy() {
             ctx.request_repaint_after(Duration::from_secs(1));
