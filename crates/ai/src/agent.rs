@@ -472,10 +472,7 @@ impl AgentLoop {
             turns += 1;
             // Ask the server for its window before choosing the tools, so Auto chooses from it.
             self.ask_window();
-            self.fit_system();
-            let tools = self.tool_defs();
-            let system = self.system.clone().unwrap_or_default();
-            let Some(result) = self.one_turn(&system, &tools, effort, &mut msg_usage, &mut msg_cost) else { break };
+            let Some(result) = self.one_turn(effort, &mut msg_usage, &mut msg_cost) else { break };
             self.last_input = result.usage.input_tokens + result.usage.cache_read_tokens + result.usage.cache_write_tokens;
             self.last_history_estimate = context::estimate_tokens(&self.history).max(1);
             let (slot_name, local, model_id) = match self.chain.get(self.current) {
@@ -694,18 +691,21 @@ impl AgentLoop {
         accounted
     }
 
+    /// The system prompt and tools for the backend now in use, its tool list chosen afresh.
+    fn offer(&mut self) -> (String, Vec<ToolDef>) {
+        self.fit_system();
+        (self.system.clone().unwrap_or_default(), self.tool_defs())
+    }
+
     /// One model call, falling back along the chain when a backend fails before producing output.
-    fn one_turn(
-        &mut self,
-        system: &str,
-        tools: &[ToolDef],
-        effort: Effort,
-        msg_usage: &mut Usage,
-        msg_cost: &mut Option<f64>,
-    ) -> Option<crate::model::TurnResult> {
+    fn one_turn(&mut self, effort: Effort, msg_usage: &mut Usage, msg_cost: &mut Option<f64>) -> Option<crate::model::TurnResult> {
         // Chain positions already fitted to a window their server reported: each is asked once more.
         let mut refitted = BTreeSet::new();
         loop {
+            // Each try is offered its backend's own tool list: a fallback can have another
+            // setting, and a window a server names can change what Auto chooses.
+            let (system, tools) = self.offer();
+            let (system, tools) = (system.as_str(), tools.as_slice());
             // A fallback can have a smaller window than the backend that just failed (its server
             // is asked when it takes over).
             if let Some((usage, cost)) = self.fit_context(system, tools) {
@@ -747,20 +747,27 @@ impl AgentLoop {
                         && refitted.insert(self.current)
                     {
                         self.server_windows.insert(self.current, window);
-                        // The refused request was larger than the window, whatever else is known.
-                        self.last_input = detail("prompt_tokens").unwrap_or(0).max(window.saturating_add(1));
+                        // The window can move Auto to the lean list: the next request is then smaller
+                        // anyway, and is counted afresh.
+                        let lean = self.system_lean;
+                        let (system, tools) = self.offer();
+                        let switched = self.system_lean != lean;
                         let before = context::estimate_tokens(&self.history);
-                        self.last_history_estimate = before;
+                        if !switched {
+                            // The refused request was larger than the window, whatever else is known.
+                            self.last_input = detail("prompt_tokens").unwrap_or(0).max(window.saturating_add(1));
+                            self.last_history_estimate = before;
+                        }
                         self.emit(AgentEvent::Status { text: format!("{name} has room for {window} tokens; making room…") });
-                        if let Some((usage, cost)) = self.fit_context(system, tools) {
+                        if let Some((usage, cost)) = self.fit_context(&system, &tools) {
                             msg_usage.add(usage);
                             *msg_cost = match (*msg_cost, cost) {
                                 (Some(a), Some(b)) => Some(a + b),
                                 _ => None,
                             };
                         }
-                        // The same request would be refused the same way: ask again only when room was made.
-                        if context::estimate_tokens(&self.history) < before {
+                        // The same request would be refused the same way: ask again only when it changed.
+                        if switched || context::estimate_tokens(&self.history) < before {
                             continue;
                         }
                     }
@@ -1803,6 +1810,59 @@ pub(crate) mod tests {
             }
             assert!(events.iter().any(|event| matches!(event, AgentEvent::TextDelta { text } if text == "done")), "{events:?}");
             assert!(matches!(events.last(), Some(AgentEvent::TurnDone { input_tokens, .. }) if *input_tokens == if summarises { 40 } else { 30 }));
+        }
+    }
+
+    /// A retry is offered the tool list of the backend it goes to, chosen with what the failure
+    /// said: a Lean fallback after a Full backend, and the lean list once a refusal names a window
+    /// too small for every tool (the refused request had them all).
+    #[test]
+    fn a_retry_offers_the_tool_list_chosen_for_it() {
+        /// What a scripted backend answers, request by request.
+        type Script = Vec<Result<TurnResult, ToolError>>;
+        let done = || turn(vec![Block::Text { text: "done".into() }], StopReason::EndTurn);
+        let refused = || {
+            Err(crate::http::status_error("Server", 400, &json!({"error": {"message": "This model's maximum context length is 32768 tokens."}}).to_string()))
+        };
+        let unavailable = || Err(ToolError::new(ErrorCode::EngineMissing, "temporarily unavailable"));
+        let recorder = |turns: Script, seen: &Arc<Mutex<Vec<Offer>>>| {
+            let windowed = Windowed { inner: Scripted { turns: VecDeque::new(), seen: Arc::default() }, asks: Arc::default(), window: None };
+            Box::new(Recorded { windowed, turns: VecDeque::from(turns), seen: seen.clone() })
+        };
+        let slot = |name: &str, model: Box<Recorded>, tools: ToolList| ModelSlot {
+            name: name.into(),
+            model,
+            local: true,
+            effort: None,
+            max_turns: 5,
+            context_tokens: 120_000,
+            tools,
+        };
+        // (case, the first backend's script, whether a Lean fallback follows, lean on each request offered)
+        let cases: [(&str, Script, bool, [bool; 2]); 2] = [
+            ("a Full backend fails over to a Lean one", vec![unavailable()], true, [false, true]),
+            ("Auto refused for a 32k window", vec![refused(), done()], false, [false, true]),
+        ];
+        for (case, script, fallback, expected) in cases {
+            let host = Arc::new(FakeHost { calls: Mutex::default(), journal: Mutex::default() });
+            let seen = Arc::new(Mutex::new(Vec::new()));
+            let first = if fallback { ToolList::Full } else { ToolList::Auto };
+            let mut chain = vec![slot("A", recorder(script, &seen), first)];
+            if fallback {
+                chain.push(slot("B", recorder(vec![done()], &seen), ToolList::Lean));
+            }
+            let mut conversation = ApiConversation::start(host, chain, LoopConfig { lean_for_local: true, ..Default::default() }).unwrap();
+            conversation.send("Build it");
+            drain_until_done(&mut conversation, |e, _| assert!(!matches!(e, AgentEvent::Error { .. }), "{case}: {e:?}"));
+            let seen = seen.lock().unwrap();
+            let lean: Vec<bool> = seen
+                .iter()
+                .map(|(tools, memory)| {
+                    assert_eq!(tools.contains(&"look".to_string()), *memory, "{case}: the memory steps follow the tool list");
+                    !tools.contains(&"look".to_string())
+                })
+                .collect();
+            assert_eq!(lean, expected, "{case}");
         }
     }
 
