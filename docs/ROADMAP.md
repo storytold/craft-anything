@@ -389,7 +389,7 @@ Every round spends the person's money or quota. One that can't do anything shoul
       capture's `kill()` is portable-pty's, which doesn't wait). Not reproduced: no program here
       outlives its stop — claimed: justinjohn0306, branch
       `bugfix/r5.3-play-stop-bounded`
-- [ ] An OpenCode builder wrote its own progress notes (`{"step":"done",…}`) to
+- [x] An OpenCode builder wrote its own progress notes (`{"step":"done",…}`) to
       `inbox/build-progress.json`, so every run after it stopped at "Couldn't read
       inbox/build-progress.json: unknown field `step`", with no way forward given. Only a build
       started in the person's own folder is told to leave Craft Anything's records alone: tell every
@@ -1055,6 +1055,10 @@ Owner: open · Status: in progress
       manifest) skip the approval policy; `maki acp` takes no tool flags to stop it (0.7.0). Start
       it in `app/` (paths in the prompt relative to that), or ask Maki for a way to make those
       writes ask; part of the approval decision above
+- [ ] OpenCode's own write tool reaches our records too: a builder wrote its progress notes to
+      `inbox/build-progress.json` and stopped the build (R5.3 now names the records in the brief
+      and says how to go on). Stop those writes in OpenCode itself, with its permission settings
+      or by starting it in `app/`, and check it live
 
 **ACP:**
 - [ ] Gemini CLI, opencode, goose via ACP or native adapters; each verified live, then turn ACP on

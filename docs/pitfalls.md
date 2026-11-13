@@ -900,6 +900,13 @@ computer. Say what ran and what it printed, write the rest to a log the person c
 agent run does: `crate::failure_log`), and never name a next step you don't spell out. Exit 255
 from ssh is ssh's own failure: don't blame the remote program. Test a message by causing the failure.
 
+**A rule in the brief taken for a guard.** Every brief says everything outside `app/` is read-only,
+and an OpenCode builder still wrote its own progress notes over `inbox/build-progress.json`. The
+run read the record strictly, as it should, and every Try again stopped at "unknown field `step`"
+with no way forward. A coding agent's own tools don't pass through our checks: a file the run
+depends on is read as if anything may have changed it, and the error for one that changed says
+what the file is and how to go on.
+
 **A retry that took "no message" for "brand new".** A run with no message and no `continuing`
 flag was read as a first build, and Try again starts exactly that run. A browser that died during
 the final check failed a finished build; Try again then studied the original again and gave the

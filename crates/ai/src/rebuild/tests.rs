@@ -1285,6 +1285,21 @@ fn a_registered_kind_is_chosen_from_its_words_and_brings_its_checks() {
     assert!(b.contains("What to build: a slide deck."), "{b}");
 }
 
+/// An OpenCode builder kept its own progress notes in inbox/build-progress.json, which stopped every
+/// run after it: every brief names Craft Anything's records, by the names the workspace uses.
+#[test]
+fn every_brief_names_the_records_a_builder_must_not_write() {
+    use craft_anything_engine::workspace::{MANIFEST, OWN_NAMES, progress::BUILD_PROGRESS_FILE};
+    let d = tempfile::tempdir().unwrap();
+    for k in ["app", "game", "website"] {
+        let ws = Workspace::create(d.path(), k, "A thing", TargetRef::None).unwrap();
+        let b = brief(&ws, k, false, false, None, false, None);
+        let records = format!("Craft Anything's own records there ({MANIFEST}, {}, everything in inbox/)", craft_anything_engine::feed::FEED_FILE);
+        assert!(b.contains(&records), "{k}: {b}");
+    }
+    assert!(BUILD_PROGRESS_FILE.starts_with("inbox/") && OWN_NAMES.contains(&"inbox"), "the brief's inbox/ is where the record is");
+}
+
 #[test]
 fn the_brief_puts_the_request_before_the_default_stack() {
     let d = tempfile::tempdir().unwrap();
