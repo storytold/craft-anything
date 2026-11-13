@@ -343,14 +343,14 @@ const WINDOW_ASKS: u8 = 2;
 /// answer. A refusal is the truth; a window read ahead may raise a local model's budget, but only
 /// lowers a paid service's default, where a bigger window costs more on every request. A budget
 /// the person set is kept up to the window, on any backend.
-pub(crate) fn context_budget_from(configured: u64, refused: Option<u64>, read: Option<u64>, local: bool) -> u64 {
+pub(crate) fn context_budget_from(configured: u64, refused: Option<u64>, read: Option<u64>, local: bool, frontier_cloud: bool) -> u64 {
     let room = |window: u64| window - window / 4;
     let known = refused.map(room).or_else(|| read.map(room));
     match (configured, known) {
         (0, Some(room)) if refused.is_none() && !local => room.min(context::CLOUD_CONTEXT_TOKENS),
         (0, Some(room)) => room,
         (n, Some(room)) => n.min(room),
-        (0, None) if local => context::LOCAL_CONTEXT_TOKENS,
+        (0, None) if local && !frontier_cloud => context::LOCAL_CONTEXT_TOKENS,
         (0, None) => context::CLOUD_CONTEXT_TOKENS,
         (n, None) => n,
     }
@@ -551,7 +551,8 @@ impl AgentLoop {
         let configured = if self.cfg.context_tokens == 0 { slot.map(|s| s.context_tokens).unwrap_or(0) } else { self.cfg.context_tokens };
         let refused = self.server_windows.get(&self.current).copied();
         let read = self.read_windows.get(&self.current).and_then(|(_, window)| *window);
-        context_budget_from(configured, refused, read, slot.is_some_and(|s| s.local))
+        let frontier_cloud = slot.is_some_and(|s| crate::detect::is_frontier_cloud_model(&s.model.model()));
+        context_budget_from(configured, refused, read, slot.is_some_and(|s| s.local), frontier_cloud)
     }
 
     /// Ask the current backend's server how large its context window is, so the budget fits the
@@ -1471,6 +1472,27 @@ pub(crate) mod tests {
         assert_eq!(agent.context_budget(), 49_152, "three quarters of the reported window");
         agent.server_windows.clear();
         assert_eq!(agent.context_budget(), context::LOCAL_CONTEXT_TOKENS);
+
+        // Frontier cloud models accessed through a local proxy get the cloud default when no
+        // explicit budget or server window is present, while a larger reported window is never
+        // capped at 150k.
+        struct NamedModel(&'static str);
+        impl ChatModel for NamedModel {
+            fn turn(&mut self, _: &TurnRequest<'_>, _: &mut dyn FnMut(Delta), _: &Stop) -> Result<TurnResult, ToolError> {
+                Err(ToolError::internal("unused"))
+            }
+            fn model(&self) -> String {
+                self.0.into()
+            }
+        }
+        agent.chain[0].model = Box::new(NamedModel("gemini-3.8-flash-high"));
+        assert_eq!(agent.context_budget(), context::CLOUD_CONTEXT_TOKENS);
+        agent.server_windows.insert(0, 512_000);
+        assert_eq!(agent.context_budget(), 384_000, "reported window above 150k is not capped");
+        agent.server_windows.clear();
+        agent.chain[0].model = Box::new(NamedModel("deepseek-r1:8b"));
+        assert_eq!(agent.context_budget(), context::LOCAL_CONTEXT_TOKENS, "size-tagged Ollama models stay on the local budget");
+
         agent.chain[0].context_tokens = 1000;
 
         assert!(agent.fit_context("A short system prompt.", &[]).is_none());
@@ -1487,22 +1509,29 @@ pub(crate) mod tests {
     #[test]
     fn a_window_read_from_the_server_sizes_the_budget() {
         let cloud = context::CLOUD_CONTEXT_TOKENS;
-        for (configured, refused, read, local, budget) in [
-            (0, None, None, true, context::LOCAL_CONTEXT_TOKENS),
-            (0, None, Some(524_288), true, 393_216),
-            (0, None, Some(8192), true, 6144),
-            (1000, None, Some(524_288), true, 1000),
-            (0, Some(65_536), Some(524_288), true, 49_152),
-            (0, None, Some(1_000_000), false, cloud),
-            (0, None, Some(32_768), false, 24_576),
-            (0, None, None, false, cloud),
+        for (configured, refused, read, local, frontier, budget) in [
+            (0, None, None, true, false, context::LOCAL_CONTEXT_TOKENS),
+            (0, None, None, true, true, cloud),
+            (0, None, Some(524_288), true, true, 393_216),
+            (0, None, Some(8_192), true, true, 6_144),
+            (0, None, Some(524_288), true, false, 393_216),
+            (0, None, Some(8192), true, false, 6144),
+            (1000, None, Some(524_288), true, false, 1000),
+            (0, Some(65_536), Some(524_288), true, false, 49_152),
+            (0, None, Some(1_000_000), false, false, cloud),
+            (0, None, Some(32_768), false, false, 24_576),
+            (0, None, None, false, false, cloud),
             // A budget set on a paid service isn't cut to the default, only to the window.
-            (390_000, None, Some(1_000_000), false, 390_000),
-            (390_000, None, Some(200_000), false, 150_000),
-            (390_000, Some(1_000_000), None, false, 390_000),
-            (0, Some(1_000_000), None, false, 750_000),
+            (390_000, None, Some(1_000_000), false, false, 390_000),
+            (390_000, None, Some(200_000), false, false, 150_000),
+            (390_000, Some(1_000_000), None, false, false, 390_000),
+            (0, Some(1_000_000), None, false, false, 750_000),
         ] {
-            assert_eq!(context_budget_from(configured, refused, read, local), budget, "{configured} {refused:?} {read:?} local {local}");
+            assert_eq!(
+                context_budget_from(configured, refused, read, local, frontier),
+                budget,
+                "{configured} {refused:?} {read:?} local {local} frontier {frontier}"
+            );
         }
     }
 

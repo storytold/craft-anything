@@ -1004,6 +1004,44 @@ fn only_an_openai_compatible_server_nearby_is_local() {
     assert!(!h.build_model(&h.entry("OpenAI").unwrap()).unwrap().local, "only OpenAI-compatible servers can be local");
 }
 
+#[test]
+fn frontier_cloud_models_on_local_proxy_keep_unset_slot_budget_and_use_cloud_default() {
+    let (h, _d) = hub();
+    h.add_backend(
+        BackendConfig {
+            name: "LocalProxy".into(),
+            kind: BackendKind::OpenaiCompatible,
+            model: "gemini-3.8-flash-high".into(),
+            base_url: Some("http://127.0.0.1:8045/v1".into()),
+            ssh_host: None,
+            enabled: true,
+        },
+        None,
+    )
+    .unwrap();
+    let slot = h.build_model(&h.entry("LocalProxy").unwrap()).unwrap();
+    assert!(slot.local);
+    assert_eq!(slot.context_tokens, 0, "automatic default must not cap server-reported windows");
+    assert!(detect::is_frontier_cloud_model(&slot.model.model()));
+
+    h.add_backend(
+        BackendConfig {
+            name: "Ollama".into(),
+            kind: BackendKind::OpenaiCompatible,
+            model: "deepseek-r1:8b".into(),
+            base_url: Some("http://127.0.0.1:11434/v1".into()),
+            ssh_host: None,
+            enabled: true,
+        },
+        None,
+    )
+    .unwrap();
+    let local_slot = h.build_model(&h.entry("Ollama").unwrap()).unwrap();
+    assert!(local_slot.local);
+    assert_eq!(local_slot.context_tokens, 0);
+    assert!(!detect::is_frontier_cloud_model(&local_slot.model.model()));
+}
+
 fn add(h: &AiHub, name: &str, kind: BackendKind, base: &str, key: Option<&str>) {
     h.add_backend(
         BackendConfig { name: name.into(), kind, model: String::new(), base_url: Some(base.into()), ssh_host: None, enabled: true },

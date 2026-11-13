@@ -258,6 +258,18 @@ pub fn opencode_servers(text: &str) -> Vec<(String, String)> {
 /// Name endings kept for local networks, which public DNS never answers.
 const LAN_SUFFIXES: &[&str] = &[".local", ".lan", ".home.arpa", ".internal"];
 
+/// Frontier cloud models commonly proxied through a local address (LiteLLM, Antigravity, local
+/// gateways). They have large context windows (128k–1M+ tokens), so they take the cloud context
+/// budget (150,000) rather than the local default (24,000).
+pub(crate) fn is_frontier_cloud_model(model: &str) -> bool {
+    let lower = model.to_ascii_lowercase();
+    if lower.contains(':') {
+        return false;
+    }
+    const PREFIXES: &[&str] = &["gemini-", "claude-", "gpt-4", "gpt-5", "o1", "o3", "o4", "deepseek-"];
+    PREFIXES.iter().any(|prefix| lower.starts_with(prefix))
+}
+
 /// An http(s) address on this computer or its local network: a private or loopback IP, or a name
 /// that only a local network can answer (`localhost`, a bare name such as Docker's `ollama`, or a
 /// [`LAN_SUFFIXES`] name). Nothing is looked up.
@@ -658,6 +670,27 @@ mod tests {
             "https://internal.example.com/v1",
         ] {
             assert!(!on_this_network(url), "{url}");
+        }
+    }
+
+    #[test]
+    fn frontier_cloud_models_are_recognised() {
+        for model in [
+            "gemini-3.8-flash-high",
+            "gemini-2.5-pro",
+            "claude-3-5-sonnet-20241022",
+            "gpt-4o",
+            "gpt-5-preview",
+            "o1-mini",
+            "o3-mini",
+            "o4-high",
+            "deepseek-v3",
+            "deepseek-r1",
+        ] {
+            assert!(is_frontier_cloud_model(model), "{model}");
+        }
+        for model in ["llama3.3:70b", "qwen2.5-coder:32b", "deepseek-r1:8b", "deepseek-coder:6.7b", "mistral-small", "phi-4", "gemma-2-9b"] {
+            assert!(!is_frontier_cloud_model(model), "{model}");
         }
     }
 

@@ -513,6 +513,10 @@ been run live.
       for the window read from the server (#1155)
 - [x] A per-backend context budget in `[[ai.backends]]` (`LoopConfig::context_tokens` exists), for
       services whose real window differs from 150k (#374) — implementation: `6bd94b84828ec89b805cb8a246f557d0a778c037`
+- [x] Treat frontier cloud models (`gemini-`, `claude-`, `gpt-4`, `gpt-5`, `o1`, `o3`, `o4`,
+      `deepseek-`) served through a local-network OpenAI-compatible proxy as having the cloud
+      150k context budget by default instead of 24k when `context_tokens` is unset
+      — claimed: d7do7e, branch feature/r5.4-local-proxy-cloud-budget
 - [x] A per-backend request rate in `[[ai.backends]]`, for services that limit requests per
       second or minute (#668): `requests_per_minute`, shared by every conversation on the backend.
       Not run against a live provider — claimed: justinjohn0306, branch `feature/r5.4-requests-per-minute`
