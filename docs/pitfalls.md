@@ -1154,3 +1154,24 @@ child. Preserve ordinary output paths and put collisions in an independent input
 directory; keep complete source identities in the manifest. Check both prefix orders and
 same-named input scripts through the real recovery tool, and retain the writer's symlink and
 exclusive-creation checks after selecting a name.
+
+**A suggestion in a form was sent as the person's choice.** The endpoint form's model list started
+on its first chat model (with none, on its first entry), and Add passed that to the hub as a named
+model. A named model skips the hub's own choice, so a server listing only an embedding model was
+saved as a chat AI, and the model a server had loaded lost to the first one it lists. A value the
+app fills in isn't one the person chose: keep the two apart (nothing picked reads Automatic), leave
+the decision with the code that owns it, and test the whole path (list, form, Add), not the picker
+alone.
+
+**A key check in front of every provider locked out the one that needs none.** The asset tools
+refused to start unless some provider had a key, so a ComfyUI server on the person's own network
+could not make a picture until they pasted a key they had no use for. The check belongs per
+provider, at the point the key is read (`AssetProvider::needs_key`), not once up front for all of
+them. A test for it must run with no key of any kind and must fail when the check is put back.
+
+**A workflow's size was limited before its placeholders were filled.** A ComfyUI workflow file is
+read up to 2 MB, but every `{{prompt}}` in it then took the whole prompt with no limit on the
+total: 200,000 placeholders fit in the file and would fill in to about 400 MB before the request
+was built. A limit on an input says nothing about what the input expands to. Count what an
+expansion adds over the whole document, refuse before copying the text that goes over, and test
+with a small budget and a placeholder repeated across nodes.
