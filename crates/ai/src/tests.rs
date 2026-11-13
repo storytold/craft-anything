@@ -1691,3 +1691,25 @@ fn openrouter_asks_again_for_an_answer_the_key_can_afford() {
     assert!(other.turn(&request, &mut |_| {}, &Stop::default()).is_err());
     assert_eq!(seen.lock().unwrap().len(), 1);
 }
+
+#[test]
+fn start_builder_treats_tunneled_openai_compatible_backends_as_local() {
+    let engine = craft_anything_engine::Engine::shared(craft_anything_engine::testing::session(), tools());
+    let reg = engine.registry();
+
+    let tunneled = BackendEntry {
+        config: BackendConfig {
+            name: "Tunnel".into(),
+            kind: BackendKind::OpenaiCompatible,
+            model: "qwen3:32b".into(),
+            base_url: Some("https://remote.example.com/v1".into()),
+            ssh_host: Some("gpu-box".into()),
+            enabled: true,
+        },
+        options: BackendOptions::default(),
+    };
+    assert_eq!(builder_toolsets(reg, &tunneled, true), vec![craft_anything_engine::Toolset::Core, craft_anything_engine::Toolset::Build]);
+
+    let remote = BackendEntry { config: BackendConfig { ssh_host: None, ..tunneled.config.clone() }, options: BackendOptions::default() };
+    assert!(builder_toolsets(reg, &remote, true).len() > 2, "remote non-tunneled Deep builder keeps all toolsets");
+}

@@ -1075,8 +1075,7 @@ impl AiHub {
     /// mode. `deep` is the run's mode, given by the caller: a tool that starts a build holds the
     /// session (#1102).
     pub fn start_builder(&self, entry: &BackendEntry, beginner: bool, transcript: Option<PathBuf>, deep: bool) -> Result<ApiConversation, ToolError> {
-        use craft_anything_engine::Toolset;
-        let toolsets = if deep { self.engine.registry().toolsets() } else { vec![Toolset::Core, Toolset::Build] };
+        let toolsets = builder_toolsets(self.engine.registry(), entry, deep);
         self.start_loop(entry, beginner, transcript, deep, &toolsets, true)
     }
 
@@ -1296,6 +1295,19 @@ fn reach(e: &BackendEntry, key: Option<String>) -> Result<u64, String> {
         },
     };
     r.map(|_| start.elapsed().as_millis() as u64)
+}
+
+/// Whether `c` is an OpenAI-compatible server on this computer, its network, or reached over an
+/// SSH tunnel (matching `build_model`'s `local` classification).
+pub(crate) fn is_local_openai_compatible(c: &BackendConfig) -> bool {
+    let tunneled = c.ssh_host.as_deref().is_some_and(|h| !h.trim().is_empty());
+    let base = c.base_url.as_deref().filter(|b| !b.trim().is_empty());
+    c.kind == BackendKind::OpenaiCompatible && (tunneled || base.is_none_or(detect::on_this_network))
+}
+
+pub(crate) fn builder_toolsets(registry: &craft_anything_engine::Registry, entry: &BackendEntry, deep: bool) -> Vec<craft_anything_engine::Toolset> {
+    use craft_anything_engine::Toolset;
+    if deep && !is_local_openai_compatible(&entry.config) { registry.toolsets() } else { vec![Toolset::Core, Toolset::Build] }
 }
 
 #[cfg(test)]

@@ -18,6 +18,9 @@ const TRIMMED_KEEP: usize = 400;
 pub const CLOUD_CONTEXT_TOKENS: u64 = 150_000;
 /// The same for a local model, whose context is usually small.
 pub const LOCAL_CONTEXT_TOKENS: u64 = 24_000;
+/// Minimum conversation history allowance before summarization, ensuring static overhead
+/// (system prompt + tool schemas) cannot trigger a compaction death loop on tiny history.
+pub const MIN_HISTORY_ALLOWANCE: u64 = 6_000;
 /// The version of `transcript.json`.
 pub const TRANSCRIPT_VERSION: u32 = 2;
 
@@ -90,11 +93,24 @@ pub fn cut_point(history: &[Msg]) -> Option<usize> {
 
 /// Fewest messages worth replacing by a summary.
 const MIN_SUMMARISED: usize = 3;
+/// Prefix placed on a synthetic summary message replacing earlier conversation turns.
+pub const SUMMARY_PREFIX: &str = "(Earlier messages were replaced by this summary to save room.)";
+/// Minimum messages retained/accumulated after a summary before allowing another summary when
+/// static overhead dominates the configured budget.
+pub const MIN_MESSAGES_AFTER_SUMMARY: usize = 9;
+/// Minimum model turns required after a summary before another summary may run while static
+/// overhead dominates the budget, even if `cut_point` retained `MIN_MESSAGES_AFTER_SUMMARY` or
+/// more tail messages.
+pub const MIN_TURNS_AFTER_SUMMARY: usize = 4;
+
+/// Whether `msg` is a context-compaction summary produced by [`summarised`].
+pub fn is_summary(msg: &Msg) -> bool {
+    msg.role == Speaker::User && msg.text().starts_with(SUMMARY_PREFIX)
+}
 
 /// The conversation with everything before `cut` replaced by `summary`.
 pub fn summarised(history: &[Msg], cut: usize, summary: &str) -> Vec<Msg> {
-    let mut out =
-        vec![Msg::user_text(format!("(Earlier messages were replaced by this summary to save room.)\n\n{}\n\nContinue the task from here.", summary.trim()))];
+    let mut out = vec![Msg::user_text(format!("{SUMMARY_PREFIX}\n\n{}\n\nContinue the task from here.", summary.trim()))];
     out.extend(history.iter().skip(cut).cloned());
     out
 }

@@ -562,6 +562,10 @@ been run live.
       on a helper thread and the wait checks the job's cancel, so Stop beside "Connecting to…"
       ends it at once (`AiHub::add_server_until`); the request given up on ends by its own limits
       — claimed: FuryNocturn, branch bugfix/r5.4-stop-adding-a-server
+- [x] Prevent infinite context-compaction loops when static prompt/tool overhead dominates a
+      local context budget, and start local Deep-mode builders with `[Core, Build]` rather than
+      all 18 toolsets while keeping dynamically enabled toolsets visible (`enable_toolset`)
+      — claimed: d7do7e, branch bugfix/r5.4-compaction-loop-and-deep-tools
 
 ### R5.5 API-key builds fail in words people can use
 Owner: open · Status: todo
