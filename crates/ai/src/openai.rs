@@ -317,6 +317,10 @@ impl ChatModel for OpenAi {
         self.model.clone()
     }
 
+    fn endpoint(&self) -> Option<String> {
+        Some(self.url("chat/completions"))
+    }
+
     fn context_window(&self) -> Option<crate::window::Window> {
         if !self.asks_window {
             return None;

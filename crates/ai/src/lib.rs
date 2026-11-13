@@ -407,6 +407,10 @@ impl ChatModel for Tunneled {
         self.inner.model()
     }
 
+    fn endpoint(&self) -> Option<String> {
+        self.inner.endpoint()
+    }
+
     fn context_window(&self) -> Option<window::Window> {
         self.inner.context_window()
     }
@@ -445,6 +449,16 @@ impl AiHub {
 
     fn settings_path(&self) -> PathBuf {
         self.settings_path.clone().unwrap_or_else(Settings::path)
+    }
+
+    /// The folder failure logs go in: the config folder's `logs/`, as for agent apps. Never blocks
+    /// on a running tool: if the session is busy, the config folder is worked out again.
+    fn logs_dir(&self) -> PathBuf {
+        let config = match self.engine.try_session() {
+            Some(s) => s.config_dir(),
+            None => craft_anything_engine::settings::config_dir(),
+        };
+        failure_log::dir_in(&config)
     }
 
     /// The current AI configuration. Never blocks on a running tool: if the session is busy the
@@ -1064,7 +1078,8 @@ impl AiHub {
             }
         }
         let host = Arc::new(EngineHost(self.engine.clone()));
-        let conv = ApiConversation::start(host, chain, LoopConfig { beginner, prices: cfg.prices.clone(), ..LoopConfig::default() })?;
+        let conv =
+            ApiConversation::start(host, chain, LoopConfig { beginner, prices: cfg.prices.clone(), logs: Some(self.logs_dir()), ..LoopConfig::default() })?;
         Ok(Box::new(conv))
     }
 
@@ -1102,7 +1117,15 @@ impl AiHub {
         ApiConversation::start_with(
             host,
             vec![slot],
-            LoopConfig { beginner, prices: self.config().prices.clone(), transcript, deep, lean_for_local, ..LoopConfig::default() },
+            LoopConfig {
+                beginner,
+                prices: self.config().prices.clone(),
+                transcript,
+                deep,
+                lean_for_local,
+                logs: Some(self.logs_dir()),
+                ..LoopConfig::default()
+            },
             toolsets.iter().copied().collect(),
         )
     }
