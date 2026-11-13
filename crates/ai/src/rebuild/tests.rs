@@ -3514,6 +3514,61 @@ fn a_stopped_build_answers_the_check_it_took() {
     assert!(self_check::taken_mark(&ws.root, &id).unwrap().is_file(), "the mark is left for the asker to read");
 }
 
+/// #1734 review: a tool finished while another held the session, so the investigation view waited
+/// for a free moment; a stopped check then ended the turn early. The view still gets what the
+/// finished tool wrote.
+#[test]
+fn a_turn_ended_by_a_stopped_check_still_refreshes_the_investigation() {
+    struct Wrote {
+        investigation: PathBuf,
+        polls: usize,
+    }
+    impl Conversation for Wrote {
+        fn send(&mut self, _: &str) {}
+        fn poll(&mut self) -> Vec<AgentEvent> {
+            self.polls += 1;
+            if self.polls > 1 {
+                return Vec::new();
+            }
+            let project = craft_anything_engine::project::Project::open(&self.investigation).unwrap();
+            project
+                .store_unknown(&craft_anything_evidence::Unknown::new("What does the save file hold?", "storage", craft_anything_evidence::Severity::default()))
+                .unwrap();
+            vec![AgentEvent::ToolFinished { call_id: "1".into(), tool: "core_unknown_record".into(), ok: true, summary: String::new(), evidence_id: None }]
+        }
+        fn answer_consent(&mut self, _: &str, _: bool) {}
+        fn stop(&mut self) {}
+        fn is_busy(&self) -> bool {
+            true
+        }
+    }
+
+    let d = tempfile::tempdir().unwrap();
+    let mut ws = Workspace::create(d.path(), "Arena", "Recreate this game", TargetRef::None).unwrap();
+    let mut w = check_worker(&ws, false);
+    w.self_check = Some((Arc::new(SheetKind), 90.0));
+    let project = craft_anything_engine::project::Project::create(&ws.investigation_dir(), "Arena", Default::default()).unwrap();
+    w.engine.session().open_project(project).unwrap();
+    // Another tool holds the session for a moment, as a decompile does.
+    let (held, holding) = std::sync::mpsc::channel::<()>();
+    let engine = w.engine.clone();
+    let holder = std::thread::spawn(move || {
+        let _session = engine.session();
+        held.send(()).unwrap();
+        std::thread::sleep(Duration::from_millis(500));
+    });
+    holding.recv().unwrap();
+    Inbox::new(self_check::asks_dir(&ws.root))
+        .post(craft_anything_engine::inbox::RequestKind::Question, "Check the build", "", Vec::new(), false, None)
+        .unwrap();
+    w.stop.cancel();
+    let mut agent = Wrote { investigation: ws.investigation_dir(), polls: 0 };
+    let err = w.turn_with_wait(&mut ws, &mut agent, "Carry on", true, None, |_, _| panic!("no retry")).unwrap_err();
+    holder.join().unwrap();
+    assert_eq!(err.code, ErrorCode::Cancelled, "the run still stops");
+    assert_eq!(w.engine.session().unknowns().count(), 1, "the view has what the finished tool wrote");
+}
+
 /// A builder that reads one decompiled function (by its MCP name, as Claude Code calls it) and ends
 /// its turn.
 struct Decompiles {

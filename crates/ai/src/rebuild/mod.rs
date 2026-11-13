@@ -1389,7 +1389,14 @@ impl Worker {
             for line in newly_said(&ws.inbox_dir(), &mut said) {
                 self.emit(RunEvent::Step { step: Step::Build, text: line });
             }
-            self.answer_self_checks(ws)?;
+            if let Err(error) = self.answer_self_checks(ws) {
+                // Leaving before `TurnDone`: what the finished tools wrote still reaches the view,
+                // waiting for the session as the end of a turn does.
+                if refresh {
+                    refresh_investigation(&mut self.engine.session(), ws);
+                }
+                return Err(error);
+            }
             if self.usage.as_ref().is_some_and(|c| c.since.elapsed() >= USAGE_FLUSH) {
                 self.record_usage(None);
             }
