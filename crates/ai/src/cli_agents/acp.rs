@@ -153,7 +153,7 @@ pub struct ModelMetadata {
 /// agents name the fields differently. Read every shape an agent has been seen to use, and never
 /// let a description stand in for the command: the approval policy decides from the command, so
 /// a description was read as one, refused, and the refusal ended the builder's turn.
-fn policy_action(call: &Value) -> (String, Value) {
+fn policy_action(call: &Value) -> Result<(String, Value), ()> {
     let s = |p: &str| call.pointer(p).and_then(Value::as_str).map(str::to_string);
     let path = s("/locations/0/path")
         .or_else(|| s("/rawInput/path"))
@@ -176,14 +176,26 @@ fn policy_action(call: &Value) -> (String, Value) {
         .or_else(|| worded("/command"))
         .or_else(|| worded("/rawInput"))
         .unwrap_or_default();
-    match call.get("kind").and_then(Value::as_str).unwrap_or("other") {
-        "edit" | "delete" | "move" => ("Write".into(), json!({"file_path": path})),
-        "execute" => ("Bash".into(), json!({"command": command})),
-        "read" | "search" => ("Read".into(), json!({"file_path": path})),
+    // A call that opens or changes something without saying what is refused, not allowed.
+    let needs = |what: &str| if what.is_empty() { Err(()) } else { Ok(()) };
+    let kind = call.get("kind").and_then(Value::as_str).unwrap_or("other");
+    Ok(match kind {
+        "edit" | "delete" | "move" => {
+            needs(&path)?;
+            ("Write".into(), json!({"file_path": path}))
+        }
+        "execute" => {
+            needs(&command)?;
+            ("Bash".into(), json!({"command": command}))
+        }
+        "read" | "search" => {
+            needs(&path)?;
+            ("Read".into(), json!({"file_path": path}))
+        }
         "fetch" => ("WebFetch".into(), call.get("rawInput").cloned().unwrap_or(Value::Null)),
         "think" | "switch_mode" => ("TodoWrite".into(), Value::Null),
         _ => (s("/title").unwrap_or_else(|| "an unnamed tool".into()), call.get("rawInput").cloned().unwrap_or(Value::Null)),
-    }
+    })
 }
 
 /// A command given as separate words, as the shell would join them.
@@ -594,7 +606,12 @@ impl AcpCore {
         let title = if s("title").is_empty() { "Use a tool".to_string() } else { s("title") };
         self.asks.insert(call_id.clone(), (id, options));
         if self.decides {
-            let (tool, input) = policy_action(call);
+            let Ok((tool, input)) = policy_action(call) else {
+                // A call the policy can't read isn't one it can allow: say so in the refusal
+                // rather than answer nothing, which would leave the agent waiting.
+                return self
+                    .refuse(&call_id, "Craft Anything couldn't tell what this call does, so it wasn't run. Use a plain build command inside the project.");
+            };
             return vec![Out::Decide { call_id, tool, input }];
         }
         vec![Out::Event(AgentEvent::ConsentNeeded {
@@ -1722,7 +1739,7 @@ printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt
         assert_eq!((tool.as_str(), input), ("Write", &json!({"file_path": "/w/project/app/src/App.tsx"})));
         assert_eq!(sent(&c.answer(call_id, false))[0]["result"]["outcome"]["optionId"], "no");
 
-        let run = |kind: &str, raw: Value| policy_action(&json!({"kind": kind, "title": "t", "rawInput": raw}));
+        let run = |kind: &str, raw: Value| policy_action(&json!({"kind": kind, "title": "t", "rawInput": raw})).expect("readable");
         assert_eq!(run("execute", json!({"command": "npm run build"})), ("Bash".to_string(), json!({"command": "npm run build"})));
         assert_eq!(run("execute", json!({"command": ["cargo", "build"]})).1, json!({"command": "cargo build"}));
         assert_eq!(run("read", json!({"path": "/a"})).0, "Read");
@@ -1744,14 +1761,25 @@ printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt
                 "dangerouslyDisableSandbox": true
             }
         });
-        let (tool, input) = policy_action(&call);
+        let (tool, input) = policy_action(&call).expect("a command with words is read");
         assert_eq!(tool, "Bash");
         assert_eq!(input["command"], json!("ls -la \"/w/GeWu/phz/\" | head -50"), "not its description");
         // A command given as words, and the other names agents have used for the same field.
-        assert_eq!(policy_action(&json!({"kind": "execute", "rawInput": {"command": ["cargo", "test"]}})).1["command"], json!("cargo test"));
-        assert_eq!(policy_action(&json!({"kind": "execute", "rawInput": {"cmd": "make test"}})).1["command"], json!("make test"));
-        assert_eq!(policy_action(&json!({"kind": "execute", "rawInput": ["npm", "run", "build"]})).1["command"], json!("npm run build"));
-        assert_eq!(policy_action(&json!({"kind": "edit", "rawInput": {"file_path": "/w/app/a.rs"}})).1, json!({"file_path": "/w/app/a.rs"}));
+        let at = |call: Value| policy_action(&call).map(|(_, input)| input);
+        assert_eq!(at(json!({"kind": "execute", "rawInput": {"command": ["cargo", "test"]}})).unwrap()["command"], json!("cargo test"));
+        assert_eq!(at(json!({"kind": "execute", "rawInput": {"cmd": "make test"}})).unwrap()["command"], json!("make test"));
+        assert_eq!(at(json!({"kind": "execute", "rawInput": ["npm", "run", "build"]})).unwrap()["command"], json!("npm run build"));
+        assert_eq!(at(json!({"kind": "edit", "rawInput": {"file_path": "/w/app/a.rs"}})).unwrap(), json!({"file_path": "/w/app/a.rs"}));
+        // A call with no command or no target isn't read: the policy has nothing to judge, and
+        // answering it "allowed" with an empty command would run anything.
+        for call in [
+            json!({"kind": "execute", "title": "t", "rawInput": {"description": "列出目录"}}),
+            json!({"kind": "execute", "title": "t"}),
+            json!({"kind": "edit", "rawInput": {"description": "写文件"}}),
+            json!({"kind": "read"}),
+        ] {
+            assert!(policy_action(&call).is_err(), "{call} has no command or target");
+        }
     }
 
     #[test]

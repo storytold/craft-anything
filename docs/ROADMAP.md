@@ -805,9 +805,14 @@ Owner: open · Status: in progress
       `message`. Checked with the call CodeBuddy Code 2.183.0 sent on 2026-11-13 (from its session
       log, kept as a test) and `cargo test -p craft-anything-ai`; a live deep build that runs its
       commands is still to be seen.
+- [x] An ACP call whose command or target can't be read is refused with that said, instead of
+      being answered as allowed with an empty command (a `Bash` with no command ran nothing and
+      looked like success); a readable call with no words for what it does is refused, not run.
 - [ ] A request CodeBuddy Code can't approve without the person (a command that skips its sandbox,
-      `dangerouslyDisableSandbox`) ends its turn on the refusal: decide what a build gets there
-      (let the command run sandboxed, or refuse the turn with the reason in the feed) — **decision**
+      `dangerouslyDisableSandbox`, or one with `; | >` joins) ends its turn on the refusal: decide
+      what a build gets there (let the command run sandboxed, teach the policy the read-only joins,
+      or report the refusal in the feed) — **decision**. Seen live on 2026-11-13: three runs in a
+      row stopped on their first command, all of them marked sandbox-free.
 - [x] An ACP turn that goes silent ends instead of staying busy forever: the agent's last line
       is timed against the same limits the per-message runner uses (a chat 15 minutes, a builder
       8 hours), the turn then sends `session/cancel` and reports the stop, and an agent that

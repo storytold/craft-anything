@@ -22,7 +22,13 @@ remains to confirm.
   `message`, so a builder that is told to stay inside the project or use a build command has
   something to act on. CodeBuddy ends its turn on any refusal it receives (its trace records it as
   `cancel_reason: "user_rejected"`), whatever the reason: so a request it can't approve, like a
-  command that skips its sandbox, must not be one a build depends on.
+  command that skips its sandbox, must not be one a build depends on. A call whose command or
+  target can't be read is refused with that said, never answered as allowed with nothing to run.
+- Two requests it makes that a build shouldn't depend on, and what to expect: it sends
+  `dangerouslyDisableSandbox: true` on a command it means to run outside its sandbox, which the
+  policy doesn't approve for a build; and a command with `; | >` joins reaches the policy as one
+  command, which it asks about rather than reading. Either ends the turn, so a live build needs
+  the builder to keep to plain commands; a run whose first command is refused stops there.
 - Checked live against CodeBuddy Code 2.183.0 (2026-11-12): `--acp` answers with
   `protocolVersion: 1` and `loadSession: true`; `session/new` takes our server; a prompt's MCP call
   and a `Write` both sent a permission request, which we answered; a `Read` ran **without** one,
