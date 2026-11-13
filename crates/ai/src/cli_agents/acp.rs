@@ -555,20 +555,24 @@ impl AcpCore {
         })]
     }
 
-    /// Answer a permission request: the first option of the matching kind, once.
+    /// Answer a permission request for this call alone: `allow_once` or `reject_once`, or an
+    /// agent's own name for those. A grant that also settles later calls is never chosen: it would
+    /// let this one approval decide every later call of the tool, past the policy that judges them.
     pub fn answer(&mut self, call_id: &str, allow: bool) -> Vec<Out> {
         let Some((id, options)) = self.asks.remove(call_id) else { return Vec::new() };
-        let want = if allow { "allow_once" } else { "reject_once" };
-        let pick = options
-            .iter()
-            .find(|o| o.get("kind").and_then(Value::as_str) == Some(want))
-            .or_else(|| options.iter().find(|o| o.get("kind").and_then(Value::as_str).is_some_and(|k| k.starts_with(if allow { "allow" } else { "reject" }))))
-            .and_then(|o| o.get("optionId").cloned());
+        let pick = options.iter().find(|option| Self::one_time(option, allow)).and_then(|option| option.get("optionId").cloned());
         let outcome = match pick {
             Some(option) => json!({"outcome": "selected", "optionId": option}),
             None => json!({"outcome": "cancelled"}),
         };
         vec![Out::Send(json!({"jsonrpc": "2.0", "id": id, "result": {"outcome": outcome}}).to_string())]
+    }
+
+    /// Whether `option` answers this call alone. A refusal that also settles later calls is stricter,
+    /// so only a grant is held to the one-time kinds (`allow_once`, and an agent's `allow_*_once`).
+    fn one_time(option: &Value, allow: bool) -> bool {
+        let Some(kind) = option.get("kind").and_then(Value::as_str) else { return false };
+        if allow { kind.starts_with("allow") && kind.ends_with("_once") } else { kind.starts_with("reject") }
     }
 
     /// Stop the current message: cancel the prompt and any open permission requests.
@@ -1475,6 +1479,29 @@ printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt
         let reply = sent(&c.answer(call_id, true));
         assert_eq!(reply[0], json!({"jsonrpc": "2.0", "id": 7, "result": {"outcome": {"outcome": "selected", "optionId": "yes"}}}));
         assert!(c.answer(call_id, true).is_empty(), "answered once");
+    }
+
+    /// Approving a request that offers only an always-grant is cancelled: it would settle every
+    /// later call of that tool, past the policy that judges each one.
+    #[test]
+    fn an_only_always_grant_is_cancelled_and_a_reject_always_is_used() {
+        let mut c = core(None);
+        let ev = events(c.line(
+            r#"{"jsonrpc":"2.0","id":8,"method":"session/request_permission","params":{"sessionId":"s","toolCall":{"toolCallId":"t3","title":"Run ls","kind":"execute"},"options":[{"optionId":"yes-always","name":"Always","kind":"allow_always"}]}}"#,
+        ));
+        let Some(AgentEvent::ConsentNeeded { call_id, .. }) = ev.first() else { panic!("{ev:?}") };
+        assert_eq!(sent(&c.answer(call_id, true))[0], json!({"jsonrpc": "2.0", "id": 8, "result": {"outcome": {"outcome": "cancelled"}}}));
+
+        // A refusal that also settles later calls is stricter, not looser, so it is still chosen.
+        let mut c = core(None);
+        let ev = events(c.line(
+            r#"{"jsonrpc":"2.0","id":9,"method":"session/request_permission","params":{"sessionId":"s","toolCall":{"toolCallId":"t4","title":"Run ls"},"options":[{"optionId":"no-always","name":"Never","kind":"reject_always"}]}}"#,
+        ));
+        let Some(AgentEvent::ConsentNeeded { call_id, .. }) = ev.first() else { panic!("{ev:?}") };
+        assert_eq!(
+            sent(&c.answer(call_id, false))[0],
+            json!({"jsonrpc": "2.0", "id": 9, "result": {"outcome": {"outcome": "selected", "optionId": "no-always"}}})
+        );
     }
 
     /// #271: after `initialize` failed, the next message waited for a session forever, and Stop
