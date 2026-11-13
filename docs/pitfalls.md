@@ -1008,6 +1008,12 @@ after tool results. Test the child process's targets and the UI's finding ids, n
 must be installed, and a test without a renderer must explicitly clear `output.textures_delta`.
 Use the repository's `run_ui` API and its font setup instead of assuming an older egui harness.
 
+**A remote agent's environment was set on the local `ssh`.** ssh forwards none of our environment,
+so `CRAFT_ANYTHING_AGENT` set on the `ssh` process never reached the agent: the remote CLI called
+tools as the person, who may loosen approvals the agent may not. Set it inside the remote command
+line, as the per-message path does, and test the line `ssh` is given rather than the local
+process's environment (the same mistake as #395).
+
 **An ACP handshake passed while the tools were missing, and an empty tool list enabled them all.**
 Copilot CLI 1.0.105 initialized successfully but did not expose a server supplied only through
 ACP's `session/new`; explicit `--additional-mcp-config` made it available. An empty

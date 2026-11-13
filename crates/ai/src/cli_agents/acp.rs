@@ -7,7 +7,7 @@
 //! [`AcpCore`] is the protocol alone (lines in, lines and events out) so it's tested without a
 //! process; [`AcpConversation`] runs it against the agent through `craft_anything_platform`.
 
-use super::{McpCommand, display_for};
+use super::{MCP_NAME, McpCommand, display_for};
 use crate::model::Stop;
 use crate::{AgentEvent, Conversation, FailureKind, TurnFailure};
 use craft_anything_platform::sync::Mutex;
@@ -34,6 +34,7 @@ pub const ACP_AGENTS: &[(&str, &[&str])] = &[
     // Flags that belong to this mode (`--model`, `--no-leader`) go between `agent` and `stdio`.
     ("grok", &["agent"]),
     ("devin", &["acp"]),
+    ("codebuddy", &["--acp"]),
 ];
 
 /// Agents whose ACP mode takes the backend's model (`cli_model`), and the flag after the ACP
@@ -112,6 +113,17 @@ pub struct ModelMetadata {
 
 /// An ACP tool call in the approval policy's shape.
 fn policy_action(call: &Value) -> (String, Value) {
+    let kind = call.get("kind").and_then(Value::as_str).unwrap_or("other");
+    // Some agents reach every MCP tool through one wrapper, naming the tool in the input. The
+    // approval policy judges tools by name, so it is given the tool that really runs (CodeBuddy).
+    // Only a call of no recognised kind can be that wrapper: a standard edit or execute call keeps
+    // its own kind, so an input that merely mentions a `toolName` can't make the policy judge a
+    // different tool than the one about to run.
+    if kind == "other"
+        && let Some((tool, params)) = deferred_tool(call)
+    {
+        return (tool, params);
+    }
     let s = |p: &str| call.pointer(p).and_then(Value::as_str).map(str::to_string);
     let path =
         s("/locations/0/path").or_else(|| s("/rawInput/path")).or_else(|| s("/rawInput/file_path")).or_else(|| s("/rawInput/abs_path")).unwrap_or_default();
@@ -120,7 +132,7 @@ fn policy_action(call: &Value) -> (String, Value) {
         Some(Value::Array(parts)) => parts.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" "),
         _ => s("/title").unwrap_or_default(),
     };
-    match call.get("kind").and_then(Value::as_str).unwrap_or("other") {
+    match kind {
         "edit" | "delete" | "move" => ("Write".into(), json!({"file_path": path})),
         "execute" => ("Bash".into(), json!({"command": command})),
         "read" | "search" => ("Read".into(), json!({"file_path": path})),
@@ -128,6 +140,16 @@ fn policy_action(call: &Value) -> (String, Value) {
         "think" | "switch_mode" => ("TodoWrite".into(), Value::Null),
         _ => (s("/title").unwrap_or_else(|| "an unnamed tool".into()), call.get("rawInput").cloned().unwrap_or(Value::Null)),
     }
+}
+
+/// The tool a wrapper call names, and its input: CodeBuddy sends every MCP call as
+/// `{"toolName": "mcp__craft-anything__build_file_write", "params": {…}}`. Another server's tool
+/// keeps the wrapper, because its name means nothing to our approval policy.
+fn deferred_tool(call: &Value) -> Option<(String, Value)> {
+    let name = call.pointer("/rawInput/toolName").and_then(Value::as_str)?;
+    let tool = name.strip_prefix(&format!("mcp__{MCP_NAME}__"))?;
+    let params = call.pointer("/rawInput/params").cloned().unwrap_or_else(|| json!({}));
+    Some((tool.to_string(), params))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -533,20 +555,24 @@ impl AcpCore {
         })]
     }
 
-    /// Answer a permission request: the first option of the matching kind, once.
+    /// Answer a permission request for this call alone: `allow_once` or `reject_once`, or an
+    /// agent's own name for those. A grant that also settles later calls is never chosen: it would
+    /// let this one approval decide every later call of the tool, past the policy that judges them.
     pub fn answer(&mut self, call_id: &str, allow: bool) -> Vec<Out> {
         let Some((id, options)) = self.asks.remove(call_id) else { return Vec::new() };
-        let want = if allow { "allow_once" } else { "reject_once" };
-        let pick = options
-            .iter()
-            .find(|o| o.get("kind").and_then(Value::as_str) == Some(want))
-            .or_else(|| options.iter().find(|o| o.get("kind").and_then(Value::as_str).is_some_and(|k| k.starts_with(if allow { "allow" } else { "reject" }))))
-            .and_then(|o| o.get("optionId").cloned());
+        let pick = options.iter().find(|option| Self::one_time(option, allow)).and_then(|option| option.get("optionId").cloned());
         let outcome = match pick {
             Some(option) => json!({"outcome": "selected", "optionId": option}),
             None => json!({"outcome": "cancelled"}),
         };
         vec![Out::Send(json!({"jsonrpc": "2.0", "id": id, "result": {"outcome": outcome}}).to_string())]
+    }
+
+    /// Whether `option` answers this call alone. A refusal that also settles later calls is stricter,
+    /// so only a grant is held to the one-time kinds (`allow_once`, and an agent's `allow_*_once`).
+    fn one_time(option: &Value, allow: bool) -> bool {
+        let Some(kind) = option.get("kind").and_then(Value::as_str) else { return false };
+        if allow { kind.starts_with("allow") && kind.ends_with("_once") } else { kind.starts_with("reject") }
     }
 
     /// Stop the current message: cancel the prompt and any open permission requests.
@@ -697,6 +723,9 @@ pub struct AcpConversation {
     /// The backend's stored key and its `authMethods` id, for an agent that asks the host to
     /// `authenticate` (`ACP_KEY_AGENTS`: Devin).
     auth: Option<(String, String)>,
+    /// The SSH host this session runs on, when it isn't this computer: there is no local folder to
+    /// start in, and the tool server is the one that host has.
+    remote: Option<String>,
 }
 
 impl AcpConversation {
@@ -793,6 +822,13 @@ impl AcpConversation {
         self
     }
 
+    /// Run the agent on another computer: `program` is then `ssh` and `args` its line, so there is
+    /// no local folder to start in, and the tool server must be found on that host.
+    pub fn with_remote(mut self, host: Option<String>) -> Self {
+        self.remote = host;
+        self
+    }
+
     /// Text put before each message, as the CLI runs do (who it works for, how to use our tools).
     pub fn with_preamble(mut self, preamble: String) -> Self {
         self.preamble = preamble;
@@ -838,6 +874,7 @@ impl AcpConversation {
             access_error: None,
             session_config: Vec::new(),
             auth: None,
+            remote: None,
         }
     }
 
@@ -852,7 +889,25 @@ impl AcpConversation {
         }
         let name = display_for(&self.agent);
         let resume = self.lock().as_ref().and_then(|s| s.core.session_id()).or_else(|| self.resume.clone());
-        let mut core = AcpCore::new(&self.backend, &self.agent, &name, self.cwd.clone(), self.mcp.clone(), resume).with_auth(self.auth.clone());
+        let mut mcp = self.mcp.clone();
+        if let Some(host) = self.remote.as_deref() {
+            let target = super::adapters::remote_acp_target(host);
+            // `session/new` names an absolute folder, which only that host knows. Sending `.` would
+            // be a session ACP doesn't allow, so a host that won't say stops the turn instead.
+            let Some(home) = target.home else {
+                return Err(craft_anything_evidence::ToolError::unavailable(format!("{name} didn't say which folder to work in on {host}."))
+                    .with_remediation("Check that `ssh <host>` works without a password prompt, then try again."));
+            };
+            self.cwd = PathBuf::from(home);
+            // A question starts no tool server; every other run needs the helper's own path, since
+            // that host starts it with the PATH its session has.
+            if !self.question
+                && let Some(path) = target.cli
+            {
+                mcp.command = path;
+            }
+        }
+        let mut core = AcpCore::new(&self.backend, &self.agent, &name, self.cwd.clone(), mcp, resume).with_auth(self.auth.clone());
         core.question = self.question;
         core.sign_in_fix = self.adapter.sign_in_fix();
         core.typed_mcp = self.adapter.acp_mcp_stdio_type();
@@ -864,11 +919,13 @@ impl AcpConversation {
         let (shared, tx, busy) = (self.shared.clone(), self.tx.clone(), self.busy.clone());
         let shared_err = self.shared.clone();
         let tx_err = tx.clone();
-        let mut proc = self
-            .adapter
-            .process(&self.program)
-            .args(&self.args)
-            .cwd(&self.cwd)
+        let mut proc = self.adapter.process(&self.program).args(&self.args);
+        // A remote run is `ssh` here and the agent there: the folder this one is in means nothing,
+        // and the session names its own folder instead.
+        if self.remote.is_none() {
+            proc = proc.cwd(&self.cwd);
+        }
+        let mut proc = proc
             // Our own CLI, started from inside the agent, calls tools as an agent (not the person).
             .env(craft_anything_engine::AGENT_ENV, "1")
             .stdin(StdinMode::Piped)
@@ -1424,6 +1481,29 @@ printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt
         assert!(c.answer(call_id, true).is_empty(), "answered once");
     }
 
+    /// Approving a request that offers only an always-grant is cancelled: it would settle every
+    /// later call of that tool, past the policy that judges each one.
+    #[test]
+    fn an_only_always_grant_is_cancelled_and_a_reject_always_is_used() {
+        let mut c = core(None);
+        let ev = events(c.line(
+            r#"{"jsonrpc":"2.0","id":8,"method":"session/request_permission","params":{"sessionId":"s","toolCall":{"toolCallId":"t3","title":"Run ls","kind":"execute"},"options":[{"optionId":"yes-always","name":"Always","kind":"allow_always"}]}}"#,
+        ));
+        let Some(AgentEvent::ConsentNeeded { call_id, .. }) = ev.first() else { panic!("{ev:?}") };
+        assert_eq!(sent(&c.answer(call_id, true))[0], json!({"jsonrpc": "2.0", "id": 8, "result": {"outcome": {"outcome": "cancelled"}}}));
+
+        // A refusal that also settles later calls is stricter, not looser, so it is still chosen.
+        let mut c = core(None);
+        let ev = events(c.line(
+            r#"{"jsonrpc":"2.0","id":9,"method":"session/request_permission","params":{"sessionId":"s","toolCall":{"toolCallId":"t4","title":"Run ls"},"options":[{"optionId":"no-always","name":"Never","kind":"reject_always"}]}}"#,
+        ));
+        let Some(AgentEvent::ConsentNeeded { call_id, .. }) = ev.first() else { panic!("{ev:?}") };
+        assert_eq!(
+            sent(&c.answer(call_id, false))[0],
+            json!({"jsonrpc": "2.0", "id": 9, "result": {"outcome": {"outcome": "selected", "optionId": "no-always"}}})
+        );
+    }
+
     /// #271: after `initialize` failed, the next message waited for a session forever, and Stop
     /// didn't end it.
     #[test]
@@ -1472,6 +1552,23 @@ printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt
         assert_eq!(run("read", json!({"path": "/a"})).0, "Read");
         assert_eq!(run("fetch", json!({"url": "https://x"})).0, "WebFetch");
         assert_eq!(run("other", json!({})).0, "t", "unknown kinds are asked about by title");
+        // CodeBuddy sends every MCP call as one wrapper, naming the real tool in its input.
+        assert_eq!(
+            run("other", json!({"toolName": "mcp__craft-anything__build_file_write", "params": {"path": "app/index.html", "content": "x"}})),
+            ("build_file_write".to_string(), json!({"path": "app/index.html", "content": "x"}))
+        );
+        assert_eq!(
+            run("other", json!({"toolName": "mcp__other-server__read_file", "params": {"path": "/x"}})).0,
+            "t",
+            "another server's tool keeps its wrapper"
+        );
+        // A recognised kind is judged as itself, whatever its input mentions: a command that
+        // names one of our tools is still the command that runs.
+        assert_eq!(
+            run("execute", json!({"toolName": "mcp__craft-anything__build_file_read", "command": "rm -rf app"})),
+            ("Bash".to_string(), json!({"command": "rm -rf app"}))
+        );
+        assert_eq!(run("edit", json!({"toolName": "mcp__craft-anything__build_file_read", "file_path": "/w/app/x"})).0, "Write");
     }
 
     #[test]

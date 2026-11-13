@@ -373,7 +373,7 @@ pub fn detect_all() -> Vec<Detected> {
 
 /// SSH aliases are suggestions, not proof that an agent is installed there.
 fn remote_agents(host: String) -> Vec<Detected> {
-    [("claude-code", "Claude Code"), ("opencode", "OpenCode")]
+    [("claude-code", "Claude Code"), ("opencode", "OpenCode"), ("codebuddy", "CodeBuddy")]
         .into_iter()
         .map(|(id, label)| {
             let mut c = cfg(&format!("{label} on {host}"), BackendKind::AgentCli, id);
@@ -423,14 +423,15 @@ mod tests {
         assert_eq!(serde_json::to_value(&hint).unwrap()["kind"], "claude_desktop_without_cli");
     }
 
-    /// Non-Git SSH hosts offer both supported agent suggestions without probing the remote computer.
+    /// Non-Git SSH hosts offer each supported agent suggestion without probing the remote computer.
     #[test]
-    fn ssh_hosts_offer_opencode_as_well_as_claude_code() {
+    fn ssh_hosts_offer_each_remote_agent() {
         let found = remote_agents("test-box".into());
-        assert_eq!(found.iter().map(|d| d.suggestion.model.as_str()).collect::<Vec<_>>(), ["claude-code", "opencode"]);
+        assert_eq!(found.iter().map(|d| d.suggestion.model.as_str()).collect::<Vec<_>>(), ["claude-code", "opencode", "codebuddy"]);
         let oc = &found[1].suggestion;
         assert_eq!(oc.name, "OpenCode on test-box");
         assert_eq!(oc.ssh_host.as_deref(), Some("test-box"));
+        assert_eq!(found[2].suggestion.name, "CodeBuddy on test-box");
     }
 
     #[test]

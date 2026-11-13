@@ -133,7 +133,10 @@ impl ModelTuning {
                 ModelOption { value: CliContext::Long, label: "Extended".into(), description: None },
             ];
         }
-        Self { model, context, reasoning: choices(options, &["reasoning_effort"]) }
+        // "thought_level" is CodeBuddy's name for the reasoning depth. An agent reusing that id
+        // must offer effort-like values (low/medium/high), not counts of something else; a value
+        // the effort enum can't read is dropped rather than offered.
+        Self { model, context, reasoning: choices(options, &["reasoning_effort", "thought_level"]) }
     }
 }
 

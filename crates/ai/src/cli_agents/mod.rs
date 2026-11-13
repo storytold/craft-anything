@@ -56,6 +56,7 @@ pub const KNOWN: &[(&str, &str, &str)] = &[
     ("aider", "aider", "Aider"),
     ("dsh", "dsh", "DeepSeek Harness"),
     ("devin", "devin", "Devin"),
+    ("codebuddy", "codebuddy", "CodeBuddy"),
 ];
 
 pub fn program_for(agent: &str) -> String {
@@ -705,8 +706,10 @@ fn acp_for(spec: &CliSpec) -> Option<AcpConversation> {
     if spec.question && !adapter.answers_questions() {
         return None;
     }
-    let local = spec.config.ssh_host.as_deref().is_none_or(|h| h.trim().is_empty());
-    let acp_args = selected_acp_args(adapter.as_ref(), &agent, &spec.options).filter(|_| local)?;
+    let remote = spec.config.ssh_host.as_deref().map(str::trim).filter(|host| !host.is_empty()).map(str::to_string);
+    // An adapter whose ACP mode can't run over ssh keeps the per-message path there; an ACP-only
+    // one then says it needs this computer.
+    let acp_args = selected_acp_args(adapter.as_ref(), &agent, &spec.options).filter(|_| remote.is_none() || adapter.acp_over_ssh())?;
     // No program to start: the plain run reports why.
     let program = program_of(&spec.config, &spec.options).ok()?;
     // Same modes as the plain runner, including Clean room chat (no builder, not deep).
@@ -716,17 +719,24 @@ fn acp_for(spec: &CliSpec) -> Option<AcpConversation> {
     args.extend(acp::model_args(&agent, spec.options.cli_model.as_deref()));
     // After the mode words and model flag, still before a trailing subcommand (`stdio` for Grok).
     args.extend(adapter.acp_mode_options(&spec.options, access));
-    let cwd = spec.project.clone().or_else(|| std::env::current_dir().ok()).unwrap_or_else(std::env::temp_dir);
-    let mcp = mcp_for(spec, false);
+    // A remote session names a folder on that computer: "." until the host reports its own
+    // absolute one, which the conversation swaps in beside the tool server's path.
+    let cwd = match &remote {
+        Some(_) => PathBuf::from("."),
+        None => spec.project.clone().or_else(|| std::env::current_dir().ok()).unwrap_or_else(std::env::temp_dir),
+    };
+    let mcp = mcp_for(spec, remote.is_some());
     if !spec.question {
         args.extend(adapter.acp_mcp_options(&mcp));
     }
     args.extend(adapter.acp_trailing().iter().map(|word| (*word).to_string()));
+    let (program, args) = remote_or_local(program, args, remote.as_deref());
     let preamble = spec.preamble.clone().unwrap_or_else(|| crate::prompt::cli_preamble(spec.beginner));
     let session_config = adapter.acp_session_config(&spec.options);
     let auth = acp::key_auth_method(&agent).map(str::to_string).zip(spec.key.clone());
     Some(
         AcpConversation::new(&spec.config.name, &agent, program, args, cwd, mcp, if spec.question { None } else { spec.resume.clone() })
+            .with_remote(remote)
             .with_validation(adapter.validate_options(&spec.options))
             .with_access_limit(adapter.validate_access(access))
             .with_adapter(adapter)
@@ -736,6 +746,20 @@ fn acp_for(spec: &CliSpec) -> Option<AcpConversation> {
             .with_logs(spec.logs.clone())
             .with_auth(auth),
     )
+}
+
+/// The process that starts the agent here, or `ssh` carrying the same command to `host`. ssh passes
+/// on none of our environment, so the marker that makes the CLI act as an agent is set in the
+/// remote command itself (#395); a key in a command line would show, so none goes there.
+fn remote_or_local(program: String, args: Vec<String>, host: Option<&str>) -> (String, Vec<String>) {
+    match host {
+        Some(host) => {
+            // Without it the remote CLI calls tools as the person, who may loosen approvals.
+            let env = [(craft_anything_engine::AGENT_ENV, "1".to_string())];
+            ("ssh".to_string(), crate::ssh::ssh_line_args(host, remote_command(&program, args, &env)))
+        }
+        None => (program, args),
+    }
 }
 
 /// Copilot's selectable models from a fresh local ACP session, with `auto` offered once at the
@@ -3158,7 +3182,7 @@ echo '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
         reg.register(Arc::new(EchoAgent));
         assert_eq!(
             format!("{reg:?}"),
-            r#"["claude-code", "codex", "gemini-cli", "opencode", "antigravity", "hermes", "maki", "aider", "copilot", "grok", "dsh", "devin", "echo-agent"]"#
+            r#"["claude-code", "codex", "gemini-cli", "opencode", "antigravity", "hermes", "maki", "aider", "copilot", "grok", "dsh", "devin", "codebuddy", "echo-agent"]"#
         );
     }
 
@@ -3185,6 +3209,39 @@ echo '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
         assert!(acp_for(&spec).is_none());
         spec.config.model = "copilot".into();
         assert!(acp_for(&spec).is_some());
+    }
+
+    /// An ACP agent that says its mode works over ssh keeps ACP there; the others keep the
+    /// per-message path, which an ACP-only agent refuses.
+    #[test]
+    fn an_acp_agent_that_works_over_ssh_keeps_acp_there() {
+        let remote = |agent: &str| {
+            let config = BackendConfig {
+                name: "Remote".into(),
+                kind: BackendKind::AgentCli,
+                model: agent.into(),
+                base_url: None,
+                ssh_host: Some("build-machine".into()),
+                enabled: true,
+            };
+            CliSpec::new(config, BackendOptions::default(), false, None)
+        };
+        assert!(acp_for(&remote("codebuddy")).is_some(), "CodeBuddy speaks ACP over ssh");
+        assert!(acp_for(&remote("copilot")).is_none(), "Copilot's ACP mode is local");
+    }
+
+    /// The same command, wrapped for that computer's shell.
+    #[test]
+    fn an_acp_agent_on_another_computer_runs_through_ssh() {
+        let (program, args) = remote_or_local("codebuddy".into(), vec!["--acp".into(), "--permission-mode".into(), "default".into()], Some("build-machine"));
+        assert_eq!(program, "ssh");
+        assert!(args.iter().any(|a| a == "BatchMode=yes"));
+        assert_eq!(
+            args.last().unwrap(),
+            "env CRAFT_ANYTHING_AGENT=1 codebuddy --acp --permission-mode default",
+            "the remote CLI must know it is an agent, not the person"
+        );
+        assert_eq!(remote_or_local("codebuddy".into(), vec!["--acp".into()], None), ("codebuddy".to_string(), vec!["--acp".to_string()]));
     }
 
     /// A remote host runs whichever craft-anything-cli it has, of any release. Every release, from

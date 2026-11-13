@@ -835,6 +835,22 @@ Owner: open · Status: in progress
       are refused.
       See [Grok Build](grok.md).
       — branch `feature/r2.2-grok-agent`
+- [x] CodeBuddy CLI as a coding agent over ACP (`codebuddy --acp`): model and depth through
+      `session/set_config_option` (`model`, `thought_level`), our MCP server on the session, and
+      the CLI's own sign-in (`/login`, or `CODEBUDDY_API_KEY` with
+      `CODEBUDDY_INTERNET_ENVIRONMENT`). A build runs in `--permission-mode default`, so a tool call
+      that its own allow rules don't settle is decided once; a chat and a question run in `plan`,
+      which refuses writes and commands.
+      Clean room is refused, because the CLI reads files on its own in every mode. Extra arguments
+      are refused, and the approval policy unwraps CodeBuddy's `DeferExecuteTool` wrapper to the
+      real tool name. Verified against CodeBuddy 2.182.0, signed in: both config ids, live
+      catalogue validation, `plan` refusing a write, `default` sending a permission request, and
+      our tools listed over the session. Detect also offers it on an SSH host, where the same ACP
+      session runs through `ssh` and the approval requests come back over that connection; the host
+      needs `codebuddy` and `craft-anything-cli`, checked before a build. Live remote runs are
+      unverified: the hosts available had neither program. A full local build was not reached: two
+      turns explored without writing, and `bypassPermissions` changed nothing, so that is the
+      model's behaviour, not the approvals. See [CodeBuddy](codebuddy.md).
 - [x] Review hardening: cap target handoff at 128 while preserving the active target; propagate
       context-discovery cancellation, normalize CLI-only efforts for Claude requests, and name
       the configured agent in shared picker warnings, with focused regressions and translations
