@@ -82,10 +82,13 @@ pub fn pe_is_managed(data: &[u8]) -> bool {
     if r.slice(pe_off, 4) != Some(b"PE\0\0") {
         return false;
     }
-    let opt = pe_off + 24;
-    let dirs = match r.u16_le(opt) {
-        Some(0x10b) => opt + 96,
-        Some(0x20b) => opt + 112,
+    let Some(coff) = r.slice(pe_off, 24).map(Reader::new) else { return false };
+    let Some(size) = coff.u16_le(20).map(usize::from) else { return false };
+    let Some(opt) = pe_off.checked_add(24) else { return false };
+    let Some(r) = r.slice(opt, size).map(Reader::new) else { return false };
+    let dirs = match r.u16_le(0) {
+        Some(0x10b) => 96usize,
+        Some(0x20b) => 112usize,
         _ => return false,
     };
     let Some(count) = r.u32_le(dirs.wrapping_sub(4)) else { return false };
