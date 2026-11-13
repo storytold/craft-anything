@@ -476,15 +476,16 @@ fn parse_gguf(prefix: &[u8], file_size: u64) -> Result<ModelReport, FormatError>
     while i < kv_count {
         let parsed = (|| {
             let identity = c.raw_str()?;
-            let key = String::from_utf8_lossy(identity).into_owned();
             let t = c.u32()?;
             let (value, value_type, count, shortened) = gguf_value(&mut c, t, 0)?;
-            Some((identity, ModelMetadata { key, value_type, value, count, shortened }))
+            Some((identity, value, value_type, count, shortened))
         })();
-        let Some((identity, entry)) = parsed else {
+        let Some((identity, value, value_type, count, shortened)) = parsed else {
             ended_early = true;
             break;
         };
+        let key = std::str::from_utf8(identity).map_err(|_| FormatError::Malformed(format!("GGUF metadata key at index {i} is not UTF-8")))?;
+        let entry = ModelMetadata { key: key.to_owned(), value_type, value, count, shortened };
         if !metadata_keys.insert(identity) {
             return Err(FormatError::Malformed(format!("GGUF duplicate metadata key at index {i}")));
         }
@@ -511,7 +512,6 @@ fn parse_gguf(prefix: &[u8], file_size: u64) -> Result<ModelReport, FormatError>
         while i < tensor_count {
             let parsed = (|| {
                 let identity = c.raw_str()?;
-                let name = String::from_utf8_lossy(identity).into_owned();
                 let dims = c.u32()?;
                 if dims > MAX_DIMS {
                     return None;
@@ -522,12 +522,13 @@ fn parse_gguf(prefix: &[u8], file_size: u64) -> Result<ModelReport, FormatError>
                 }
                 let ty = c.u32()?;
                 let offset = c.u64()?;
-                Some((identity, name, shape, ty, offset))
+                Some((identity, shape, ty, offset))
             })();
-            let Some((identity, name, shape, ty, data_offset)) = parsed else {
+            let Some((identity, shape, ty, data_offset)) = parsed else {
                 ended_early = true;
                 break;
             };
+            let name = std::str::from_utf8(identity).map_err(|_| FormatError::Malformed(format!("GGUF tensor name at index {i} is not UTF-8")))?;
             if !tensor_names.insert(identity) {
                 return Err(FormatError::Malformed(format!("GGUF duplicate tensor name at index {i}")));
             }
@@ -547,7 +548,7 @@ fn parse_gguf(prefix: &[u8], file_size: u64) -> Result<ModelReport, FormatError>
                 }
             };
             last_data_end = last_data_end.max(u128::from(data_offset) + u128::from(data_bytes.unwrap_or(0)));
-            let (name, _) = shorten(name);
+            let (name, _) = shorten(name.to_owned());
             r.add_tensor(ModelTensor { name, dtype: ggml_type_name(ty), shape, parameters, data_offset, data_bytes });
             i += 1;
         }

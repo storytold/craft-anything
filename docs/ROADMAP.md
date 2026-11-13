@@ -2607,6 +2607,8 @@ Owner: open · Status: in progress
       and [layers, locks, secret scanning, wasm checks and Cargo.lock stability](https://github.com/Afloat16/claude-mem/actions/runs/42640688213/job/129240669663).
       The [unchanged-code baseline](https://github.com/Afloat16/claude-mem/actions/runs/42636776430/job/129226895582) reproduces the new regression cases.
 
+- [x] Reject invalid UTF-8 in GGUF metadata keys and tensor names instead of inventing replacement identities.
+      — claimed: Plastic-time, branch bugfix/r3.12-gguf-identity-encoding-1112
 - [x] Reject duplicate GGUF metadata keys and tensor names before they overwrite metadata or inflate parameter totals.
       — claimed: Afloat16, branch bugfix/r3.12-gguf-duplicate-identities-20261111
 - [x] Calculate GGUF quantized tensor byte ranges from their block layout and diagnose invalid row widths.
