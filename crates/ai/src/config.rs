@@ -86,9 +86,10 @@ pub struct BackendOptions {
     pub max_turns: Option<u32>,
     /// Input tokens before trimming and summarising the conversation. Omitted or zero uses the
     /// local/cloud default, fitted to the window the server says it has (`crate::window`): a local
-    /// server's budget becomes three quarters of it, while a paid service's only ever goes below its
-    /// 150k default (a bigger budget there must be set here). This does not change the model
-    /// server's own context window.
+    /// server's budget becomes three quarters of it, while a window a paid service names ahead of
+    /// time only ever lowers its 150k default (a bigger budget there must be set here). A window a
+    /// server names when it refuses a request is three quarters of it on any backend. This does
+    /// not change the model server's own context window.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context_tokens: Option<u64>,
     /// API backends: the most requests to send in a minute, for a service that limits them (120
