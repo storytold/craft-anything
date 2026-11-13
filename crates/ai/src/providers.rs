@@ -218,4 +218,19 @@ mod tests {
         assert_eq!(of_base("http://127.0.0.1:11434/v1"), None);
         assert_eq!(of_base("https://api.example.test/v1"), None);
     }
+
+    /// The IO Intelligence row is found by its base URL, with or without `/v1` and only over HTTPS;
+    /// a look-alike host finds nothing, and the key is read from `IONET_API_KEY`.
+    #[test]
+    fn io_intelligence_is_found_by_base_and_key() {
+        let base = "https://api.intelligence.io.solutions/api/v1";
+        let row = of_base(base).expect("IO Intelligence base URL is recognised");
+        assert_eq!(row.key_env, "IONET_API_KEY");
+        assert_eq!(row.catalog_id, "io-net");
+        assert_eq!(of_base("https://api.intelligence.io.solutions/api"), Some(row));
+        assert_eq!(of_base("http://api.intelligence.io.solutions/api/v1"), None);
+        assert_eq!(of_base("https://api.intelligence.io.solutions.example/api/v1"), None);
+        let key = env_key_with(base, |name| (name == "IONET_API_KEY").then(|| "test-ionet-key".to_string()));
+        assert_eq!(key.as_deref(), Some("test-ionet-key"));
+    }
 }
