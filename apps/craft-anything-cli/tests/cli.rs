@@ -94,6 +94,38 @@ fn ai_key_reports_replaces_and_forgets_without_printing_the_key() {
     assert_eq!(run(&["ai", "key", "No such backend"], "").code, Some(1));
 }
 
+#[test]
+fn ai_context_sets_reads_and_clears_context_tokens() {
+    let cfg = tempfile::tempdir().unwrap();
+    assert!(
+        cli(
+            &["ai", "add", "Proxy", "--kind", "openai_compatible", "--model", "m", "--base-url", "http://127.0.0.1:8045/v1", "--context-tokens", "250000"],
+            cfg.path()
+        )
+        .success
+    );
+    let shown = cli(&["ai", "context", "Proxy", "--format", "json"], cfg.path());
+    assert!(shown.success);
+    let v: Value = serde_json::from_slice(&shown.stdout).unwrap();
+    assert_eq!(v["context_tokens"], 250000, "{v}");
+
+    let updated = cli(&["ai", "context", "Proxy", "128000", "--format", "json"], cfg.path());
+    assert!(updated.success);
+    let v: Value = serde_json::from_slice(&updated.stdout).unwrap();
+    assert_eq!(v["context_tokens"], 128000, "{v}");
+
+    let cleared = cli(&["ai", "context", "Proxy", "default", "--format", "json"], cfg.path());
+    assert!(cleared.success);
+    let v: Value = serde_json::from_slice(&cleared.stdout).unwrap();
+    assert!(v["context_tokens"].is_null(), "{v}");
+
+    assert!(!cli(&["ai", "context", "Proxy", "abc", "--format", "json"], cfg.path()).success);
+
+    assert!(!cli(&["ai", "add", "Claude", "--kind", "agent_cli", "--model", "claude", "--context-tokens", "8192"], cfg.path()).success);
+    assert!(cli(&["ai", "add", "Claude", "--kind", "agent_cli", "--model", "claude"], cfg.path()).success);
+    assert!(!cli(&["ai", "context", "Claude", "8192", "--format", "json"], cfg.path()).success);
+}
+
 /// #249: in Clean room a target tool the mode refuses was listed as available, because nothing
 /// being open yet was waived for every target tool.
 #[test]

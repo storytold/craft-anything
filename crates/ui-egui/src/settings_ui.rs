@@ -334,8 +334,11 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
     let (mut choose_program, mut usual_program, mut use_program) = (None, None, None);
     let mut check_agent = None;
     let mut save_folder = None;
+    let mut save_context = None;
     // Taken out while the rows borrow the app, and put back after them.
     let mut folder_drafts = std::mem::take(&mut app.folder_inputs);
+    let mut context_drafts = std::mem::take(&mut app.context_inputs);
+    let mut context_submitted = std::mem::take(&mut app.context_submitted);
     let mut key_drafts = std::mem::take(&mut app.backend_key_inputs);
     let (mut pick_model, mut chosen_model, mut close_picker) = (None, None, false);
     let mut chosen_effort = None;
@@ -604,6 +607,39 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                     });
                 });
                 ui.add_space(4.0);
+                let saved_ctx = app.backend_options.get(&b.name).and_then(|o| o.context_tokens).filter(|&n| n > 0).map(|n| n.to_string()).unwrap_or_default();
+                let ctx_id = egui::Id::new(("context-tokens", &b.name));
+                if context_drafts.get(&b.name).is_some_and(|d| d.trim() == saved_ctx) && !ui.memory(|m| m.has_focus(ctx_id)) {
+                    context_drafts.remove(&b.name);
+                }
+                let mut ctx_text = context_drafts.get(&b.name).cloned().unwrap_or_else(|| saved_ctx.clone());
+                ui.horizontal_wrapped(|ui| {
+                    let label = ui.label(RichText::new(tr("Context tokens (max)")).size(theme::CAPTION).color(t.text_dim));
+                    let r = ui
+                        .add(
+                            egui::TextEdit::singleline(&mut ctx_text)
+                                .id(ctx_id)
+                                .hint_text(tr("default (server window; 24000 local or 150000 cloud if unknown)"))
+                                .desired_width(220.0)
+                                .frame(widgets::text_field_frame_compact(&t)),
+                        )
+                        .labelled_by(label.id)
+                        .on_hover_text(tr("Without a custom limit, the budget follows the server's reported context window, keeping a quarter free for the reply. Local addresses use 24,000 tokens only when no window is reported. Set a custom limit (e.g. 150000 or 250000 when using a local proxy for a large model)."));
+                    if r.changed() {
+                        context_drafts.insert(b.name.clone(), ctx_text.clone());
+                        context_submitted.remove(&b.name);
+                    }
+                    let trimmed = ctx_text.trim().to_string();
+                    let pending = app.context_pending.contains(&b.name);
+                    let can_apply = !pending && trimmed != saved_ctx && context_submitted.get(&b.name).map(String::as_str) != Some(trimmed.as_str());
+                    let entered = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    if (widgets::primary_icon(ui, None, "Apply", can_apply).clicked() || entered) && can_apply {
+                        context_submitted.insert(b.name.clone(), trimmed.clone());
+                        ui.ctx().request_repaint();
+                        save_context = Some((b.name.clone(), trimmed));
+                    }
+                });
+                ui.add_space(4.0);
             }
             ui.add_space(6.0);
             ui.horizontal_wrapped(|ui| {
@@ -680,9 +716,12 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
         });
         ui.add_space(6.0);
     }
-    key_drafts.retain(|name, _| app.backends.iter().any(|backend| &backend.name == name));
+    context_drafts.retain(|name, _| app.backends.iter().any(|backend| &backend.name == name));
+    context_submitted.retain(|name, _| app.backends.iter().any(|backend| &backend.name == name));
     app.backend_key_inputs = key_drafts;
     app.folder_inputs = folder_drafts;
+    app.context_inputs = context_drafts;
+    app.context_submitted = context_submitted;
     if let Some((name, key)) = save_key {
         app.save_backend_key(name, key);
     }
@@ -707,6 +746,15 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
     }
     if let Some((name, folder)) = save_folder {
         app.set_agent_folder(&name, Some(folder));
+    }
+    if let Some((name, raw)) = save_context {
+        match raw.as_str() {
+            "" => app.set_context_tokens(&name, None),
+            s => match s.parse::<u64>() {
+                Ok(n) => app.set_context_tokens(&name, Some(n)),
+                Err(_) => app.toast(tr("Context tokens must be a whole number."), true),
+            },
+        }
     }
     if let Some(name) = pick_model {
         app.pick_model(&name);
@@ -859,11 +907,29 @@ pub(crate) fn server_form(app: &mut CraftApp, ui: &mut Ui) {
     let mut add = false;
     ui.horizontal(|ui| {
         field(ui, &mut form.model, "model (optional)", 150.0, "Model", false);
-        // Room for the Add button after it.
-        let w = (ui.available_width() - FRAME - 90.0).max(120.0);
+        let w = (ui.available_width() - FRAME).max(120.0);
         field(ui, &mut form.key, "API key, if it needs one", w, "API key", true);
+    });
+    ui.horizontal(|ui| {
+        let w = (ui.available_width() - FRAME - 90.0).max(200.0);
+        let r = ui
+            .add(
+                egui::TextEdit::singleline(&mut form.context_tokens)
+                    .hint_text(tr("context tokens (optional; default: server window, or 24000 local / 150000 cloud if unknown)"))
+                    .desired_width(w)
+                    .frame(widgets::text_field_frame_compact(&t)),
+            )
+            .on_hover_text(tr("Without a custom limit, the budget follows the server's reported context window, keeping a quarter free for the reply. Local addresses use 24,000 tokens only when no window is reported. Set a custom limit (e.g. 150000 or 250000 when using a local proxy for a large model)."));
+        widgets::named(r, &tr("Context tokens (max)"));
         add = widgets::primary_icon(ui, Some("plus"), "Add", ready).clicked() && ready;
     });
+    ui.label(
+        RichText::new(tr(
+            "Without a custom limit, the budget follows the server's reported context window, keeping a quarter free for the reply. Local addresses use 24,000 tokens only when no window is reported. Set a custom limit (e.g. 150000 or 250000 when using a local proxy for a large model).",
+        ))
+        .color(t.text_faint)
+        .size(theme::CAPTION),
+    );
     // A server still starting or loading a model may take up to a minute to answer: say it's being
     // asked and for how long, so the form doesn't look like nothing happened (#1429).
     let mut stop = None;
@@ -1722,5 +1788,31 @@ mod model_options_tests {
         assert!(text.contains("new-model") && text.contains("Context window") && text.contains("Thinking depth"), "{text}");
         assert_eq!(app.model_tuning["Copilot test"].cli_model.as_deref(), Some("new-model"));
         assert_eq!(app.model_tuning["Copilot test"].error, None);
+    }
+
+    #[test]
+    fn server_form_shows_context_tokens_and_validates_input() {
+        let mut app = app_with_backend();
+        let context = egui::Context::default();
+        crate::theme::install_fonts(&context);
+        let mut output = context.run_ui(egui::RawInput::default(), |ui| server_form(&mut app, ui));
+        output.textures_delta.clear();
+        let rendered: String = output
+            .shapes
+            .iter()
+            .filter_map(|shape| match &shape.shape {
+                egui::epaint::Shape::Text(t) => Some(t.galley.text().to_string()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(rendered.contains("Without a custom limit, the budget follows the server's reported context window"), "{rendered}");
+
+        app.server_form.name = "Proxy".into();
+        app.server_form.address = "http://127.0.0.1:8045/v1".into();
+        app.server_form.context_tokens = "not-a-number".into();
+        app.add_server();
+        assert!(app.server_form.connecting.is_none(), "invalid context tokens stops before connecting");
+        assert!(app.state.toasts.last().is_some_and(|(msg, err)| *err && msg.contains("whole number")), "{:?}", app.state.toasts);
     }
 }

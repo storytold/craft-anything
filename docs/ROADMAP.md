@@ -543,6 +543,10 @@ been run live.
       llama.cpp routers don't answer it
 - [x] The first run's AI step can add a model server on another computer by its address (llama.cpp,
       Ollama or LM Studio on a home server), the same form as Settings → AI
+- [x] Offer an optional "Context tokens (max)" input field in "Add an AI by its address", per-backend
+      context token editing in Settings → AI, and matching CLI `ai context` / `ai add --context-tokens`
+      options so custom context limits (e.g. for local proxies) don't require hand-editing `config.toml`
+      — claimed: d7do7e, branch feature/r5.4-context-tokens-ui
 - [ ] A chat sent while a llama.cpp router is still loading the model ended after 31 s with "The
       answer stream ended early." and no next step (seen once live, 27B model); say the server may
       still be loading it and to try again in a minute

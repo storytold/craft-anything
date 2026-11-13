@@ -118,6 +118,7 @@ const ACTIONS: &[Action] = &[
     a("pick_model",          "list the models an AI can use",                  Cli("ai model <name>")),
     a("set_model",           "change the model an AI uses",                    Cli("ai model <name> <model>")),
     a("set_effort",          "change how hard a Claude AI thinks",             Cli("ai effort <name> <level>")),
+    a("set_context_tokens",  "set or clear an API backend's context token limit", Cli("ai context <name> <tokens>")),
     a("pick_agent_model",    "list an agent's visible models and thinking depths", Tool(&["ai_models_list"])),
     a("reload_agent_model",  "reload model-specific thinking choices",         Tool(&["ai_models_list"])),
     a("set_agent_model",     "choose an agent's model and thinking depth",     Tool(&["ai_model_set"])),

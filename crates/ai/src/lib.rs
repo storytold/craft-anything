@@ -536,16 +536,40 @@ impl AiHub {
     /// can chat. Returns the model. Anthropic's own
     /// address is added as an Anthropic backend, as its API isn't OpenAI's.
     pub fn add_server(&self, name: &str, address: &str, model: Option<&str>, key: Option<String>) -> Result<String, ToolError> {
-        self.add_server_within(name, address, model, key, SERVER_ANSWER_WAIT, &CancelToken::default())
+        self.add_server_with_context(name, address, model, key, None, &CancelToken::default())
     }
 
     /// [`AiHub::add_server`], given up as soon as `cancel` is set, even while the server is still
     /// being asked for its models: a person can stop waiting for one that is slow to answer (#1429).
     pub fn add_server_until(&self, name: &str, address: &str, model: Option<&str>, key: Option<String>, cancel: &CancelToken) -> Result<String, ToolError> {
-        self.add_server_within(name, address, model, key, SERVER_ANSWER_WAIT, cancel)
+        self.add_server_with_context(name, address, model, key, None, cancel)
+    }
+
+    /// [`AiHub::add_server_until`], with an optional custom `context_tokens` override (`None` or
+    /// `Some(0)` keeps the local/cloud default).
+    pub fn add_server_with_context(
+        &self,
+        name: &str,
+        address: &str,
+        model: Option<&str>,
+        key: Option<String>,
+        context_tokens: Option<u64>,
+        cancel: &CancelToken,
+    ) -> Result<String, ToolError> {
+        let key = key.map(|k| k.trim().to_string()).filter(|k| !k.is_empty());
+        let config = self.probe_server(name, address, model, key.as_deref(), SERVER_ANSWER_WAIT, cancel)?;
+        let chosen = config.model.clone();
+        match context_tokens.filter(|&n| n > 0) {
+            Some(tokens) => {
+                self.add_backend_with(BackendEntry { config, options: BackendOptions { context_tokens: Some(tokens), ..Default::default() } }, key)?
+            }
+            None => self.add_backend(config, key)?,
+        }
+        Ok(chosen)
     }
 
     /// [`AiHub::add_server`], waiting `wait` for the server to list its models once reached.
+    #[cfg(test)]
     fn add_server_within(
         &self,
         name: &str,
@@ -555,6 +579,22 @@ impl AiHub {
         wait: Duration,
         cancel: &CancelToken,
     ) -> Result<String, ToolError> {
+        let key = key.map(|k| k.trim().to_string()).filter(|k| !k.is_empty());
+        let config = self.probe_server(name, address, model, key.as_deref(), wait, cancel)?;
+        let chosen = config.model.clone();
+        self.add_backend(config, key)?;
+        Ok(chosen)
+    }
+
+    fn probe_server(
+        &self,
+        name: &str,
+        address: &str,
+        model: Option<&str>,
+        key: Option<&str>,
+        wait: Duration,
+        cancel: &CancelToken,
+    ) -> Result<BackendConfig, ToolError> {
         let name = name.trim();
         let address = address.trim().trim_end_matches('/');
         if name.is_empty() {
@@ -564,9 +604,8 @@ impl AiHub {
             return Err(ToolError::invalid(format!("{address:?} isn't a web address."))
                 .with_remediation("Give the server's address, like http://192.168.1.20:11434/v1."));
         }
-        let key = key.map(|k| k.trim().to_string()).filter(|k| !k.is_empty());
         let kind = if anthropic::is_anthropic_api(address) { BackendKind::Anthropic } else { BackendKind::OpenaiCompatible };
-        let (asked_name, asked_address, asked_key) = (name.to_string(), address.to_string(), key.clone());
+        let (asked_name, asked_address, asked_key) = (name.to_string(), address.to_string(), key.map(str::to_string));
         let listed = until_cancelled(cancel, move || {
             if kind == BackendKind::Anthropic {
                 anthropic::Anthropic::new(Some(&asked_address), asked_key.unwrap_or_default(), "").list_models(Duration::from_secs(10))
@@ -601,7 +640,7 @@ impl AiHub {
             if kind == BackendKind::Anthropic || openai::is_opencode_go(address) {
                 return None;
             }
-            detect::chat_model(&openai::OpenAi::compatible(name, address, key.clone(), "").loaded_models(Duration::from_secs(5)))
+            detect::chat_model(&openai::OpenAi::compatible(name, address, key.map(str::to_string), "").loaded_models(Duration::from_secs(5)))
         };
         let model = match model.map(str::trim).filter(|m| !m.is_empty()) {
             Some(m) => m.to_string(),
@@ -611,9 +650,7 @@ impl AiHub {
                     .with_remediation("Load a chat model on the server first, or enter the name of a chat model you know is available.")
             })?,
         };
-        let config = BackendConfig { name: name.to_string(), kind, model: model.clone(), base_url: Some(address.to_string()), ssh_host: None, enabled: true };
-        self.add_backend(config, key)?;
-        Ok(model)
+        Ok(BackendConfig { name: name.to_string(), kind, model, base_url: Some(address.to_string()), ssh_host: None, enabled: true })
     }
 
     /// Like [`AiHub::add_backend`], with options.
@@ -756,6 +793,22 @@ impl AiHub {
         }
         b.options.effort = effort;
         self.save_config(&cfg)?;
+        Ok(true)
+    }
+
+    /// Set or clear a backend's `context_tokens` override (`None` or `Some(0)` restores the default).
+    pub fn set_context_tokens(&self, name: &str, context_tokens: Option<u64>) -> Result<bool, ToolError> {
+        let mut s = self.engine.session();
+        let mut cfg = AiConfig::from_table(&s.settings.ai)?;
+        let Some(b) = cfg.backends.iter_mut().find(|b| b.config.name == name) else { return Ok(false) };
+        if b.config.kind == BackendKind::AgentCli && context_tokens.is_some_and(|n| n > 0) {
+            return Err(ToolError::invalid("Agent apps do not take a context limit. Set it on an API backend."));
+        }
+        b.options.context_tokens = context_tokens.filter(|&n| n > 0);
+        let mut next = s.settings.clone();
+        next.ai = cfg.to_table()?;
+        next.save_to(&self.settings_path())?;
+        s.settings = next;
         Ok(true)
     }
 

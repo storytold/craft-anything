@@ -1490,6 +1490,122 @@ fn a_claude_ais_effort_is_set_in_settings() {
     h.get_by_value("max");
 }
 
+#[test]
+fn context_tokens_apply_button_disables_until_updated() {
+    use craft_anything_ai::{BackendConfig, BackendKind};
+    use egui_kittest::kittest::NodeT;
+    let mut h = harness(|| {
+        let a = demo::app(demo::engine(Mode::Experienced, true));
+        let cfg = BackendConfig {
+            name: "Proxy".into(),
+            kind: BackendKind::OpenaiCompatible,
+            model: "gemini-3.8-flash-high".into(),
+            base_url: Some("http://127.0.0.1:8045/v1".into()),
+            ssh_host: None,
+            enabled: true,
+        };
+        a.hub.add_backend(cfg, None).unwrap();
+        a
+    });
+    h.state_mut().refresh_backends();
+    assert!(wait(&mut h, |a| a.backends.iter().any(|b| b.name == "Proxy")));
+    h.state_mut().state.settings_open = true;
+    h.state_mut().state.settings_tab = craft_anything_ui_egui::state::SettingsTab::Ai;
+    h.run_steps(2);
+
+    // Initially disabled when matching saved value.
+    assert!(h.get_by_label("Apply").accesskit_node().is_disabled());
+
+    // Typing a new value enables Apply.
+    h.get_all_by_label("Context tokens (max)").next().unwrap().click();
+    h.run_steps(1);
+    h.get_all_by_label("Context tokens (max)").next().unwrap().type_text("250000");
+    h.run_steps(2);
+    assert!(!h.get_by_label("Apply").accesskit_node().is_disabled());
+
+    // Clicking Apply disables it immediately on the next frame and saves the value.
+    h.get_by_label("Apply").click();
+    h.run_steps(2);
+    assert!(h.get_by_label("Apply").accesskit_node().is_disabled());
+    assert!(wait(&mut h, |a| a.backend_options.get("Proxy").and_then(|o| o.context_tokens) == Some(250_000)));
+    assert!(h.get_by_label("Apply").accesskit_node().is_disabled());
+
+    // Editing while a save is still in flight keeps Apply disabled until the worker finishes.
+    h.state_mut().context_pending.insert("Proxy".into());
+    h.get_all_by_label("Context tokens (max)").next().unwrap().click();
+    h.run_steps(1);
+    h.get_all_by_label("Context tokens (max)").next().unwrap().type_text("1");
+    h.run_steps(2);
+    assert!(h.get_by_label("Apply").accesskit_node().is_disabled(), "editing during an in-flight save must not allow concurrent Apply");
+
+    // Once the in-flight save finishes, the modified draft re-enables Apply.
+    h.state_mut().context_pending.remove("Proxy");
+    h.run_steps(2);
+    assert!(!h.get_by_label("Apply").accesskit_node().is_disabled());
+
+    // Saving a numeric form with leading zeroes normalizes cleanly and clears the submitted lock.
+    h.get_all_by_label("Context tokens (max)").next().unwrap().click();
+    h.run_steps(1);
+    h.state_mut().context_inputs.insert("Proxy".into(), "000320000".into());
+    h.run_steps(2);
+    assert!(!h.get_by_label("Apply").accesskit_node().is_disabled());
+    h.get_by_label("Apply").click();
+    assert!(wait(&mut h, |a| a.backend_options.get("Proxy").and_then(|o| o.context_tokens) == Some(320_000)));
+    h.run_steps(2);
+    assert!(h.get_by_label("Apply").accesskit_node().is_disabled());
+    assert!(!h.state().context_submitted.contains_key("Proxy"));
+    assert!(!h.state().context_inputs.contains_key("Proxy"));
+}
+
+#[test]
+fn context_tokens_apply_button_reenables_after_failed_save() {
+    use craft_anything_ai::{AiHub, BackendConfig, BackendKind, KeyStore};
+    use egui_kittest::kittest::NodeT;
+    let dir = tempfile::tempdir().unwrap();
+    let cfg_path = dir.path().join("settings.toml");
+    let engine = demo::engine(Mode::Experienced, true);
+    let hub = AiHub::with_stores(engine.clone(), cfg_path.clone(), KeyStore::system());
+    let cfg = BackendConfig {
+        name: "Proxy".into(),
+        kind: BackendKind::OpenaiCompatible,
+        model: "gemini-3.8-flash-high".into(),
+        base_url: Some("http://127.0.0.1:8045/v1".into()),
+        ssh_host: None,
+        enabled: true,
+    };
+    hub.add_backend(cfg, None).unwrap();
+
+    // Replace the settings file with a directory so saving fails on the worker.
+    std::fs::remove_file(&cfg_path).unwrap();
+    std::fs::create_dir_all(&cfg_path).unwrap();
+
+    let mut h = harness(move || CraftApp::new(engine, std::sync::Arc::new(hub)));
+    h.state_mut().refresh_backends();
+    assert!(wait(&mut h, |a| a.backends.iter().any(|b| b.name == "Proxy")));
+    h.state_mut().state.settings_open = true;
+    h.state_mut().state.settings_tab = craft_anything_ui_egui::state::SettingsTab::Ai;
+    h.run_steps(2);
+
+    h.get_all_by_label("Context tokens (max)").next().unwrap().click();
+    h.run_steps(1);
+    h.get_all_by_label("Context tokens (max)").next().unwrap().type_text("250000");
+    h.run_steps(2);
+    assert!(!h.get_by_label("Apply").accesskit_node().is_disabled());
+
+    // Clicking Apply submits and disables, then the failed save re-enables Apply for retry.
+    h.get_by_label("Apply").click();
+    assert!(wait(&mut h, |a| a.state.toasts.iter().any(|(_, err)| *err)));
+    h.run_steps(1);
+    assert!(!h.get_by_label("Apply").accesskit_node().is_disabled(), "failed save must allow retrying without editing");
+
+    // Once the settings path is writable again, retrying the unchanged value succeeds.
+    std::fs::remove_dir_all(&cfg_path).unwrap();
+    h.get_by_label("Apply").click();
+    assert!(wait(&mut h, |a| a.backend_options.get("Proxy").and_then(|o| o.context_tokens) == Some(250_000)));
+    h.run_steps(1);
+    assert!(h.get_by_label("Apply").accesskit_node().is_disabled());
+}
+
 /// The picker exposes only the chosen model's depths and clears an old depth when changing models.
 #[test]
 fn opencode_picker_offers_only_the_selected_models_thinking_depths() {

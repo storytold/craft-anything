@@ -2,3 +2,9 @@
 # One per line, written as in a catalog's first column (\n for a line break).
 # `cargo xtask i18n-coverage` lets these be missing from the catalogs, and fails once a string
 # here is translated in every catalog or no longer shown: the translation PR takes it out.
+Context tokens (max)
+Context tokens must be a whole number.
+Set an AI's context limit
+Without a custom limit, the budget follows the server's reported context window, keeping a quarter free for the reply. Local addresses use 24,000 tokens only when no window is reported. Set a custom limit (e.g. 150000 or 250000 when using a local proxy for a large model).
+context tokens (optional; default: server window, or 24000 local / 150000 cloud if unknown)
+default (server window; 24000 local or 150000 cloud if unknown)

@@ -52,6 +52,9 @@ pub enum AiCommand {
         /// Talk to this agent app over ACP (`agent_cli` kind; the agent must speak it, e.g. devin).
         #[arg(long)]
         acp: bool,
+        /// Optional context token budget override (0 or omitted: local/cloud default).
+        #[arg(long)]
+        context_tokens: Option<u64>,
     },
     /// Remove a backend.
     Remove { name: String },
@@ -94,6 +97,8 @@ pub enum AiCommand {
     /// Set how hard a Claude backend thinks (the Claude API or Claude Code): low, medium, high,
     /// xhigh or max, or `default` for the usual level; leave it out to see the level and choices.
     Effort { name: String, level: Option<String> },
+    /// Set or clear an API backend's context token budget override (`0` or `default` clears it).
+    Context { name: String, tokens: Option<String> },
     /// Send a tiny request and report latency.
     Test { name: String },
     /// Choose the backend that builds (leave the name out to go back to automatic).
@@ -252,7 +257,7 @@ pub fn ai(cli: &Cli, c: &AiCommand, f: Format) -> u8 {
             }
             0
         }
-        AiCommand::Add { name, kind, model, base_url, ssh_host, key_env, key_stdin, acp } => {
+        AiCommand::Add { name, kind, model, base_url, ssh_host, key_env, key_stdin, acp, context_tokens } => {
             let kind: BackendKind = match serde_json::from_value(json!(kind)) {
                 Ok(k) => k,
                 Err(_) => return crate::usage_error("--kind must be one of anthropic, openai, openrouter, openai_compatible, agent_cli"),
@@ -263,17 +268,23 @@ pub fn ai(cli: &Cli, c: &AiCommand, f: Format) -> u8 {
             };
             // A server by its address with no model named: asked for its models, and one that can chat is used.
             if let (BackendKind::OpenaiCompatible, Some(address), None) = (kind, base_url, model) {
-                return match hub.add_server(name, address, None, key) {
+                return match hub.add_server_with_context(name, address, None, key, *context_tokens, &Default::default()) {
                     Ok(model) => {
-                        emit(&json!({"added": {"name": name, "kind": kind, "model": model, "base_url": address}}), f);
+                        emit(&json!({"added": {"name": name, "kind": kind, "model": model, "base_url": address, "context_tokens": context_tokens}}), f);
                         0
                     }
                     Err(e) => fail(&e, f),
                 };
             }
             let model = model.clone().or_else(|| kind.suggested_models().first().map(|m| m.to_string())).unwrap_or_default();
+            if kind == BackendKind::AgentCli && context_tokens.is_some_and(|n| n > 0) {
+                return fail(&craft_anything_evidence::ToolError::invalid("Agent apps do not take a context limit. Set it on an API backend."), f);
+            }
             let cfg = BackendConfig { name: name.clone(), kind, model, base_url: base_url.clone(), ssh_host: ssh_host.clone(), enabled: true };
-            let entry = BackendEntry { config: cfg.clone(), options: BackendOptions { acp: acp.then_some(true), ..Default::default() } };
+            let entry = BackendEntry {
+                config: cfg.clone(),
+                options: BackendOptions { acp: acp.then_some(true), context_tokens: context_tokens.filter(|&n| n > 0), ..Default::default() },
+            };
             match hub.add_backend_with(entry, key) {
                 Ok(()) => {
                     emit(&json!({"added": cfg}), f);
@@ -400,6 +411,35 @@ pub fn ai(cli: &Cli, c: &AiCommand, f: Format) -> u8 {
             match hub.set_effort(name, effort) {
                 Ok(found) => {
                     emit(&json!({"name": name, "effort": effort.map(Effort::as_str), "found": found}), f);
+                    if found { 0 } else { 1 }
+                }
+                Err(e) => fail(&e, f),
+            }
+        }
+        AiCommand::Context { name, tokens: None } => {
+            let Some(b) = hub.backends().into_iter().find(|b| b.name == *name) else {
+                return fail(&ToolError::invalid(format!("No AI backend named {name:?}")).with_remediation("See `craft-anything-cli ai list`."), f);
+            };
+            let options = hub.options();
+            let configured = options.get(name).and_then(|o| o.context_tokens).filter(|&n| n > 0);
+            emit(&json!({"name": name, "kind": b.kind, "context_tokens": configured}), f);
+            0
+        }
+        AiCommand::Context { name, tokens: Some(raw) } => {
+            let tokens = match raw.trim() {
+                "default" | "0" => None,
+                s => match s.parse::<u64>() {
+                    Ok(n) => Some(n),
+                    Err(_) => {
+                        let e = ToolError::invalid(format!("{s:?} is not a whole number of tokens."))
+                            .with_remediation("Use a whole number (e.g. 150000) or default.");
+                        return fail(&e, f);
+                    }
+                },
+            };
+            match hub.set_context_tokens(name, tokens) {
+                Ok(found) => {
+                    emit(&json!({"name": name, "context_tokens": tokens, "found": found}), f);
                     if found { 0 } else { 1 }
                 }
                 Err(e) => fail(&e, f),

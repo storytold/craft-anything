@@ -192,6 +192,11 @@ pub enum Done {
         params: craft_anything_ai::model_options::SetModelOptions,
         result: Result<(), ToolError>,
     },
+    ContextTokensResult {
+        name: String,
+        submitted: String,
+        result: Result<Box<Done>, String>,
+    },
     Picked {
         pick: Pick,
         path: Option<PathBuf>,
@@ -305,6 +310,8 @@ pub struct ServerForm {
     /// Empty: the first model it lists that can chat.
     pub model: String,
     pub key: String,
+    /// Optional context token limit override (blank / 0: local/cloud default).
+    pub context_tokens: String,
     /// The server being asked for its models (the job, its name, when it started); the form says
     /// it's connecting and for how long (#1429).
     pub connecting: Option<(u64, String, Instant)>,
@@ -478,6 +485,14 @@ pub struct CraftApp {
     pub picking_program_for: Option<String>,
     /// Claude Code folders being typed in Settings → AI, by AI, until they're saved.
     pub folder_inputs: std::collections::BTreeMap<String, String>,
+    /// Context token limit overrides being typed in Settings → AI, by AI, until they're saved.
+    pub context_inputs: std::collections::BTreeMap<String, String>,
+    /// Context token values submitted for each backend until the save finishes or is edited.
+    pub context_submitted: std::collections::BTreeMap<String, String>,
+    /// Backends whose context-token save is currently running on a worker thread.
+    pub context_pending: std::collections::BTreeSet<String>,
+    /// Which backend owns each pending context-token save job, including panics/failures before `Done`.
+    pub(crate) context_jobs: std::collections::BTreeMap<u64, String>,
     /// The backend the person chose to build with (Settings → AI), if any.
     pub builder: Option<String>,
     /// The backend chosen to take a game's files out in Deep mode, if any.
@@ -625,6 +640,10 @@ impl CraftApp {
             model_tuning: Default::default(),
             picking_program_for: None,
             folder_inputs: Default::default(),
+            context_inputs: Default::default(),
+            context_submitted: Default::default(),
+            context_pending: Default::default(),
+            context_jobs: Default::default(),
             builder: None,
             extractor: None,
             detected: None,
@@ -1252,6 +1271,31 @@ impl CraftApp {
 
     // ---- AI ---------------------------------------------------------------------------------
 
+    fn apply_backends(
+        &mut self,
+        b: Vec<BackendConfig>,
+        builder: Option<String>,
+        extractor: Option<String>,
+        options: std::collections::BTreeMap<String, craft_anything_ai::BackendOptions>,
+        replaced: std::collections::BTreeMap<String, String>,
+    ) {
+        if self.state.backend.as_ref().is_some_and(|n| !b.iter().any(|c| &c.name == n)) {
+            self.state.backend = None;
+        }
+        self.backends = b;
+        self.builder = builder;
+        self.extractor = extractor;
+        self.backend_options = options;
+        self.program_replaced = replaced;
+        self.model_tuning.retain(|name, state| {
+            self.backends.iter().any(|backend| backend.name == *name && craft_anything_ai::model_options::supported(backend))
+                && self.backend_options.get(name).and_then(|options| options.cli_model.as_ref()) == state.cli_model.as_ref()
+        });
+        // Settings shows which backends have a saved key; the list may have changed (added,
+        // removed, or read again after a save).
+        self.check_backend_keys();
+    }
+
     pub fn refresh_backends(&mut self) {
         let hub = self.hub.clone();
         self.jobs.spawn("Read AI settings", false, move |_| Ok(backends(&hub)));
@@ -1507,6 +1551,7 @@ impl CraftApp {
     fn handle_done(&mut self, done: jobs::Finished<Done>) {
         let job = done.job;
         let checked_agent = self.agent_connection_jobs.remove(&job);
+        let context_job = self.context_jobs.remove(&job);
         if self.saving == Some(job) {
             self.saving = None;
         }
@@ -1520,6 +1565,10 @@ impl CraftApp {
         let done = match done.result {
             Ok(d) => d,
             Err(e) => {
+                if let Some(name) = context_job {
+                    self.context_pending.remove(&name);
+                    self.context_submitted.remove(&name);
+                }
                 if let Some(agent) = checked_agent {
                     self.agent_connections.insert(agent, Some(Err(e.clone())));
                 }
@@ -1600,22 +1649,45 @@ impl CraftApp {
             Done::AgentConnection(name, result) => {
                 self.agent_connections.insert(name, Some(result));
             }
-            Done::Backends(b, builder, extractor, options, replaced) => {
-                if self.state.backend.as_ref().is_some_and(|n| !b.iter().any(|c| &c.name == n)) {
-                    self.state.backend = None;
+            Done::ContextTokensResult { name, submitted, result } => {
+                self.context_pending.remove(&name);
+                match result {
+                    Ok(done) => {
+                        if let Done::Backends(b, builder, extractor, options, replaced) = *done {
+                            self.apply_backends(b, builder, extractor, options, replaced);
+                        }
+                        let saved =
+                            self.backend_options.get(&name).and_then(|o| o.context_tokens).filter(|&n| n > 0).map(|n| n.to_string()).unwrap_or_default();
+                        let saved_num = self.backend_options.get(&name).and_then(|o| o.context_tokens).unwrap_or(0);
+                        let submitted_num = if submitted.is_empty() { Ok(0) } else { submitted.parse::<u64>() };
+                        let matches_saved = match submitted_num {
+                            Ok(n) => n == saved_num,
+                            Err(_) => submitted == saved,
+                        };
+                        if self.context_submitted.get(&name).is_some_and(|s| s == &submitted) && matches_saved {
+                            if let Ok(n) = submitted_num
+                                && n == saved_num
+                                && self.context_inputs.get(&name).and_then(|d| {
+                                    let t = d.trim();
+                                    if t.is_empty() { Some(0) } else { t.parse::<u64>().ok() }
+                                }) == Some(saved_num)
+                            {
+                                self.context_inputs.remove(&name);
+                            }
+                            self.context_submitted.remove(&name);
+                        }
+                    }
+                    Err(error) => {
+                        if self.context_submitted.get(&name).is_some_and(|s| s == &submitted) {
+                            self.context_submitted.remove(&name);
+                        }
+                        self.log(true, error.clone());
+                        self.toast(error, true);
+                    }
                 }
-                self.backends = b;
-                self.builder = builder;
-                self.extractor = extractor;
-                self.backend_options = options;
-                self.program_replaced = replaced;
-                self.model_tuning.retain(|name, state| {
-                    self.backends.iter().any(|backend| backend.name == *name && craft_anything_ai::model_options::supported(backend))
-                        && self.backend_options.get(name).and_then(|options| options.cli_model.as_ref()) == state.cli_model.as_ref()
-                });
-                // Settings shows which backends have a saved key; the list may have changed (added,
-                // removed, or read again after a save).
-                self.check_backend_keys();
+            }
+            Done::Backends(b, builder, extractor, options, replaced) => {
+                self.apply_backends(b, builder, extractor, options, replaced);
             }
             Done::BackendKeys { request, keys } => {
                 if request == self.backend_keys_request {
