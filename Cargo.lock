@@ -1393,6 +1393,7 @@ dependencies = [
 name = "craft-anything-platform"
 version = "0.6.1"
 dependencies = [
+ "base64 0.22.1",
  "craft-anything-evidence",
  "hex",
  "log",
