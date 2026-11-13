@@ -235,13 +235,16 @@ pub fn download_to(
 }
 
 fn download_config() -> ureq::config::ConfigBuilder<ureq::typestate::AgentScope> {
-    ureq::Agent::config_builder()
+    let config = ureq::Agent::config_builder()
         .https_only(true)
         .http_status_as_error(false)
         .user_agent("CraftAnything-dev")
         .timeout_connect(Some(Duration::from_secs(20)))
         .timeout_recv_response(Some(Duration::from_secs(60)))
-        .timeout_recv_body(Some(Duration::from_secs(60 * 20)))
+        .timeout_recv_body(Some(Duration::from_secs(60 * 20)));
+    #[cfg(windows)]
+    let config = config.proxy(download_proxy::for_download());
+    config
 }
 
 fn download_with_agent(
@@ -834,3 +837,7 @@ mod tests {
 #[cfg(test)]
 #[path = "install_download_tests.rs"]
 mod download_tests;
+
+#[cfg(any(windows, test))]
+#[path = "install_proxy.rs"]
+mod download_proxy;

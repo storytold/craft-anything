@@ -1495,6 +1495,12 @@ Gaps found while using the app for real projects.
       rejection before an HTTP request, successful HTTPS redirects, hashes and file protection;
       the downgrade test fails without the HTTPS-only policy. Checked on Windows
       — claimed: Butler12345, branch bugfix/r2.9-https-engine-downloads
+- [x] Use Windows' manual HTTP proxy for shared engine downloads when no valid environment
+      proxy is set (#1787); keep environment precedence, bounded bypass rules and HTTPS-only
+      redirects. Parser/selection, child-process environment and real CONNECT/TLS tests pass on
+      Windows, as does an opt-in official Java HEAD using the existing manual proxy. No complete
+      Ghidra installation or non-Windows runtime check claimed; see docs/engine-downloads.md
+      — claimed: Butler12345, branch bugfix/r2.9-windows-engine-proxy
 - [x] Settings → AI: a card for an AI found on this computer wraps its description beside its Add
       button; the line didn't wrap and ran on under the button
       — claimed: jgt87, branch bugfix/r2.9-detected-cards-wrap — PR #1235

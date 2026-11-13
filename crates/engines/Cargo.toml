@@ -32,6 +32,9 @@ wasmtime = { version = "49", optional = true, default-features = false, features
 [features]
 wasm-plugins = ["dep:wasmtime"]
 
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"
+
 [dev-dependencies]
 rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }

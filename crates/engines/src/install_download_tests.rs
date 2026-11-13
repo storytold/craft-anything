@@ -89,7 +89,7 @@ struct Tls {
 
 impl Tls {
     fn new() -> Self {
-        let key = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let key = rcgen::generate_simple_self_signed(vec!["localhost".into(), "engine.invalid".into()]).unwrap();
         let cert = key.cert.der().clone();
         let private = rustls::pki_types::PrivatePkcs8KeyDer::from(key.signing_key.serialize_der());
         let server = rustls::ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
@@ -191,4 +191,156 @@ fn an_untrusted_certificate_is_still_refused() {
     let agent = download_config().proxy(None).build().new_agent();
     assert!(download_with_agent(&https.url, &mut Vec::new(), 4096, None, &|_, _| {}, &agent).is_err());
     assert_eq!(https.seen.load(Ordering::SeqCst), 0);
+}
+// A CONNECT proxy that routes a synthetic public hostname to our TLS fixture. No DNS or OS changes.
+fn tunnel_to(target: &Server) -> Server {
+    use std::net::{Shutdown, SocketAddr, TcpStream};
+    let port = target.url.parse::<ureq::http::Uri>().unwrap().port_u16().unwrap();
+    let upstream = SocketAddr::from(([127, 0, 0, 1], port));
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let seen = Arc::new(AtomicUsize::new(0));
+    let stop = Arc::new(AtomicBool::new(false));
+    let (count, done) = (seen.clone(), stop.clone());
+    let worker = thread::spawn(move || {
+        while !done.load(Ordering::SeqCst) {
+            let (mut client, _) = match listener.accept() {
+                Ok(pair) => pair,
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(5));
+                    continue;
+                }
+                Err(_) => break,
+            };
+            client.set_nonblocking(false).unwrap();
+            client.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            client.set_write_timeout(Some(Duration::from_secs(3))).unwrap();
+            let mut header = Vec::new();
+            let mut byte = [0];
+            let deadline = std::time::Instant::now() + Duration::from_secs(3);
+            while header.len() < 8192 && !header.ends_with(b"\r\n\r\n") && std::time::Instant::now() < deadline {
+                if client.read(&mut byte).ok() != Some(1) {
+                    break;
+                }
+                header.push(byte[0]);
+            }
+            if !header.ends_with(b"\r\n\r\n") || !header.starts_with(b"CONNECT engine.invalid:") {
+                continue;
+            }
+            count.fetch_add(1, Ordering::SeqCst);
+            let mut remote = TcpStream::connect_timeout(&upstream, Duration::from_secs(3)).unwrap();
+            remote.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            remote.set_write_timeout(Some(Duration::from_secs(3))).unwrap();
+            client.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n").unwrap();
+            let (mut client_in, mut remote_out) = (client.try_clone().unwrap(), remote.try_clone().unwrap());
+            let upload = thread::spawn(move || {
+                let _ = std::io::copy(&mut client_in, &mut remote_out);
+                let _ = remote_out.shutdown(Shutdown::Write);
+            });
+            let _ = std::io::copy(&mut remote, &mut client);
+            let _ = client.shutdown(Shutdown::Write);
+            upload.join().unwrap();
+        }
+    });
+    Server { url, seen, stop, worker: Some(worker) }
+}
+
+fn proxy_agent(tls: &Tls, proxy: Option<ureq::Proxy>) -> ureq::Agent {
+    download_config()
+        .proxy(proxy)
+        .tls_config(tls.agent.config().tls_config().clone())
+        .timeout_connect(Some(Duration::from_secs(2)))
+        .timeout_recv_response(Some(Duration::from_secs(3)))
+        .timeout_recv_body(Some(Duration::from_secs(3)))
+        .build()
+        .new_agent()
+}
+
+#[test]
+fn manual_proxy_downloads_when_direct_fails_and_keeps_hash_and_file_guards() {
+    let tls = Tls::new();
+    let origin = Server::start(Some(tls.server.clone()), payload);
+    let proxy = tunnel_to(&origin);
+    let manual = super::download_proxy::ManualSettings { enabled: true, server: proxy.url.clone(), overrides: String::new() };
+    let url = origin.url.replace("localhost", "engine.invalid");
+    let dir = tempfile::tempdir().unwrap();
+    let dest = dir.path().join("engine.zip");
+    let direct = proxy_agent(&tls, None);
+    assert!(download_with_agent(&url, &mut Vec::new(), 4096, None, &|_, _| {}, &direct).is_err());
+    let selected = super::download_proxy::select_proxy(None, Some(&manual), None);
+    let agent = proxy_agent(&tls, selected);
+    let save = |hash: &str| write_checked(&dest, Some(hash), &url, &mut |sink| download_with_agent(&url, sink, 4096, None, &|_, _| {}, &agent));
+    let result = save(&hex::encode(Sha256::digest(PAYLOAD)));
+    assert_eq!(proxy.seen.load(Ordering::SeqCst), 1, "the system fallback must actually use CONNECT");
+    result.unwrap();
+    assert_eq!(std::fs::read(&dest).unwrap(), PAYLOAD);
+    assert_eq!(save(&"0".repeat(64)).unwrap_err().code, ErrorCode::FileHashMismatch);
+    assert_eq!(std::fs::read(&dest).unwrap(), PAYLOAD);
+    assert!(!dest.with_extension("download").exists());
+}
+
+#[test]
+fn proxy_fallback_keeps_downgrade_rejection_and_signature_privacy() {
+    let tls = Tls::new();
+    let http = Server::start(None, payload);
+    let target = format!("{}/archive?signature={SIGNATURE}", http.url);
+    let origin = Server::start(Some(tls.server.clone()), move |_| redirect(&target));
+    let proxy = tunnel_to(&origin);
+    let manual = super::download_proxy::ManualSettings { enabled: true, server: proxy.url.clone(), overrides: String::new() };
+    let agent = proxy_agent(&tls, super::download_proxy::select_proxy(None, Some(&manual), None));
+    let url = format!("{}?signature={SIGNATURE}", origin.url.replace("localhost", "engine.invalid"));
+    let dir = tempfile::tempdir().unwrap();
+    let dest = dir.path().join("engine.zip");
+    std::fs::write(&dest, b"old archive").unwrap();
+    let result =
+        write_checked(&dest, Some(&hex::encode(Sha256::digest(PAYLOAD))), &url, &mut |sink| download_with_agent(&url, sink, 4096, None, &|_, _| {}, &agent));
+    assert_eq!(proxy.seen.load(Ordering::SeqCst), 1);
+    let error = result.unwrap_err();
+    assert_eq!(http.seen.load(Ordering::SeqCst), 0);
+    assert!(!format!("{error:?}").contains(SIGNATURE));
+    assert_eq!(std::fs::read(&dest).unwrap(), b"old archive");
+    assert!(!dest.with_extension("download").exists());
+}
+
+#[test]
+fn system_proxy_loopback_bypass_uses_a_direct_tls_connection() {
+    let tls = Tls::new();
+    let origin = Server::start(Some(tls.server.clone()), payload);
+    let proxy = tunnel_to(&origin);
+    let manual = super::download_proxy::ManualSettings { enabled: true, server: proxy.url.clone(), overrides: String::new() };
+    let agent = proxy_agent(&tls, super::download_proxy::select_proxy(None, Some(&manual), None));
+    let mut bytes = Vec::new();
+    download_with_agent(&origin.url, &mut bytes, 4096, None, &|_, _| {}, &agent).unwrap();
+    assert_eq!(bytes, PAYLOAD);
+    assert_eq!(proxy.seen.load(Ordering::SeqCst), 0);
+}
+
+#[cfg(windows)]
+#[test]
+#[ignore = "opt-in Windows manual-proxy HEAD against the official Java pin; no package body downloaded"]
+fn windows_manual_proxy_head_smoke() {
+    if std::env::var("CRAFT_ANYTHING_TEST_MANUAL_PROXY").ok().as_deref() != Some("1") {
+        return;
+    }
+    assert!(ureq::Proxy::try_from_env().is_none(), "run in a child with proxy environment variables removed");
+    let pin = crate::engine("java").unwrap().host_pin().unwrap();
+    let direct = ureq::Agent::config_builder()
+        .https_only(true)
+        .proxy(None)
+        .timeout_connect(Some(Duration::from_secs(5)))
+        .timeout_recv_response(Some(Duration::from_secs(10)))
+        .build()
+        .new_agent();
+    match direct.head(pin.url).call() {
+        Ok(response) => println!("direct HEAD status={}", response.status()),
+        Err(ureq::Error::Timeout(stage)) => println!("direct HEAD timeout stage={stage}"),
+        Err(_) => println!("direct HEAD failed (URI details omitted)"),
+    }
+    let config = download_config().timeout_connect(Some(Duration::from_secs(5))).timeout_recv_response(Some(Duration::from_secs(10))).build();
+    assert!(config.proxy().is_some(), "this opt-in check requires a valid enabled Windows manual proxy");
+    assert!(!config.proxy().unwrap().is_no_proxy(&pin.url.parse().unwrap()), "the official pin must not be bypassed for this routing check");
+    let response = config.new_agent().head(pin.url).call().unwrap_or_else(|_| panic!("official HEAD failed; URI details omitted"));
+    println!("Windows automatic manual-proxy HEAD status={}", response.status());
+    assert_eq!(response.status().as_u16(), 200);
 }
