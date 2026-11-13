@@ -1175,7 +1175,7 @@ Owner: maintainers · Status: in progress
 - [x] Since that fix, the console-run check reads an app bundle's `Info.plist` to name the original,
       in Clean room too (review on #1759). Clean room takes the picked path's own name
       — claimed: htcom-code, branch bugfix/r2.4-clean-room-bundle-name
-- [ ] A Windows game's folder picked on Linux or macOS (Yoda Stories: `Yodesk.exe`, no executable
+- [x] A Windows game's folder picked on Linux or macOS (Yoda Stories: `Yodesk.exe`, no executable
       bits) has no program to study: the folder search counts only programs this computer can
       start, so Deep mode skips Ghidra. Count a Windows `.exe` as a program to study on every system
       — claimed: youkaicountry, branch bugfix/r2.4-windows-program-in-folder

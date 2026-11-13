@@ -709,6 +709,14 @@ session the person had left unfinished days before and went on editing another p
 an hour. When a program has a mode that must be avoided, give every call to it the same flag, not
 only the main one: list each command we run (`run`, `api`, `session delete`) and test each.
 
+**"Can it start here?" used for "is it a program?"** The study's search of a picked folder took
+the biggest file `outputs::is_program` accepted, which on Linux and macOS means no extension and an
+executable bit. A Windows game copied there (Yoda Stories) has neither, so no program was found and
+Deep mode skipped Ghidra; the tests named their programs the local way on each system, so none had
+a Windows game on Linux. When a check answers one question, don't reuse it for a neighbouring one:
+studying a program and starting it are separate (`studies_as_program`), and test the other
+system's files on this one.
+
 **Keywords that only some code paths honour.** "…in Rust" picked Rust for apps but not for games, so
 a headless game rebuild stopped at once for want of Unity. It was found only by a live run. Run the
 real flow end to end after changing how requests are read, and add the case as a test.
