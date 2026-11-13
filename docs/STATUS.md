@@ -14,7 +14,7 @@ normal settings saving and process cleanup remain enabled; no forced exit or
 vendored adapter is used. Role/ID API renames preserve the previous semantics.
 A lockfile regression rejects old, mixed, missing and prerelease resolutions.
 
-On an M1 Touch Bar Mac, this upstream candidate's isolated native menu Quit and
+On 2026-11-09, an M1 Touch Bar Mac ran the implementation at `4a5c4ae`: native menu Quit and
 red-window-close tests both exited 0, logged normal closure and created no new
 matching crash reports. Reopening retained Advanced mode in temporary settings.
 Desktop/GUI unit, dependency, integration and smoke tests: 238 passed, one existing
@@ -22,6 +22,20 @@ ignored. All-target clippy, fmt, layers, locks, translations and secrets passed;
 the desktop and CLI built with locked dependencies. Windows/Linux live runs,
 VoiceOver and active-build native shutdown were not tested. See
 [diagnosis, verification and limits](macos-touchbar-crash.md).
+
+The 2026-11-13 review follow-up excludes optional fonts explicitly from the arrow
+regression's definitions and inherited medium/semibold stacks. A separate fixture
+checks optional-face inheritance. With an arrow-capable optional face compiled in,
+removing the bundled proportional fallback made the focused test fail on U+2192;
+restoring it passed. These are font-coverage checks, not a fresh native shutdown run
+of the rebased 0.6.1 candidate.
+
+After rebasing on `1c7d619`, the 2026-11-13 desktop/GUI suites passed 269 tests
+with one existing ignored. The CLI build, all-target clippy on Rust 1.99.1,
+formatting, layering, locks, translations and secret checks passed. The newer
+Help control preserves macOS title-bar sizing at 50/100/150% zoom; the existing
+strict smoke regression now includes Help explicitly. Hosted checks on the
+updated branch remain separate from these local results.
 
 ### Local Codex discovery and sign-in (R2.2)
 

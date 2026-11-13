@@ -1908,6 +1908,7 @@ fn an_api_backends_tool_list_is_chosen_in_settings() {
 /// #54, #98: an AI server on another computer is added by its address in Settings → AI, with a
 /// model that can chat, and the form empties once it's added.
 #[test]
+/// Adding a server by address remains reachable by scrolling past the settings credential rows.
 fn an_ai_server_is_added_by_its_address() {
     let url = model_server();
     let mut h = harness(|| {
@@ -1925,6 +1926,7 @@ fn an_ai_server_is_added_by_its_address() {
     // page first, as a person would.
     h.event(egui::Event::PointerMoved(egui::pos2(640.0, 400.0)));
     h.event(egui::Event::MouseWheel {
+        source: egui::MouseWheelSource::Unknown,
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, -300.0),
         phase: egui::TouchPhase::Move,
@@ -2308,14 +2310,14 @@ fn title_bar_keeps_its_size_when_zoomed() {
             let r = h.get_all_by_label(label).map(|n| n.rect()).min_by(|a, b| a.top().total_cmp(&b.top())).unwrap();
             egui::Rect::from_min_max(r.min * zoom, r.max * zoom)
         };
-        (rect("Settings"), rect("Advanced"), rect("Filter"))
+        (rect("Settings"), rect("Advanced"), rect("Help"), rect("Filter"))
     };
-    let (settings, advanced, filter) = on_screen(1.0);
+    let (settings, advanced, help, filter) = on_screen(1.0);
     // The bar is the system title bar's height, and its controls sit centred in it.
     assert!((settings.center().y - 16.0).abs() <= 1.0, "settings button at {settings:?}");
     for zoom in [0.5, 1.5] {
-        let (s, a, f) = on_screen(zoom);
-        for (name, at_100, now) in [("Settings", settings, s), ("Advanced", advanced, a)] {
+        let (s, a, h, f) = on_screen(zoom);
+        for (name, at_100, now) in [("Settings", settings, s), ("Advanced", advanced, a), ("Help", help, h)] {
             let moved = (now.min - at_100.min).length().max((now.max - at_100.max).length());
             assert!(moved <= 1.0, "{name} moved {moved} pt at {zoom}x: {at_100:?} → {now:?}");
         }

@@ -94,6 +94,13 @@ dependency guard, strict arrow-glyph regression and exit-settings integration.
 All-target clippy with warnings denied, fmt, layering, lock, translation and secret
 checks passed; the native desktop and companion CLI built with locked dependencies.
 
+Review on 2026-11-13 identified that optional fonts compiled into CI could hide
+the bundled-arrow regression. The explicit optional-input constructor and mutation
+probe above address that gap. The branch was rebased on upstream `1c7d619`, keeping
+its version 0.6.1 and intervening behavior, including newer controls' accessibility
+metadata. The native shutdown observations above refer to the November 9
+implementation, not a new native run after this rebase.
+
 ## Recovery and upstream review
 
 Keep the prior application bundle and settings before installing. A local

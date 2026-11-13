@@ -1412,3 +1412,9 @@ Keep accessibility enabled and adopt the released observer-preservation fix; an 
 Test actual Quit and window close on the affected hardware, check new crash reports and
 reopen to verify persistence. A dependency-version guard prevents downgrades but does not
 replace that native test. See `docs/macos-touchbar-crash.md`.
+
+**A no-optional-font test inherited optional fonts from CI.** Calling the normal font
+installer let CI's compiled-in fallbacks hide a missing bundled arrow face. Construct
+definitions with an explicit empty optional input, including inherited weighted families,
+and check that removing the bundled fallback makes the test fail even with optional fonts
+compiled in. A partial synthetic font manifest tests that contract, not full language coverage.
