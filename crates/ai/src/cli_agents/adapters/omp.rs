@@ -88,14 +88,27 @@ impl AgentAdapter for Omp {
         }
     }
 
+    /// OMP v18.19.0 cannot disable ambient project custom-tool discovery (`.omp/tools/`, `.claude/tools/`)
+    /// via `--no-tools`, and `always-ask-cached` / `always-ask` allow remembered grants and read-tier
+    /// tools without asking the ACP client. Refuse Clean room modes rather than claiming isolation
+    /// that OMP cannot guarantee.
+    fn validate_access(&self, access: Access) -> Result<(), ToolError> {
+        match access {
+            Access::Build | Access::Analyse | Access::Question => Ok(()),
+            Access::CleanRoomBuild | Access::CleanRoomAnalyse | Access::CleanRoomQuestion => Err(ToolError::invalid(
+                "OMP reads files and discovers project tools without asking our Clean room checks, so a Clean room run can't hold it back.",
+            )
+            .with_remediation("Use Deep mode with OMP, or choose an agent that enforces Clean room boundaries.")),
+        }
+    }
+
     fn acp_options(&self, options: &BackendOptions, access: Access) -> Vec<String> {
         let mut args: Vec<String> = match access {
-            Access::CleanRoomQuestion => ["--no-tools", "--no-session"].map(String::from).into(),
-            Access::Question => ["--tools", "read,grep,glob,find,lsp", "--no-session"].map(String::from).into(),
-            Access::CleanRoomAnalyse => vec!["--no-tools".into()],
-            Access::CleanRoomBuild => ["--approval-mode", "always-ask-cached"].map(String::from).into(),
-            Access::Analyse => ["--tools", "read,grep,glob,find,lsp", "--approval-mode", "always-ask"].map(String::from).into(),
-            Access::Build => ["--approval-mode", "always-ask"].map(String::from).into(),
+            Access::CleanRoomQuestion => ["--no-tools", "--approval-mode", "always-ask", "--no-session"].map(String::from).into(),
+            Access::Question => ["--tools", "read,grep,glob", "--approval-mode", "always-ask", "--no-session"].map(String::from).into(),
+            Access::CleanRoomAnalyse => ["--no-tools", "--approval-mode", "always-ask"].map(String::from).into(),
+            Access::Analyse => ["--tools", "read,grep,glob,lsp", "--approval-mode", "always-ask"].map(String::from).into(),
+            Access::CleanRoomBuild | Access::Build => ["--approval-mode", "always-ask"].map(String::from).into(),
         };
         if let Some(model) = options.cli_model.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
             args.extend(["--model".into(), model.to_string()]);
@@ -115,14 +128,30 @@ impl AgentAdapter for Omp {
     }
 }
 
+fn omp_effort_arg(effort: Effort) -> &'static str {
+    match effort {
+        Effort::None => "off",
+        other => other.as_str(),
+    }
+}
+
+fn parse_omp_effort(value: &str) -> Option<Effort> {
+    if value.trim().eq_ignore_ascii_case("off") { Some(Effort::None) } else { Effort::parse(value) }
+}
+
 fn chosen_effort(options: &BackendOptions) -> Option<String> {
     options
         .cli_thinking
-        .map(|effort| effort.as_str().to_string())
-        .or_else(|| options.cli_reasoning_effort.map(|effort| effort.as_str().to_string()))
-        .or_else(|| options.effort.map(|effort| effort.as_str().to_string()))
+        .map(omp_effort_arg)
+        .or_else(|| {
+            options.cli_reasoning_effort.map(|effort| match effort {
+                crate::config::CliReasoningEffort::None => "off",
+                other => other.as_str(),
+            })
+        })
+        .or_else(|| options.effort.map(omp_effort_arg))
+        .map(str::to_string)
 }
-
 #[derive(Deserialize)]
 struct OmpModelsResponse {
     models: Vec<OmpWireModel>,
@@ -170,7 +199,7 @@ pub(crate) fn parse_models(bytes: &[u8]) -> Result<Vec<models::AgentModel>, Tool
             },
         };
         let name = m.name.as_deref().map(str::trim).filter(|n| !n.is_empty()).unwrap_or(&id).to_string();
-        let thinking = m.thinking.unwrap_or_default().into_iter().filter_map(|t| Effort::parse(&t)).collect();
+        let thinking = m.thinking.unwrap_or_default().into_iter().filter_map(|t| parse_omp_effort(&t)).collect();
         out.insert(id.clone(), models::AgentModel { id, name, thinking });
     }
     Ok(out.into_values().collect())
@@ -221,7 +250,7 @@ mod tests {
     fn parses_omp_models_json_chat_only_with_thinking() {
         let json = br#"{
             "models": [
-                {"provider":"openrouter","kind":"chat","id":"deepseek/deepseek-chat","selector":"openrouter/deepseek/deepseek-chat","name":"DeepSeek Chat","thinking":["low","high","max"]},
+                {"provider":"openrouter","kind":"chat","id":"deepseek/deepseek-chat","selector":"openrouter/deepseek/deepseek-chat","name":"DeepSeek Chat","thinking":["off","low","high","max"]},
                 {"provider":"anthropic","kind":"chat","id":"claude-sonnet-4-6","selector":"anthropic/claude-sonnet-4-6","name":"Claude Sonnet 4.6","thinking":null},
                 {"provider":"openai","kind":"embedding","id":"text-embedding-3-small","selector":"openai/text-embedding-3-small","name":"Embed"}
             ]
@@ -232,24 +261,39 @@ mod tests {
         assert!(models[0].thinking.is_empty());
         assert_eq!(models[1].id, "openrouter/deepseek/deepseek-chat");
         assert_eq!(models[1].name, "DeepSeek Chat");
-        assert_eq!(models[1].thinking, [Effort::Low, Effort::High, Effort::Max]);
+        assert_eq!(models[1].thinking, [Effort::None, Effort::Low, Effort::High, Effort::Max]);
     }
 
     #[test]
-    fn access_modes_restrict_tools_and_approvals() {
+    fn access_modes_restrict_tools_approvals_and_clean_room() {
+        for access in [Access::CleanRoomBuild, Access::CleanRoomAnalyse, Access::CleanRoomQuestion] {
+            let err = Omp.validate_access(access).expect_err("clean room must be refused for omp");
+            assert!(err.remediation.as_deref().is_some_and(|r| r.contains("Deep mode")));
+        }
+        for access in [Access::Build, Access::Analyse, Access::Question] {
+            assert!(Omp.validate_access(access).is_ok());
+        }
+
         let opts = BackendOptions { cli_model: Some("openrouter/deepseek/deepseek-chat".into()), cli_thinking: Some(Effort::High), ..Default::default() };
-        let clean_q = Omp.acp_options(&opts, Access::CleanRoomQuestion);
-        assert!(clean_q.contains(&"--no-tools".to_string()) && clean_q.contains(&"--no-session".to_string()));
-        assert!(clean_q.windows(2).any(|w| w == ["--model", "openrouter/deepseek/deepseek-chat"]));
-        assert!(clean_q.windows(2).any(|w| w == ["--thinking", "high"]));
-        let clean_b = Omp.acp_options(&opts, Access::CleanRoomBuild);
-        assert!(clean_b.windows(2).any(|w| w == ["--approval-mode", "always-ask-cached"]));
+        let deep_q = Omp.acp_options(&opts, Access::Question);
+        assert!(deep_q.windows(2).any(|w| w == ["--tools", "read,grep,glob"]));
+        assert!(deep_q.windows(2).any(|w| w == ["--approval-mode", "always-ask"]));
+        assert!(deep_q.contains(&"--no-session".to_string()));
+        assert!(deep_q.windows(2).any(|w| w == ["--model", "openrouter/deepseek/deepseek-chat"]));
+        assert!(deep_q.windows(2).any(|w| w == ["--thinking", "high"]));
+
+        let deep_a = Omp.acp_options(&opts, Access::Analyse);
+        assert!(deep_a.windows(2).any(|w| w == ["--tools", "read,grep,glob,lsp"]));
+        assert!(deep_a.windows(2).any(|w| w == ["--approval-mode", "always-ask"]));
 
         let deep_b = Omp.acp_options(&opts, Access::Build);
         assert!(deep_b.windows(2).any(|w| w == ["--approval-mode", "always-ask"]));
+        assert!(!deep_b.iter().any(|a| a == "always-ask-cached"));
 
-        let deep_q = Omp.acp_options(&opts, Access::Question);
-        assert!(deep_q.windows(2).any(|w| w[0] == "--tools") && deep_q.contains(&"--no-session".to_string()));
+        let off_opts = BackendOptions { cli_thinking: Some(Effort::None), ..Default::default() };
+        assert!(Omp.acp_options(&off_opts, Access::Build).windows(2).any(|w| w == ["--thinking", "off"]));
+        let off_reason = BackendOptions { cli_reasoning_effort: Some(crate::config::CliReasoningEffort::None), ..Default::default() };
+        assert!(Omp.acp_options(&off_reason, Access::Build).windows(2).any(|w| w == ["--thinking", "off"]));
     }
 
     #[test]

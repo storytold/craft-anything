@@ -831,6 +831,13 @@ Owner: open · Status: in progress
       are refused.
       See [Grok Build](grok.md).
       — branch `feature/r2.2-grok-agent`
+- [x] OMP (Oh My Pi) as a coding agent over ACP (`omp acp`), with live model and thinking
+      catalogue discovery via `omp models --json` (`off` mapped to/from `Effort::None`) and
+      `configOptions` fallback in `AcpCore`. Clean room modes are refused because OMP v18.19.0
+      cannot suppress ambient project custom-tool discovery or force native read tools through
+      Craft Anything's Clean room checks; Deep builds, analysis (`read,grep,glob,lsp`), and
+      read-only questions (`read,grep,glob`) run with `--approval-mode always-ask`.
+      — claimed: RevaldoACF, branch `feature/r2.2-omp-agent`
 - [x] Review hardening: cap target handoff at 128 while preserving the active target; propagate
       context-discovery cancellation, normalize CLI-only efforts for Claude requests, and name
       the configured agent in shared picker warnings, with focused regressions and translations
