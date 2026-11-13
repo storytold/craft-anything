@@ -398,6 +398,11 @@ impl AgentLoop {
         if self.system.is_none() {
             self.emit(AgentEvent::Status { text: "Reading the investigation so far…".into() });
         }
+        if self.system.is_some() {
+            // The last turn was measured with the other prompt and tool list: count afresh.
+            self.last_input = 0;
+            self.last_history_estimate = 0;
+        }
         let inv = self.host.investigation();
         self.system = Some(prompt::system_prompt(self.cfg.beginner, self.host.clean_room(), &inv, !lean));
         self.system_lean = lean;
@@ -1558,6 +1563,56 @@ pub(crate) mod tests {
         assert_eq!(kind, "context");
         assert_eq!(entry["budget"], 1000);
         assert!(entry["tokens_before"].as_u64().is_some_and(|n| n > 2000), "{entry}");
+    }
+
+    /// The last turn's measured input counts the prompt and tools it was sent with. When Auto
+    /// switches lists (here, once the server names a small window), that count is forgotten, so
+    /// history isn't trimmed for the full list's overhead after the lean one replaced it.
+    #[test]
+    fn switching_tool_lists_forgets_the_last_measured_input() {
+        let host = Arc::new(FakeHost { calls: Mutex::default(), journal: Mutex::default() });
+        let script = Scripted { turns: VecDeque::new(), seen: Arc::new(Mutex::new(Vec::new())) };
+        let (events, _) = std::sync::mpsc::channel();
+        let mut agent = AgentLoop {
+            host,
+            chain: vec![ModelSlot {
+                name: "Local".into(),
+                model: Box::new(script),
+                local: true,
+                effort: None,
+                max_turns: 5,
+                context_tokens: 100_000,
+                tools: ToolList::Auto,
+            }],
+            current: 0,
+            history: vec![Msg::user_text("Build it")],
+            system: None,
+            system_lean: false,
+            enabled: BTreeSet::from([Toolset::Core]),
+            cfg: LoopConfig { lean_for_local: true, ..Default::default() },
+            events,
+            waiters: Arc::default(),
+            stop: Stop::default(),
+            cancel: Arc::new(Mutex::new(CancelToken::default())),
+            meter: Meter::default(),
+            last_input: 0,
+            last_history_estimate: 0,
+            failure: Arc::default(),
+            failed_builds: 0,
+            server_windows: BTreeMap::new(),
+            read_windows: BTreeMap::new(),
+        };
+        agent.fit_system();
+        assert!(!agent.system_lean, "a 100k budget gets every tool");
+        (agent.last_input, agent.last_history_estimate) = (60_000, 1000);
+
+        agent.fit_system();
+        assert_eq!((agent.last_input, agent.last_history_estimate), (60_000, 1000), "same list: the measurement holds");
+
+        agent.server_windows.insert(0, 32_768);
+        agent.fit_system();
+        assert!(agent.system_lean, "a 24k budget gets the lean list");
+        assert_eq!((agent.last_input, agent.last_history_estimate), (0, 0), "the full list's count is forgotten");
     }
 
     #[test]
