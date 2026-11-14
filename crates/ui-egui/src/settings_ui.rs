@@ -339,6 +339,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
     let mut key_drafts = std::mem::take(&mut app.backend_key_inputs);
     let (mut pick_model, mut chosen_model, mut close_picker) = (None, None, false);
     let mut chosen_effort = None;
+    let mut save_request_rate = None;
     let (mut pick_agent_model, mut chosen_agent_model, mut remote_program) = (None, None, None);
     let (mut tune_models, mut save_tuning) = (Vec::new(), None);
     // A saved API key being replaced or forgotten (the keychain work happens off this frame).
@@ -573,6 +574,37 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                     }
                 });
             });
+            if b.kind != BackendKind::AgentCli {
+                let saved = app.backend_options.get(&b.name).and_then(|o| o.requests_per_minute).unwrap_or_default();
+                let id = ui.make_persistent_id(("request-rate", &b.name));
+                let saved_text = if saved == 0 { String::new() } else { saved.to_string() };
+                let (mut text, pending_job) = ui.data(|data| data.get_temp::<(String, Option<u64>)>(id)).unwrap_or((saved_text.clone(), None));
+                let pending = app.jobs.running().any(|job| Some(job.id) == pending_job);
+                ui.add_enabled_ui(!pending, |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        let label = ui.label(tr("Requests per minute"));
+                        ui.add(egui::TextEdit::singleline(&mut text).hint_text("0").desired_width(90.0))
+                            .labelled_by(label.id)
+                            .on_hover_text(tr("Set to 0 for no limit."));
+                        let rate = if text.trim().is_empty() { Some(0) } else { text.trim().parse::<u32>().ok() };
+                        let changed_rate = rate.filter(|rate| *rate != saved);
+                        let apply = widgets::primary_icon(ui, None, "Apply", changed_rate.is_some());
+                        if apply.clicked()
+                            && let Some(rate) = changed_rate
+                        {
+                            save_request_rate = Some((b.name.clone(), rate, id));
+                        }
+                        if rate.is_none() {
+                            ui.label(RichText::new(tr("Enter a whole number from 0 to 4,294,967,295.")).color(t.danger));
+                        }
+                    });
+                });
+                if pending || text != saved_text {
+                    ui.data_mut(|data| data.insert_temp(id, (text, pending_job)));
+                } else {
+                    ui.data_mut(|data| data.remove::<(String, Option<u64>)>(id));
+                }
+            }
             // A key saved in the app silently wins over the environment's, so it can be replaced
             // here without removing the AI (#1358). Every API backend can need one; agent apps
             // sign in their own way. The field stays even when a key is saved, so a replacement
@@ -687,6 +719,11 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
     key_drafts.retain(|name, _| app.backends.iter().any(|backend| &backend.name == name));
     app.backend_key_inputs = key_drafts;
     app.folder_inputs = folder_drafts;
+    if let Some((name, rate, id)) = save_request_rate {
+        let job = app.set_requests_per_minute(&name, rate);
+        let text = if rate == 0 { String::new() } else { rate.to_string() };
+        ui.data_mut(|data| data.insert_temp(id, (text, Some(job))));
+    }
     if let Some((name, key)) = save_key {
         app.save_backend_key(name, key);
     }

@@ -2,3 +2,7 @@
 # One per line, written as in a catalog's first column (\n for a line break).
 # `cargo xtask i18n-coverage` lets these be missing from the catalogs, and fails once a string
 # here is translated in every catalog or no longer shown: the translation PR takes it out.
+Requests per minute
+Set request rate
+Set to 0 for no limit.
+Enter a whole number from 0 to 4,294,967,295.

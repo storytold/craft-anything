@@ -96,6 +96,8 @@ pub enum AiCommand {
     /// to high), which is sent no
     /// level until one is set. `default` goes back to the usual; leave it out to see the choices.
     Effort { name: String, level: Option<String> },
+    /// Show or change an API backend's requests per minute. Zero removes the limit.
+    RequestRate { name: String, requests_per_minute: Option<u32> },
     /// Send a tiny request and report latency.
     Test { name: String },
     /// Choose the backend that builds (leave the name out to go back to automatic).
@@ -406,6 +408,19 @@ pub fn ai(cli: &Cli, c: &AiCommand, f: Format) -> u8 {
                 Ok(found) => {
                     emit(&json!({"name": name, "effort": effort.map(Effort::as_str), "found": found}), f);
                     if found { 0 } else { 1 }
+                }
+                Err(e) => fail(&e, f),
+            }
+        }
+        AiCommand::RequestRate { name, requests_per_minute } => {
+            let result = match requests_per_minute {
+                Some(rate) => hub.set_requests_per_minute(name, *rate),
+                None => hub.requests_per_minute(name),
+            };
+            match result {
+                Ok(rate) => {
+                    emit(&json!({"name": name, "requests_per_minute": rate}), f);
+                    0
                 }
                 Err(e) => fail(&e, f),
             }
