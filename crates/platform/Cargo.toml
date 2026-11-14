@@ -33,6 +33,11 @@ objc2-core-graphics = "0.3"
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.31", default-features = false, features = ["signal", "process"] }
 
+# The real path the Flatpak document portal records on a picked folder (a safe call; already in
+# the tree through tempfile).
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix = { version = "1", default-features = false, features = ["std", "fs"] }
+
 [target.'cfg(windows)'.dependencies]
 # Only for the creation-flags type process-wrap takes (already in the tree through it).
 windows = { version = "0.62", default-features = false, features = ["Win32_System_Threading"] }

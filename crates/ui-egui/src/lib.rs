@@ -1168,7 +1168,7 @@ impl CraftApp {
             if matches!(pick, Pick::Pictures | Pick::Attach) {
                 let title = if pick == Pick::Pictures { tr("Pictures of the original") } else { tr("Attach pictures") };
                 let files = pollster::block_on(d.set_title(title).add_filter(tr("Pictures"), &["png", "jpg", "jpeg", "webp", "gif"]).pick_files());
-                let files: Vec<PathBuf> = files.unwrap_or_default().iter().map(|h| h.path().to_path_buf()).collect();
+                let files: Vec<PathBuf> = files.unwrap_or_default().iter().map(|h| craft_anything_platform::host_path(h.path())).collect();
                 return Ok(if pick == Pick::Pictures { Done::Pictures(files) } else { Done::ToAttach(files) });
             }
             let handle = match pick {
@@ -1186,7 +1186,8 @@ impl CraftApp {
                 Pick::AgentProgram => pollster::block_on(d.set_title(tr("Where is the program?")).pick_file()),
                 Pick::Pictures | Pick::Attach => None,
             };
-            Ok(Done::Picked { pick, path: handle.map(|h| h.path().to_path_buf()) })
+            // In a Flatpak the picker may give a document-portal path; keep the real one (#1747).
+            Ok(Done::Picked { pick, path: handle.map(|h| craft_anything_platform::host_path(h.path())) })
         });
     }
 

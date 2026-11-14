@@ -27,6 +27,50 @@ pub fn in_flatpak() -> bool {
     *IN.get_or_init(|| std::env::var_os("FLATPAK_ID").is_some() || std::path::Path::new("/.flatpak-info").exists())
 }
 
+/// A path the system's file picker gave, as the rest of the computer knows it. In a Flatpak a
+/// picked folder can come back as a document-portal path (`/run/user/1000/doc/<id>/name`), which
+/// some programs refuse to start in (Claude Code: "the current directory no longer exists", #1747).
+/// The portal records the real path on it; that one is used when this app can reach it. Any
+/// other path, or a portal path whose real one can't be read or reached, is returned as it is.
+pub fn host_path(path: &std::path::Path) -> std::path::PathBuf {
+    #[cfg(target_os = "linux")]
+    if is_portal_path(path)
+        && let Some(host) = portal_host_path(path)
+        && std::fs::metadata(&host).is_ok()
+    {
+        return host;
+    }
+    path.to_path_buf()
+}
+
+/// Whether `path` lies inside a document-portal mount: `/run/user/<uid>/doc/<id>/…`, or
+/// `/run/flatpak/doc/<id>/…` as the sandbox also mounts it.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn is_portal_path(path: &std::path::Path) -> bool {
+    use std::path::Component::{Normal, RootDir};
+    let parts: Vec<_> = path.components().take(6).collect();
+    match parts.as_slice() {
+        [RootDir, Normal(run), Normal(user), Normal(uid), Normal(doc), Normal(_), ..] if *user == "user" => {
+            *run == "run" && uid.to_str().is_some_and(|u| !u.is_empty() && u.bytes().all(|b| b.is_ascii_digit())) && *doc == "doc"
+        }
+        [RootDir, Normal(run), Normal(flatpak), Normal(doc), Normal(_), ..] => *run == "run" && *flatpak == "flatpak" && *doc == "doc",
+        _ => false,
+    }
+}
+
+/// The real path the document portal records on a file or folder it serves
+/// (the `user.document-portal.host-path` attribute).
+#[cfg(target_os = "linux")]
+fn portal_host_path(path: &std::path::Path) -> Option<std::path::PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    let mut value = vec![0u8; 4096];
+    let len = rustix::fs::getxattr(path, "user.document-portal.host-path", &mut value[..]).ok()?;
+    let value = value.get(..len)?;
+    let value = value.strip_suffix(&[0]).unwrap_or(value);
+    let host = std::path::Path::new(std::ffi::OsStr::from_bytes(value));
+    (host.is_absolute() && !is_portal_path(host)).then(|| host.to_path_buf())
+}
+
 /// Owns the helper that keeps a build awake until the guard is released. Dropping it waits up to
 /// five seconds for supervised cleanup and logs a warning if that deadline passes.
 #[derive(Debug)]
@@ -114,6 +158,26 @@ case "${d##*/}" in craft-*) rm -rf -- "$d" ;; esac"#;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #1747: a folder picked in the Flatpak came back as a document-portal path.
+    #[test]
+    fn portal_paths_are_told_apart_from_ordinary_ones() {
+        use std::path::Path;
+        for portal in ["/run/user/1000/doc/a1b2c3d4/project", "/run/user/1000/doc/a1b2c3d4", "/run/flatpak/doc/a1b2c3d4/project/src"] {
+            assert!(is_portal_path(Path::new(portal)), "{portal}");
+        }
+        for other in
+            ["/home/me/project", "/run/user/1000/doc", "/run/user/me/doc/a1/p", "/run/flatpak/doc", "run/user/1000/doc/a1/p", "/run/user/1000/gvfs/a1/p"]
+        {
+            assert!(!is_portal_path(Path::new(other)), "{other}");
+            // Anything that isn't a portal path comes back as it is.
+            assert_eq!(host_path(Path::new(other)), Path::new(other));
+        }
+        // A portal path whose real one can't be read (nothing is mounted here) is kept as it is.
+        let portal = Path::new("/run/user/1000/doc/a1b2c3d4/project");
+        assert_eq!(host_path(portal), portal);
+    }
+
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
     use std::time::{Duration, Instant};

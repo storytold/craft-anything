@@ -1400,6 +1400,7 @@ dependencies = [
  "objc2-core-graphics",
  "portable-pty",
  "process-wrap",
+ "rustix 1.1.5",
  "serde",
  "serde_json",
  "sha2",

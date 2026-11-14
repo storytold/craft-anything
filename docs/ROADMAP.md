@@ -786,6 +786,13 @@ Owner: open · Status: in progress
       a per-user Flatpak browser in `~/.local/share/flatpak/exports/bin` is found, but its start
       script needs `flatpak`, which the sandbox doesn't have. `flatpak-spawn --host` would need
       `--talk-name=org.freedesktop.Flatpak`, which lets the app run anything outside its sandbox (#841)
+- [x] A folder or file picked in the Flatpak that comes back as a document-portal path
+      (`/run/user/<uid>/doc/<id>/…`) is kept by the real path the portal records on it
+      (`user.document-portal.host-path`) when the app can reach that path: Claude Code wouldn't
+      start in the portal path ("the current directory no longer exists", #1747). Unit-tested;
+      not run in a real Flatpak — claimed: bflatastic, branch bugfix/r1.5-flatpak-portal-paths
+- [ ] A project already saved with a document-portal path (#1747) keeps it until it is picked
+      again: resolve saved project folders and the last project the same way when they're read
 - [x] Say in the feed while a decompile waits on Ghidra, and for how long, as the one-time analysis
       does (#1714): once a minute, "Ghidra is decompiling this function (N min so far; it gives up
       at 15 min)", or that it waits for another decompile to finish. The builder's tool server
