@@ -1025,8 +1025,8 @@ fn run_cli(spec: &CliSpec, text: &str, retry: bool, tx: &Sender<AgentEvent>, sto
     let (turn, quiet) = if builder { (24 * 3600, 8 * 3600) } else { (30 * 60, 15 * 60) };
     let mut env = agent_env(builder, spec.options.effort);
     let tool_env = match &remote {
-        None => adapter.mcp_env(&mcp),
-        Some(host) => adapter.remote_tool_server(host, &mcp),
+        None => adapter.mcp_env(&mcp, access),
+        Some(host) => adapter.remote_tool_server(host, &mcp, access),
     };
     match tool_env {
         Ok(var) => env.extend(var),
@@ -1686,7 +1686,7 @@ mod tests {
             }
         }
         let mcp = McpCommand { command: "craft-anything-cli".into(), args: vec![], notes: None };
-        assert!(adapter.mcp_env(&mcp).unwrap().is_some());
+        assert!(adapter.mcp_env(&mcp, Access::Build).unwrap().is_some());
     }
 
     /// Reject non-executable candidates and prefer the user's application installation.
@@ -1809,7 +1809,7 @@ mod tests {
                 true
             }
             /// Tell the child how to behave (the runner hands the agent this variable).
-            fn mcp_env(&self, _mcp: &McpCommand) -> Result<Option<(&'static str, String)>, ToolError> {
+            fn mcp_env(&self, _mcp: &McpCommand, _access: Access) -> Result<Option<(&'static str, String)>, ToolError> {
                 Ok(Some((UNFINISHED_CHILD_ENV, self.how.to_string())))
             }
             /// Read the stream as OpenCode's adapter does.

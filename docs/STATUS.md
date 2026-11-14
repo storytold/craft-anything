@@ -612,7 +612,8 @@ launch or preview was run for this documentation correction.
   only by building); a game rebuild in Rust reached Build and was stopped before Check. The
   website case is an opt-in test: `CRAFT_E2E=1 cargo test -p craft-anything-cli --test live_rebuild`.
 - Approvals differ by agent (roadmap R2.2): Claude Code asks our approval tool; OpenCode's builder
-  runs with `--auto`; Hermes's `-z` turns its approvals off on every run, chats included, so a Hermes
+  runs with `--auto`, with OpenCode's own rules denying its edit tool our records (`craft.json`,
+  `inbox/` and the rest; not its shell; checked live with OpenCode 2.2.6 on Linux: a `--auto` run's write to `app/` went through, and its writes to `inbox/` and `craft.json` were refused); Hermes's `-z` turns its approvals off on every run, chats included, so a Hermes
   chat isn't limited to analysing and Clean room's approval rule doesn't reach it. Hermes is opt-in
   and hasn't been run live here.
 - Grok Build (`grok agent stdio`) is offered when `grok` is installed and speaks ACP by default.

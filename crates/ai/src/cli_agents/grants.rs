@@ -136,7 +136,7 @@ pub fn table(adapters: &AgentAdapters) -> Vec<(&'static str, Grants)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli_agents::{APPROVAL_TOOL, ArgsCx, MCP_NAME, McpCommand};
+    use crate::cli_agents::{APPROVAL_TOOL, Access, ArgsCx, MCP_NAME, McpCommand};
     use crate::config::BackendOptions;
     use std::path::Path as StdPath;
 
@@ -151,7 +151,7 @@ mod tests {
         let options = BackendOptions::default();
         let cx =
             ArgsCx { options: &options, prompt: "make a game", preamble: "", mcp: &mcp, resume: None, builder: true, reads_checked: false, question: false };
-        (adapter.args(&cx), adapter.mcp_env(&mcp).ok().flatten().map(|(k, v)| format!("{k}={v}")))
+        (adapter.args(&cx), adapter.mcp_env(&mcp, Access::Build).ok().flatten().map(|(k, v)| format!("{k}={v}")))
     }
 
     /// Whether the run carries someone else's program to reach our server: in an argument (Claude

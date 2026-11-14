@@ -208,7 +208,7 @@ pub trait AgentAdapter: Send + Sync {
     }
     /// An environment variable that hands a local native run our tool server, for an agent that
     /// takes it from its environment rather than its arguments.
-    fn mcp_env(&self, _mcp: &McpCommand) -> Result<Option<(&'static str, String)>, ToolError> {
+    fn mcp_env(&self, _mcp: &McpCommand, _access: Access) -> Result<Option<(&'static str, String)>, ToolError> {
         Ok(None)
     }
     /// Whether what a build needs on a remote SSH host is there, checked before a build starts.
@@ -218,7 +218,7 @@ pub trait AgentAdapter: Send + Sync {
     }
     /// Prepare this run's tool server on a remote SSH host (a config file there), returning the
     /// environment variable to set on the remote command. Default: the agent can't carry one.
-    fn remote_tool_server(&self, _host: &str, _mcp: &McpCommand) -> Result<Option<(&'static str, String)>, ToolError> {
+    fn remote_tool_server(&self, _host: &str, _mcp: &McpCommand, _access: Access) -> Result<Option<(&'static str, String)>, ToolError> {
         Ok(None)
     }
     /// The file in which this computer keeps the agent's saved session `id`, so the project can

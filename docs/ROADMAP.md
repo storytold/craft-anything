@@ -1071,11 +1071,22 @@ Owner: open · Status: in progress
       manifest) skip the approval policy; `maki acp` takes no tool flags to stop it (0.7.0). Start
       it in `app/` (paths in the prompt relative to that), or ask Maki for a way to make those
       writes ask; part of the approval decision above
-- [ ] OpenCode's own write tool reaches our records too: a builder wrote its progress notes to
+- [x] OpenCode's own write tool reaches our records too: a builder wrote its progress notes to
       `inbox/build-progress.json` and stopped the build (R5.3 now names the records in the brief
       and says how to go on). Stop those writes in OpenCode itself, with its permission settings
       or by starting it in `app/`, and check it live
-      — claimed: youkaicountry, branch bugfix/r2.2-opencode-records-fence
+      — claimed: youkaicountry, branch bugfix/r2.2-opencode-records-fence. A build's config
+      carries `permissions` rules denying its edit tool each name in `workspace::OWN_NAMES` but
+      `checks/`; checked live with OpenCode 2.2.6 on Linux (its shell isn't covered)
+- [ ] An OpenCode builder isn't kept out of folders outside the project: OpenCode allows
+      `external_directory` by default, and `--auto` approves what it would ask. Seen on Linux with
+      2.2.6: a builder kept scratch work in `/tmp/opencode`, ran Windows tools there under Wine,
+      and a Ghidra run given that folder as its script path followed Wine's `z:` drive (the whole
+      file system) into another disk, while the run's processes reached 60 GB of memory and the
+      system's out-of-memory killer ended other programs. OpenCode can deny `external_directory`
+      (`*`) with exceptions after it (the last matching rule wins), such as the original's folder in
+      Deep mode; its shell's directories are found only best effort. Part of the approval decision
+      above
 
 **ACP:**
 - [ ] Gemini CLI, opencode, goose via ACP or native adapters; each verified live, then turn ACP on

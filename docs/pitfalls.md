@@ -906,6 +906,11 @@ run read the record strictly, as it should, and every Try again stopped at "unkn
 with no way forward. A coding agent's own tools don't pass through our checks: a file the run
 depends on is read as if anything may have changed it, and the error for one that changed says
 what the file is and how to go on.
+The fence in OpenCode's own rules was first drafted as "deny every edit, allow `app/*`", from the
+brief's words; a project edited in place (`app_in_root`) has its app in the project folder itself,
+and every edit its builder made would have been refused. A rule drawn from one layout's words
+misses the other: build it from the typed list the code already keeps (`OWN_NAMES`), and test
+both layouts.
 
 **A retry that took "no message" for "brand new".** A run with no message and no `continuing`
 flag was read as a first build, and Try again starts exactly that run. A browser that died during

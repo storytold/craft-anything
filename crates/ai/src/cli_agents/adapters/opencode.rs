@@ -22,8 +22,8 @@ impl AgentAdapter for OpenCode {
     /// `opencode run` takes no MCP flag, and V2 ignores `OPENCODE_CONFIG_CONTENT`: the server
     /// goes in a config file named by `OPENCODE_CONFIG`, which the private (`--standalone`)
     /// server merges over the person's own settings. The background service never sees it.
-    fn mcp_env(&self, mcp: &McpCommand) -> Result<Option<(&'static str, String)>, ToolError> {
-        let content = config_content(mcp);
+    fn mcp_env(&self, mcp: &McpCommand, access: Access) -> Result<Option<(&'static str, String)>, ToolError> {
+        let content = config_content(mcp, access);
         let path = std::env::temp_dir().join(config_name(&content));
         craft_anything_platform::fs::write_atomic_private(&path, content.as_bytes())?;
         Ok(Some(("OPENCODE_CONFIG", path.to_string_lossy().into_owned())))
@@ -38,8 +38,8 @@ impl AgentAdapter for OpenCode {
     /// The config file is written on the remote host itself: one `ssh` invocation checks the
     /// helper, writes the file atomically and keeps it private (piped `printf`, octal-escaped,
     /// no interactive stdin). The private (`--standalone`) server reads it there.
-    fn remote_tool_server(&self, host: &str, mcp: &McpCommand) -> Result<Option<(&'static str, String)>, ToolError> {
-        let content = config_content(mcp);
+    fn remote_tool_server(&self, host: &str, mcp: &McpCommand, access: Access) -> Result<Option<(&'static str, String)>, ToolError> {
+        let content = config_content(mcp, access);
         let name = config_name(&content);
         let line = remote_prepare_line(&name, &content);
         let output = ssh_run(host, &line, Duration::from_secs(30), None)?;
@@ -210,11 +210,33 @@ impl AgentAdapter for OpenCode {
     }
 }
 
-/// Our tool server's config for `mcp`: the bytes of the `OPENCODE_CONFIG` file (both local and
-/// remote runs use the same content).
-fn config_content(mcp: &McpCommand) -> String {
+/// OpenCode permission rules that keep a builder's own edit tool off Craft Anything's records
+/// (craft.json, feed.json, inbox/…, [`OWN_NAMES`] but checks/, where it keeps its notes), in
+/// either layout: app/ beside them, or the app in the project folder itself. A `--auto` builder
+/// never asks us, but a configured deny holds under `--auto`. Paths in the project are matched
+/// relative to it (the builder's folder), a whole value at a time, so each record gets its name
+/// and everything under it. Every other edit is left to OpenCode as before. Its shell isn't
+/// covered: a command can still write anywhere.
+///
+/// [`OWN_NAMES`]: craft_anything_engine::workspace::OWN_NAMES
+fn record_rules() -> Vec<Value> {
+    craft_anything_engine::workspace::OWN_NAMES
+        .iter()
+        .filter(|name| **name != "checks")
+        .flat_map(|name| [name.to_string(), format!("{name}/*")])
+        .map(|resource| json!({"action": "edit", "resource": resource, "effect": "deny"}))
+        .collect()
+}
+
+/// The bytes of the `OPENCODE_CONFIG` file (local and remote runs use the same content): our
+/// tool server for `mcp`, and for a builder, [`record_rules`].
+fn config_content(mcp: &McpCommand, access: Access) -> String {
     let command: Vec<&str> = std::iter::once(mcp.command.as_str()).chain(mcp.args.iter().map(String::as_str)).collect();
-    json!({"mcp": {MCP_NAME: {"type": "local", "command": command, "enabled": true}}}).to_string()
+    let mut config = json!({"mcp": {MCP_NAME: {"type": "local", "command": command, "enabled": true}}});
+    if matches!(access, Access::Build | Access::CleanRoomBuild) {
+        config["permissions"] = Value::Array(record_rules());
+    }
+    config.to_string()
 }
 
 /// Named by its content, so runs with the same server share one file and none is left half-written.
@@ -434,10 +456,11 @@ mod tests {
     #[test]
     fn native_runs_get_the_tool_server_from_a_config_file() {
         let mcp = McpCommand { command: "craft-anything-cli".into(), args: vec!["mcp".into()], notes: None };
-        let (var, path) = OpenCode.mcp_env(&mcp).unwrap().unwrap();
+        let (var, path) = OpenCode.mcp_env(&mcp, Access::Build).unwrap().unwrap();
         assert_eq!(var, "OPENCODE_CONFIG");
         let v: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         assert_eq!(v["mcp"][MCP_NAME]["command"], json!(["craft-anything-cli", "mcp"]));
+        assert!(v["permissions"].is_array(), "the file a builder is handed has the records fenced");
         let options = BackendOptions { cli_model: Some("test/model".into()), ..Default::default() };
         assert!(OpenCode.check_native_options(&options, None).is_ok());
     }
@@ -445,13 +468,55 @@ mod tests {
     #[test]
     fn the_tool_server_config_and_name_are_stable() {
         let mcp = McpCommand { command: "craft-anything-cli".into(), args: vec!["mcp".into(), "--clean-room".into()], notes: None };
-        let content = config_content(&mcp);
-        assert_eq!(content, config_content(&mcp));
+        let content = config_content(&mcp, Access::CleanRoomBuild);
+        assert_eq!(content, config_content(&mcp, Access::CleanRoomBuild));
         assert!(content.contains("craft-anything-cli"));
         assert!(content.contains("--clean-room"));
         assert_eq!(config_name(&content), config_name(&content));
-        let other = config_content(&McpCommand { command: "other".into(), args: vec![], notes: None });
+        let other = config_content(&McpCommand { command: "other".into(), args: vec![], notes: None }, Access::CleanRoomBuild);
         assert_ne!(config_name(&content), config_name(&other));
+    }
+
+    /// OpenCode's rule matching as its permissions docs give it: `*` is any run of characters,
+    /// `/` included, against the whole path; the last matching rule wins; no match leaves the
+    /// edit as it was (`None`).
+    fn edit_effect(rules: &[Value], path: &str) -> Option<String> {
+        fn glob(p: &[u8], s: &[u8]) -> bool {
+            match p.split_first() {
+                None => s.is_empty(),
+                Some((b'*', rest)) => (0..=s.len()).any(|i| glob(rest, &s[i..])),
+                Some((c, rest)) => s.first() == Some(c) && glob(rest, &s[1..]),
+            }
+        }
+        rules
+            .iter()
+            .rev()
+            .find(|r| r["action"] == "edit" && glob(r["resource"].as_str().unwrap().as_bytes(), path.as_bytes()))
+            .map(|r| r["effect"].as_str().unwrap().to_string())
+    }
+
+    #[test]
+    fn a_builders_own_edits_cant_reach_our_records() {
+        let mcp = McpCommand { command: "craft-anything-cli".into(), args: vec!["mcp".into()], notes: None };
+        let rules_for = |access| serde_json::from_str::<Value>(&config_content(&mcp, access)).unwrap()["permissions"].as_array().cloned();
+        let rules = rules_for(Access::Build).expect("a builder gets rules");
+        assert_eq!(rules_for(Access::CleanRoomBuild), Some(rules.clone()), "in either mode");
+        // What #1810's builder overwrote, and the other records, in both layouts (the app in app/
+        // or in the project folder itself).
+        for record in ["inbox/build-progress.json", "craft.json", "feed.json", "investigation.cany/journal.jsonl", "reference/1.png"] {
+            assert_eq!(edit_effect(&rules, record).as_deref(), Some("deny"), "{record}");
+        }
+        for name in craft_anything_engine::workspace::OWN_NAMES.iter().filter(|n| **n != "checks") {
+            assert_eq!(edit_effect(&rules, name).as_deref(), Some("deny"), "{name}");
+        }
+        // The app, wherever it is, and the builder's notes in checks/ are left as they were.
+        for app in ["app/src/main.rs", "src/main.rs", "index.html", "checks/round-1/notes.md", "craft.json.bak", "inbox-ideas.md"] {
+            assert_eq!(edit_effect(&rules, app), None, "{app}");
+        }
+        // A chat or a question isn't a build: it gets the server alone, as before.
+        for access in [Access::Analyse, Access::CleanRoomAnalyse, Access::Question, Access::CleanRoomQuestion] {
+            assert_eq!(rules_for(access), None, "{access:?}");
+        }
     }
 
     #[test]
@@ -486,7 +551,7 @@ mod tests {
 
         let home = root.path().join("home");
         let mcp = McpCommand { command: "craft-anything-cli".into(), args: vec!["mcp".into(), "--clean-room".into()], notes: None };
-        let content = config_content(&mcp);
+        let content = config_content(&mcp, Access::Build);
         let name = config_name(&content);
         let line = remote_prepare_line(&name, &content);
 
@@ -521,7 +586,7 @@ mod tests {
     #[test]
     fn the_remote_line_needs_no_input_and_checks_the_helper_first() {
         let mcp = McpCommand { command: "craft-anything-cli".into(), args: vec!["mcp".into()], notes: None };
-        let content = config_content(&mcp);
+        let content = config_content(&mcp, Access::Build);
         let name = config_name(&content);
         let line = remote_prepare_line(&name, &content);
         assert!(line.starts_with("command -v craft-anything-cli "), "{line}");
