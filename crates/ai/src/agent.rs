@@ -24,6 +24,10 @@ use std::time::Duration;
 pub const RESULT_BUDGET: usize = 16 * 1024;
 /// Default most model turns per user message.
 pub const DEFAULT_MAX_TURNS: u32 = 40;
+
+fn request_pacing_status() -> AgentEvent {
+    AgentEvent::Status { text: "Waiting before sending the next request (configured rate limit)…".into() }
+}
 /// Steps one builder message may take (writing, building and fixing a project takes many).
 pub const BUILDER_MAX_TURNS: u32 = 400;
 
@@ -675,7 +679,18 @@ impl AgentLoop {
         let messages = context::with_summary_request(&self.history[..cut]);
         let req = TurnRequest { system, messages: &messages, tools: &[], effort: Effort::Low, max_tokens: crate::anthropic::MAX_TOKENS };
         let stop = self.stop.clone();
-        let summary = self.chain.get_mut(self.current).map(|slot| slot.model.turn(&req, &mut |_| {}, &stop));
+        let events = self.events.clone();
+        let summary = self.chain.get_mut(self.current).map(|slot| {
+            slot.model.turn(
+                &req,
+                &mut |d| {
+                    if d == Delta::RequestPacingWait {
+                        let _ = events.send(request_pacing_status());
+                    }
+                },
+                &stop,
+            )
+        });
         let mut accounted = None;
         let text = match summary {
             Some(Ok(r)) => {
@@ -750,11 +765,15 @@ impl AgentLoop {
             let slot = self.chain.get_mut(self.current)?;
             let r = slot.model.turn(
                 &req,
-                &mut |d| {
-                    if let Delta::Text(t) = d {
+                &mut |d| match d {
+                    Delta::Text(text) => {
                         produced = true;
-                        let _ = events.send(AgentEvent::TextDelta { text: t });
+                        let _ = events.send(AgentEvent::TextDelta { text });
                     }
+                    Delta::RequestPacingWait => {
+                        let _ = events.send(request_pacing_status());
+                    }
+                    Delta::Thinking(_) => {}
                 },
                 &stop,
             );
@@ -1283,6 +1302,37 @@ pub(crate) mod tests {
             std::thread::sleep(Duration::from_millis(5));
         }
         panic!("timed out: {all:?}");
+    }
+
+    #[test]
+    fn the_build_feed_reports_the_paced_request_before_the_answer() {
+        use crate::rebuild::{RunEvent, feed};
+        use craft_anything_engine::feed::FeedItem;
+        let host = Arc::new(FakeHost { calls: Mutex::default(), journal: Mutex::default() });
+        let script = Scripted {
+            turns: VecDeque::from([
+                turn(vec![Block::ToolUse { id: "look".into(), name: "look".into(), input: json!({}) }], StopReason::ToolUse),
+                turn(vec![Block::Text { text: "Done".into() }], StopReason::EndTurn),
+            ]),
+            seen: Arc::new(Mutex::new(Vec::new())),
+        };
+        let paced = crate::pace::Paced { inner: Box::new(script), backend: "feed-pacing-test".into(), gap: Duration::from_secs(1) };
+        let slot =
+            ModelSlot { name: "Paced".into(), model: Box::new(paced), local: false, effort: None, max_turns: 5, context_tokens: 0, tools: Default::default() };
+        let mut conversation = ApiConversation::start(host, vec![slot], LoopConfig::default()).unwrap();
+        conversation.send("Look at it.");
+        let events = drain_until_done(&mut conversation, |_, _| {});
+        let mut build_feed = Vec::new();
+        let mut saw_wait = false;
+        for event in events {
+            if matches!(&event, AgentEvent::TextDelta { text } if text == "Done") {
+                assert!(saw_wait, "the wait must be visible before the answer");
+            }
+            feed::apply(&mut build_feed, &RunEvent::Agent(event));
+            saw_wait |=
+                build_feed.iter().any(|item| matches!(item, FeedItem::Work { notes, .. } if notes.iter().any(|note| note.contains("configured rate limit"))));
+        }
+        assert!(saw_wait);
     }
 
     #[test]

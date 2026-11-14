@@ -33,6 +33,9 @@ impl ChatModel for Paced {
             next.insert(self.backend.clone(), at + self.gap);
             at
         };
+        if !stop.is_stopped() && at > Instant::now() {
+            on_delta(Delta::RequestPacingWait);
+        }
         // A stop ends the wait; the model itself then answers it as it does any stopped turn.
         while !stop.is_stopped()
             && let Some(left) = at.checked_duration_since(Instant::now()).filter(|d| !d.is_zero())
@@ -105,6 +108,31 @@ mod tests {
         let other = Instant::now();
         ask("pace-test-other", gap, &Stop::default());
         assert!(other.elapsed() < gap, "another backend doesn't wait");
+    }
+
+    #[test]
+    fn only_a_request_that_waits_reports_pacing() {
+        let mut paced = Paced { inner: Box::new(Refuses), backend: "pace-test-notice".into(), gap: Duration::from_secs(60) };
+        let req = TurnRequest { system: "", messages: &[], tools: &[], effort: Effort::Low, max_tokens: 1 };
+        let stop = Stop::default();
+        let mut notices = Vec::new();
+        paced.turn(&req, &mut |d| notices.push(d), &stop).unwrap_err();
+        assert!(notices.is_empty(), "the first request did not wait");
+
+        paced
+            .turn(
+                &req,
+                &mut |d| {
+                    notices.push(d);
+                    stop.stop();
+                },
+                &stop,
+            )
+            .unwrap_err();
+        assert_eq!(notices, vec![Delta::RequestPacingWait]);
+
+        paced.turn(&req, &mut |d| notices.push(d), &stop).unwrap_err();
+        assert_eq!(notices, vec![Delta::RequestPacingWait], "a stopped turn never waits");
     }
 
     #[test]

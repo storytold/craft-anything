@@ -232,6 +232,8 @@ pub struct TurnResult {
 pub enum Delta {
     Text(String),
     Thinking(String),
+    /// A request is waiting for the backend’s configured request rate.
+    RequestPacingWait,
 }
 
 /// Cooperative cancellation for a conversation.
