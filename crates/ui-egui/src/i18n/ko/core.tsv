@@ -1507,6 +1507,7 @@ Stop Ghidra's analysis	Ghidra 분석 중지
 
 # Saved-builder notice: English until native-speaker review.
 The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.	The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.
+Auto	자동
 Sees pictures	이미지 보기
 Yes	예
 No	아니요

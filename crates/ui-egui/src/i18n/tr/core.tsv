@@ -1507,6 +1507,7 @@ Stop Ghidra's analysis	Ghidra analizini durdur
 
 # Saved-builder notice: reviewed by native Turkish speaker @MacallanTheRoot.
 The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.	Bu proje için seçilen yapay zekâ ({saved}) devre dışı bırakılmış veya artık yapılandırılmamış. Projeyi bunun yerine {used} oluşturacak.
+Auto	Otomatik
 Sees pictures	Resim görür
 Yes	Evet
 No	Hayır
