@@ -539,6 +539,7 @@ been run live.
       Not run against a live provider — claimed: justinjohn0306, branch `feature/r5.4-requests-per-minute`
 - [ ] Offer `requests_per_minute` in Settings → AI, and say in the feed when a build is waiting
       for its turn (#668); a tokens-per-minute limit isn't covered either
+      — feed notice claimed: rudycelekli, branch feature/r5.4-request-pacing-feed
 - [x] Find LM Studio on another port (#73): the port in its settings file (when it is there) and
       the ports 1235-1239 are probed like the usual servers; OpenCode's own `baseURL`s were already
       read (#83)
