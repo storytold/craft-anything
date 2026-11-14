@@ -1125,7 +1125,9 @@ fn run_cli(spec: &CliSpec, text: &str, retry: bool, tx: &Sender<AgentEvent>, sto
         })
         .remediation(format!("Install {}, or choose its program in Settings → AI.", display_for(&agent)));
     if let Some(p) = spec.project.as_ref().filter(|_| remote.is_none()) {
-        proc = proc.cwd(p);
+        // `PWD` too: an agent that takes its folder from it would otherwise get the folder Craft
+        // Anything was started in, often the home folder, and search there (#1793).
+        proc = proc.cwd(p).env("PWD", craft_anything_engine::workspace::absolute(p));
     }
     if adapter.prompt_on_stdin() {
         proc = proc.stdin_bytes(adapter.stdin_text(&preamble, text));

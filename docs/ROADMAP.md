@@ -1020,6 +1020,12 @@ Owner: open · Status: in progress
       V1 and V2), so a long one can't pass Windows' command-line limit (#402), as Claude Code, Codex,
       Gemini CLI and DeepSeek Harness already do
       — claimed: FuryNocturn, branch feature/r2.2-message-off-argv
+- [x] A coding agent that keeps no session (OpenCode starts each turn as a new process) gets the
+      brief, which names the project folder, in front of each later prompt of a run: the decompile
+      reminder, a refinement and a note were sent alone, and the builder searched the home folder
+      for a project and worked on another one (#1793). CLI builders also get `PWD` set to their
+      working folder. Unit-tested; not run live with OpenCode
+      — claimed: bflatastic, branch bugfix/r2.2-unresumable-builder-brief
 - [ ] Aider, Hermes, Maki, Devin and Antigravity still take the message in argv
       (`prompt_on_stdin`), so a long one can pass Windows' command-line limit (#402). Aider has
       `--message-file`, which needs a file the run writes (on the remote host over SSH); for the

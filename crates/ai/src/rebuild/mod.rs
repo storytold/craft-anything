@@ -531,6 +531,17 @@ fn needs_decompile_reminder(deep: bool, manifest: &craft_anything_engine::worksp
     deep && matches!(manifest.target, TargetRef::Local { .. }) && !manifest.decompiled
 }
 
+/// What a build turn sends. A builder that keeps no session (OpenCode runs each turn as a new
+/// process) has forgotten the brief by its next turn, so a reminder, a refinement or a note sent
+/// alone leaves it not knowing which project it is in (#1793): `brief` goes in front of such a
+/// prompt. `brief` is `None` for a builder that holds its whole conversation (an API loop).
+fn turn_text(prompt: &str, brief: Option<&str>, has_session: bool) -> String {
+    match brief {
+        Some(b) if !has_session && !prompt.contains(b) => format!("{b}\n\n{prompt}"),
+        _ => prompt.to_string(),
+    }
+}
+
 struct Worker {
     /// Told after each event.
     wake: Wake,
@@ -929,6 +940,8 @@ impl Worker {
             let handoff = keeper.as_ref().and_then(|a| a.handoff(&kept_session(ws)?, HANDOFF_CHARS));
             resumed_elsewhere(&brief(kind, &cx, opts.message.as_deref()), &ws.manifest.last_reply, handoff.as_deref())
         });
+        // Sent again with a later prompt to a coding agent that kept no session (see `turn_text`).
+        let rebrief = (!api_loop).then(|| brief(kind, &cx, opts.message.as_deref()));
         // "Just ask" runs apart from the builder's session, and the person's message may follow on from it (#857).
         let new_request = opts.message.as_deref().is_some_and(|m| !m.trim().is_empty());
         let mut asked = if new_request { craft_anything_engine::questions::untold(ws, deep) } else { Vec::new() };
@@ -967,7 +980,8 @@ impl Worker {
                 };
                 self.step(ws, Step::Build, Status::Building, doing)?;
                 ws.manifest.awaiting_check = false;
-                let reply = self.turn(ws, agent.as_mut(), &prompt, deep, fresh.take());
+                let text = turn_text(&prompt, rebrief.as_deref(), agent.session_id().is_some());
+                let reply = self.turn(ws, agent.as_mut(), &text, deep, fresh.take());
                 // Kept even when the turn failed: the conversation is still worth carrying.
                 if let Some(a) = &keeper {
                     self.keep_session(ws, a.as_ref());

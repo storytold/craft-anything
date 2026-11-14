@@ -3629,6 +3629,24 @@ fn a_later_request_is_reminded_only_when_nothing_was_decompiled() {
     assert!(!needs_decompile_reminder(true, &none.manifest), "no program to decompile");
 }
 
+/// #1793: OpenCode keeps no session, so its second turn (the decompile reminder) arrived alone and
+/// it went looking through the home folder for a project. A builder with no session gets the
+/// brief, which names the project folder, in front of each later prompt; one that carries its
+/// session, and an API loop, get the prompt as it is, and the brief is never sent twice.
+#[test]
+fn a_builder_with_no_session_is_briefed_again_on_later_turns() {
+    let d = tempfile::tempdir().unwrap();
+    let ws = Workspace::create(d.path(), "Sim", "Recreate this game", TargetRef::Local { path: d.path().join("game.exe") }).unwrap();
+    let b = brief(&ws, "app", true, false, None, false, None);
+    assert!(b.contains(&ws.root.display().to_string()), "the brief names the project folder");
+    let later = turn_text(DECOMPILE_FIRST, Some(&b), false);
+    assert!(later.starts_with(&b) && later.ends_with(DECOMPILE_FIRST), "{later}");
+    assert_eq!(turn_text(DECOMPILE_FIRST, Some(&b), true), DECOMPILE_FIRST, "a session still holds the brief");
+    assert_eq!(turn_text(DECOMPILE_FIRST, None, false), DECOMPILE_FIRST, "an API loop holds its whole conversation");
+    let first = format!("{b}\n\nAlso: a question you were asked");
+    assert_eq!(turn_text(&first, Some(&b), false), first, "the first turn already is the brief");
+}
+
 #[test]
 fn every_kind_leads_tests_its_own_build_and_keeps_its_unknowns() {
     let d = tempfile::tempdir().unwrap();
