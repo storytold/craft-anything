@@ -1,7 +1,7 @@
 # UI localisation
 
 The desktop app offers **Čeština** (`cs`), **Deutsch** (`de`), **Eesti** (`et`), **Español** (`es`), **Italiano** (`it`), **ქართული** (`ka`),
-**한국어** (`ko`), **Русский** (`ru`), **Tiếng Việt** (`vi`), **Português (Brasil)** (`pt-br`), **Türkçe** (`tr`), **ไทย** (`th`), **简体中文** (`zh-hans`) and **繁體中文** (`zh-hant`), alongside
+**한국어** (`ko`), **Русский** (`ru`), **Tiếng Việt** (`vi`), **Português (Brasil)** (`pt-br`), **Türkçe** (`tr`), **ไทย** (`th`), **ພາສາລາວ** (`lo`), **简体中文** (`zh-hans`) and **繁體中文** (`zh-hant`), alongside
 English, French and Japanese, in **Settings → General → Language**. The choice is saved in the
 existing `language` setting. **System** uses the operating system's preferred
 supported language; if none matches, it uses English. An explicit choice takes
@@ -177,3 +177,7 @@ build that would leave the fonts out (no `CRAFT_FONTS_DIR`, or a bad one) fails 
 quietly showing boxes. The catalogs add no font assets.
 Check each script, clipping, narrow windows and native file dialogs visually
 on each platform; catalog coverage alone does not verify layout or fonts.
+
+## Lao
+
+**ພາສາລາວ** (`lo`) is selected by `lo` and `lo-LA`, and by the system language when it is Lao. `crates/ui-egui/src/i18n/lo.tsv` has the same keys as the other catalogs, written from the English source strings. It was translated and native-reviewed by @bounkirdni-2025. Product and technology names, tool ids and shortcuts keep their spelling. Glyphs come from Noto Sans Lao in craft-fonts (`storytold/craft-fonts#33`).

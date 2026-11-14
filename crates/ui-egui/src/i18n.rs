@@ -29,6 +29,7 @@ pub static LANGUAGES: &[LangInfo] = &[
     LangInfo { code: "zh-hant", name: "繁體中文", source: include_str!("i18n/zh-hant.tsv") },
     LangInfo { code: "ru", name: "Русский", source: include_str!("i18n/ru.tsv") },
     LangInfo { code: "ko", name: "한국어", source: include_str!("i18n/ko.tsv") },
+    LangInfo { code: "lo", name: "ພາສາລາວ", source: include_str!("i18n/lo.tsv") },
     LangInfo { code: "cs", name: "Čeština", source: include_str!("i18n/cs.tsv") },
     LangInfo { code: "es", name: "Español", source: include_str!("i18n/es.tsv") },
     LangInfo { code: "vi", name: "Tiếng Việt", source: include_str!("i18n/vi.tsv") },
@@ -165,6 +166,9 @@ mod tests {
         assert_eq!(language_from_tag("tr-TR"), Some("tr"));
         assert_eq!(language_from_tag("th-TH"), Some("th"));
         assert_eq!(language_from_tag("th_TH.UTF-8"), Some("th"));
+        assert_eq!(language_from_tag("lo"), Some("lo"));
+        assert_eq!(language_from_tag("lo-LA"), Some("lo"));
+        assert_eq!(language_from_tag("lo_LA.UTF-8"), Some("lo"));
         assert_eq!(preferred_language(["de-DE", "zh-HK"]), "de");
         assert_eq!(preferred_language(["sv-SE", "vi-VN", "en-US"]), "vi");
         assert_eq!(preferred_language(["en-US", "zh-CN"]), "en");
@@ -184,7 +188,7 @@ mod tests {
         let mut catalogs = Vec::new();
         for lang in LANGUAGES
             .iter()
-            .filter(|l| matches!(l.code, "zh-hans" | "zh-hant" | "ru" | "ko" | "cs" | "de" | "ka" | "es" | "it" | "vi" | "pt-br" | "tr" | "th" | "et"))
+            .filter(|l| matches!(l.code, "zh-hans" | "zh-hant" | "ru" | "ko" | "lo" | "cs" | "de" | "ka" | "es" | "it" | "vi" | "pt-br" | "tr" | "th" | "et"))
         {
             let mut keys = std::collections::BTreeSet::new();
             for (i, line) in lang.source.lines().enumerate() {
