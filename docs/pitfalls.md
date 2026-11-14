@@ -623,6 +623,12 @@ only the first 30 distinct limitations in Markdown and HTML with no marker for t
 reader could mistake a capped list for everything the evidence said. Keep the display cap for
 readability but name how many were omitted in both formats; test one more limitation than the cap.
 
+**A comparison forgot what each side couldn't see.** `app_graphs_compare` and `js_exports_compare`
+loaded application graphs but built their evidence with only their own limitations, so a malformed
+source map or a truncated inventory disappeared and the comparison read as complete. Carry each
+loaded side's limitations into the comparison evidence, labelled left/right, and test both path and
+saved-evidence inputs.
+
 **A comparison list was taken for the whole set.** The application comparison cut added, removed,
 bundle-module and vendor rows at 2,000, and its summary counted those cut lists as totals; the
 export comparison cut each module's added/removed diff the same way. Keep a complete total beside
