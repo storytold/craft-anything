@@ -187,13 +187,14 @@ pub fn chat(cli: &Cli, a: &ChatArgs) -> u8 {
                         }
                     }
                 }
-                AgentEvent::TurnDone { backend, input_tokens, output_tokens, cost_usd, cost_is_estimate } => {
+                AgentEvent::TurnDone { backend, input_tokens, output_tokens, tokens_unknown, cost_usd, cost_is_estimate } => {
                     if !jsonl {
                         let cost = cost_usd
                             .map(|c| if *cost_is_estimate { format!(", about ${c:.4} at API prices (an estimate, not a bill)") } else { format!(", ${c:.4}") })
                             .unwrap_or_default();
                         write_raw("\n");
-                        eprintln!("[{backend}: {input_tokens} in / {output_tokens} out{cost}]");
+                        let usage = if *tokens_unknown { "token count unknown".into() } else { format!("{input_tokens} in / {output_tokens} out") };
+                        eprintln!("[{backend}: {usage}{cost}]");
                     }
                     done = true;
                 }

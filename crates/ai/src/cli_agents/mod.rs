@@ -904,7 +904,7 @@ fn end_turn(busy: &AtomicBool, done: AgentEvent, send: impl FnOnce(AgentEvent)) 
 
 /// The `TurnDone` that ends a turn of `backend` with no usage to report.
 fn nothing_done(backend: &str) -> AgentEvent {
-    AgentEvent::TurnDone { backend: backend.to_string(), input_tokens: 0, output_tokens: 0, cost_usd: None, cost_is_estimate: false }
+    AgentEvent::TurnDone { backend: backend.to_string(), input_tokens: 0, output_tokens: 0, tokens_unknown: false, cost_usd: None, cost_is_estimate: false }
 }
 
 /// How long a turn's process may keep running after its stream already said the turn was done
@@ -1216,7 +1216,14 @@ fn run_cli(spec: &CliSpec, text: &str, retry: bool, tx: &Sender<AgentEvent>, sto
     } else {
         p.cost_usd
     };
-    AgentEvent::TurnDone { backend: name, input_tokens: p.input_tokens, output_tokens: p.output_tokens, cost_usd, cost_is_estimate: true }
+    AgentEvent::TurnDone {
+        backend: name,
+        input_tokens: p.input_tokens,
+        output_tokens: p.output_tokens,
+        tokens_unknown: false,
+        cost_usd,
+        cost_is_estimate: true,
+    }
 }
 
 /// What's needed to explain a failed CLI run: the command with the person's message left out, and
@@ -1908,7 +1915,7 @@ mod tests {
             }
             assert!(
                 matches!(events.last(), Some(AgentEvent::TurnDone {
-                backend, input_tokens: 0, output_tokens: 0, cost_usd: None, cost_is_estimate: false,
+                backend, input_tokens: 0, output_tokens: 0, tokens_unknown: false, cost_usd: None, cost_is_estimate: false,
             }) if backend == "Test"),
                 "{events:?}"
             );

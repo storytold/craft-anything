@@ -577,6 +577,8 @@ pub struct ProjectUsage {
     pub work_ms: u64,
     pub input_tokens: u64,
     pub output_tokens: u64,
+    /// At least one turn didn't report tokens. The counts only include reported usage.
+    pub tokens_incomplete: bool,
     /// Everything reported, in US dollars: what API keys were charged plus coding agents' own
     /// estimates at API prices.
     pub cost_usd: f64,
@@ -642,7 +644,7 @@ impl ProjectUsage {
     }
 
     pub fn used_anything(&self) -> bool {
-        self.tokens() > 0 || self.priced
+        self.tokens() > 0 || self.tokens_incomplete || self.priced
     }
 }
 

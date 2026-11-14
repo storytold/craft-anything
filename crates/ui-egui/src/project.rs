@@ -328,8 +328,9 @@ impl CraftApp {
                     clock.saved_again(root, false);
                     finished.push(root.clone());
                 }
-                RunEvent::Agent(AgentEvent::TurnDone { input_tokens, output_tokens, cost_usd, cost_is_estimate, .. }) => {
+                RunEvent::Agent(AgentEvent::TurnDone { input_tokens, output_tokens, tokens_unknown, cost_usd, cost_is_estimate, .. }) => {
                     clock.saved_again(root, true);
+                    self.session_usage.tokens_incomplete |= *tokens_unknown;
                     self.session_usage.add_turn(*input_tokens, *output_tokens, *cost_usd, *cost_is_estimate);
                 }
                 // A run's first event is its first step: the clock starts there.
@@ -1169,8 +1170,9 @@ fn steps(app: &CraftApp, ui: &mut Ui, ws: &Workspace) {
                     ui.add(egui::Label::new(RichText::new(tr(note)).color(Tokens::get(ui.ctx()).text_faint).size(theme::CAPTION)).wrap());
                 }
             }
-            if u.saved.tokens() > 0 {
-                stat_row(ui, "Tokens", &crate::usage::tokens_short(u.saved.tokens())).on_hover_text(tip());
+            if u.saved.tokens() > 0 || u.saved.tokens_incomplete {
+                let usage = crate::usage::token_total(&u.saved, false);
+                stat_row(ui, "Tokens", &usage).on_hover_text(tip());
             }
             if u.working() {
                 ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));

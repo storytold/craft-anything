@@ -1082,9 +1082,8 @@ Owner: open · Status: in progress
 - [x] Over ACP, suppress `session/update` notifications until `session/load` answers, keeping
       replayed messages and tool activity out of the current turn
       — commit `38ffc39be084`
-- [ ] Over ACP, turns report 0 tokens: the protocol sends only `usage_update` (context used and
-      size). Read real counts where an agent keeps them (Maki: `token_usage` in its session file
-      under `~/.local/state/maki/sessions/`) or say the count is unknown instead of 0
+- [x] Over ACP, say the turn's token count is unknown. The protocol's `usage_update` measures
+      context, so it isn't added to per-turn or project token counts.
       — claimed: rudycelekli, branch bugfix/r2.2-acp-unknown-token-usage
 - [ ] Devin over ACP: `devin acp` asks the host to `authenticate` (`meta.api_key`) before
       `session/new`, so the backend's stored key is sent — claimed: NibrasAz7, branch

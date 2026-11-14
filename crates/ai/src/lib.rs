@@ -320,6 +320,9 @@ pub enum AgentEvent {
         /// Every prompt token, cached ones included, as agent apps report them.
         input_tokens: u64,
         output_tokens: u64,
+        /// The backend didn't report token counts attributable to this turn.
+        #[serde(default)]
+        tokens_unknown: bool,
         cost_usd: Option<f64>,
         /// `cost_usd` is the agent's own guess at API prices, not what a key was charged: a
         /// subscription may cover the whole of it.

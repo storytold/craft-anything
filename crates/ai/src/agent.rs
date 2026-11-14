@@ -586,6 +586,7 @@ impl AgentLoop {
             backend,
             input_tokens: msg_usage.input_tokens.saturating_add(msg_usage.cache_read_tokens).saturating_add(msg_usage.cache_write_tokens),
             output_tokens: msg_usage.output_tokens,
+            tokens_unknown: false,
             cost_usd: msg_cost,
             cost_is_estimate: false,
         });

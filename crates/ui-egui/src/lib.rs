@@ -1430,11 +1430,13 @@ impl CraftApp {
             chat::apply_event(&mut self.state.chat, e.clone());
             match e {
                 AgentEvent::ToolFinished { .. } => self.view_dirty = true,
-                AgentEvent::TurnDone { backend, input_tokens, output_tokens, cost_usd, cost_is_estimate } => {
+                AgentEvent::TurnDone { backend, input_tokens, output_tokens, tokens_unknown, cost_usd, cost_is_estimate } => {
                     self.view_dirty = true;
+                    self.session_usage.tokens_incomplete |= tokens_unknown;
                     self.session_usage.add_turn(input_tokens, output_tokens, cost_usd, cost_is_estimate);
                     let cost = cost_usd.map(|c| format!(", ${c:.4}")).unwrap_or_default();
-                    self.log(false, format!("{backend}: {input_tokens} in / {output_tokens} out{cost}"));
+                    let usage = if tokens_unknown { "token count unknown".into() } else { format!("{input_tokens} in / {output_tokens} out") };
+                    self.log(false, format!("{backend}: {usage}{cost}"));
                 }
                 AgentEvent::Error { message, .. } => self.log(true, message),
                 _ => {}
