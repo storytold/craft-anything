@@ -1169,8 +1169,10 @@ Owner: maintainers · Status: in progress
       instead of only the first, a failed lldb run is an error and not "0 calls", and names or
       arguments with line breaks are refused (they'd add commands to lldb's command file). The
       callback body was compiled with Python; lldb itself was not run
-- [ ] Run `apple_calls_observe` on a Mac against a small program with `lldb` (the #251 probe):
-      the hit for `alpha` is recorded, and a program lldb can't debug says so — claimed: rudycelekli, branch test/r2.4-verify-lldb-call-observation
+- [x] Run `apple_calls_observe` on a Mac against a small program with `lldb` (the #251 probe):
+      the opt-in engine test records `alpha` and `beta` in order and reports a debugger refusal
+      for a non-executable input. Verified with Apple LLDB 2100.0.16.4 on arm64 macOS 27.0.1
+      — PR #1844; claimed: rudycelekli, branch test/r2.4-verify-lldb-call-observation
 - [ ] Window capture tried on macOS and Linux (only Windows so far); games behind a launcher
 - [ ] Short scripted input sessions (enigo) to record screens of the original
 - [x] A macOS app bundle picked as an app target (`TipCalc.app`) is studied as a plain folder: the
