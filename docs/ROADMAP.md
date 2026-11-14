@@ -1148,6 +1148,9 @@ Owner: open · Status: in progress
 - [x] Codex's and Grok Build's `config.toml` keep their Windows line endings when setup adds or
       removes our entry.
       — claimed: Plastic-time, branch bugfix/r2.2-toml-config-crlf
+- [x] Run from inside a Claude Code session, the person's Claude Code keeps their
+      `CLAUDE_CODE_OAUTH_TOKEN` sign-in instead of being told it isn't signed in (#1830)
+      — claimed: bflatastic, branch bugfix/claude-oauth-token-nested
 
 ### R2.4 Runtime study for apps and games (with consent)
 Owner: maintainers · Status: in progress

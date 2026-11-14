@@ -469,7 +469,9 @@ pub(crate) fn claude_code_failure_in(why: &str, folder: Option<&Path>) -> (Strin
 /// Variables a Claude Code session sets for its own child processes. When Craft Anything itself
 /// runs inside such a session, they'd make the person's `claude` act as part of that session
 /// instead of as their own install, so they're removed. The person's own settings (provider
-/// choice `CLAUDE_CODE_USE_*`, `CLAUDE_CONFIG_DIR`, `ANTHROPIC_*`) are kept.
+/// choice `CLAUDE_CODE_USE_*`, `CLAUDE_CONFIG_DIR`, `ANTHROPIC_*`) are kept, and so is their
+/// sign-in `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`): without it, a person who signs
+/// in that way was told Claude Code isn't signed in (#1830).
 pub fn host_session_vars(vars: impl Iterator<Item = String>) -> Vec<String> {
     let all: Vec<String> = vars.collect();
     if !all.iter().any(|k| k == "CLAUDECODE") {
@@ -480,7 +482,7 @@ pub fn host_session_vars(vars: impl Iterator<Item = String>) -> Vec<String> {
             matches!(k.as_str(), "CLAUDECODE" | "CLAUDE_PID" | "CLAUDE_EFFORT")
                 || k.starts_with("CLAUDE_AGENT_SDK_")
                 || k.starts_with("CLAUDE_PREVIEW_")
-                || (k.starts_with("CLAUDE_CODE_") && !k.starts_with("CLAUDE_CODE_USE_"))
+                || (k.starts_with("CLAUDE_CODE_") && !k.starts_with("CLAUDE_CODE_USE_") && k != "CLAUDE_CODE_OAUTH_TOKEN")
         })
         .collect()
 }
@@ -2062,6 +2064,7 @@ mod tests {
             "CLAUDE_CODE_SESSION_ID",
             "CLAUDE_AGENT_SDK_VERSION",
             "CLAUDE_CODE_USE_BEDROCK",
+            "CLAUDE_CODE_OAUTH_TOKEN",
             "CLAUDE_CONFIG_DIR",
             "ANTHROPIC_API_KEY",
             "PATH",
