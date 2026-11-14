@@ -6,6 +6,15 @@ workspace clippy, layers, fmt and the secret scan of all history were clean. Chi
 
 ## What works, and how it was checked
 
+### An app rebuilt as a website (R2.7, #1758)
+
+An app whose rebuild uses a site stack (React + TypeScript (Vite), Next.js, plain HTML and CSS) is
+checked by building it, as a website made from a request is: its brief doesn't ask for a
+`--screenshot` option, and the app-screenshot and console-run checks don't apply, since nothing
+starts a static site to picture it. In Deep mode the mechanics sheet is still asked for and checked.
+`an_app_rebuilt_as_a_website_is_checked_by_building_it` covers the checks and the brief for a site
+stack and a windowed one. Not run: a live rebuild of a desktop app as a website.
+
 ### Local Codex discovery and sign-in (R2.2)
 
 macOS Dock launches can find an executable Codex CLI bundled with ChatGPT.app or

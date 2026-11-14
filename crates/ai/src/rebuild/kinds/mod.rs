@@ -13,7 +13,7 @@ pub mod screenshot;
 pub mod self_test;
 pub mod website;
 
-pub use app::{AppKind, RUNS_BRIEF};
+pub use app::{AppKind, RUNS_BRIEF, SITE_BRIEF};
 pub use game::{CreditsCheck, GameKind};
 pub use mechanics::MechanicsCheck;
 pub use runs::RunsCheck;

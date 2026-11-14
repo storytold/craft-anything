@@ -3094,6 +3094,25 @@ impl TargetKind for LaterChecks {
 /// The app's sheet only.
 const APP_SHEET_ONLY: LaterChecks = LaterChecks(&AppKind, 3);
 
+/// #1758: an app rebuilt as a website can't be started to be pictured, so it's held to its build
+/// and isn't asked for a `--screenshot` option; the Deep-mode sheet still applies.
+#[test]
+fn an_app_rebuilt_as_a_website_is_checked_by_building_it() {
+    let d = tempfile::tempdir().unwrap();
+    let mut ws = Workspace::create(d.path(), "TipCalc", "Port this app to a web app", TargetRef::Local { path: d.path().join("TipCalc") }).unwrap();
+    ws.manifest.stack = "React + TypeScript (Vite)".into();
+    let ids = AppKind.checks(&ws).iter().map(|c| c.id()).collect::<Vec<_>>();
+    assert_eq!(ids, ["build", "mechanics"]);
+    let b = brief(&ws, "app", true, false, None, false, None);
+    assert!(b.contains(kinds::SITE_BRIEF) && !b.contains(kinds::screenshot::SCREENSHOT_CONTRACT), "{b}");
+    assert!(b.contains(kinds::mechanics::MECHANICS_CONTRACT), "Deep mode still asks for the sheet");
+
+    // A windowed app's stack keeps the picture.
+    ws.manifest.stack = "Rust + egui (eframe)".into();
+    assert!(AppKind.checks(&ws).iter().any(|c| c.id() == "app-screenshot"));
+    assert!(brief(&ws, "app", false, false, None, false, None).contains(kinds::screenshot::SCREENSHOT_CONTRACT));
+}
+
 #[test]
 fn apps_keep_the_sheet_only_when_deep_mode_decompiles_a_program() {
     let d = tempfile::tempdir().unwrap();

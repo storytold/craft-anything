@@ -1256,6 +1256,10 @@ Owner: open · Status: in progress
 - [x] System-tool and media-player phrases keep the app target: "a low level disk tool",
       "an MPEG 2 player" and "a single player app for movies". Independent game cues still apply
       — claimed: Afloat16, branch bugfix/r2.7-media-and-system-apps
+- [x] An app rebuilt as a website (a site stack, such as React + TypeScript (Vite)) isn't asked
+      for `--screenshot` or held to the app-screenshot check, which can't start a static site;
+      it's checked by building, as a website made from a request is (#1758)
+      — claimed: FuryNocturn, branch bugfix/r2.7-app-rebuilt-as-site
 
 ### R2.8 Clean room means clean room
 Owner: maintainers · Status: in progress
