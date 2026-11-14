@@ -1489,3 +1489,4 @@ Updated to {version}.	Uuendatud versioonile {version}.
 Use Releases or your package manager to update this installation.	Selle paigalduse uuendamiseks kasuta Väljalaskeid või paketihaldurit.
 You're up to date.	Sul on uusim versioon.
 {version} is available.	Saadaval on {version}.
+Detection looks at this computer: whether the API keys in your environment are set, model servers running here or on your network (their model list is requested), the coding agents you already installed, and the SSH hosts configured in your settings (suggestions only). No project files or prompts are uploaded, and nothing is added unless you choose it.	Tuvastus vaatab sellel arvutis: kas keskkonna API-võtmed on seatud, siin või teie võrgus töötavad mudeliserverid (nende mudelite loendit küsitakse), juba paigaldatud kodeerimisagendid ja teie seadetes määratud SSH-hostid (ainult soovitused). Projektifaile ega vihjeid ei laadita üles ning midagi ei lisata enne, kui te selle valite.

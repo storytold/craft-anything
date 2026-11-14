@@ -1489,3 +1489,4 @@ Updated to {version}.	已更新至 {version}。
 Use Releases or your package manager to update this installation.	請透過「發行版本」或套件管理器更新此安裝。
 You're up to date.	已是最新版本。
 {version} is available.	{version} 已可用。
+Detection looks at this computer: whether the API keys in your environment are set, model servers running here or on your network (their model list is requested), the coding agents you already installed, and the SSH hosts configured in your settings (suggestions only). No project files or prompts are uploaded, and nothing is added unless you choose it.	偵測會查看這台電腦上的：環境變數中的 API 金鑰是否已設定、在本機或網路上執行的模型伺服器（會詢問其模型清單）、已安裝的程式設計代理，以及設定中設定的 SSH 主機（僅供建議）。不會上傳專案檔案或提示詞，也不會在你選擇之前新增任何內容。
