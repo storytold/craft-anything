@@ -1377,6 +1377,9 @@ impl Worker {
                 }
                 if done {
                     self.relay_read_notes(ws);
+                    for line in newly_said(&ws.inbox_dir(), &mut said) {
+                        self.emit(RunEvent::Step { step: Step::Build, text: line });
+                    }
                     self.stop.check()?;
                     // An agent-level error (sign-in, crash, limits) ends the run: checking a
                     // build that never happened would only mislead.
