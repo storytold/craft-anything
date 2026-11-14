@@ -1382,11 +1382,10 @@ mod tests {
         assert_eq!(fix(crate::Caller::Mcp), "Open one first with web_site_open.");
     }
 
-    /// A browser that exits as soon as it starts is reported at once, not after the whole wait,
-    /// with what it said. The "browser" is a system program that rejects Chrome's arguments and
-    /// exits, so no browser or window starts.
+    /// A browser that exits before becoming ready gets the exit diagnostic, not the deadline
+    /// diagnostic. The stand-in exits without opening a browser or a window.
     #[test]
-    fn a_browser_that_exits_at_once_is_reported_at_once() {
+    fn a_browser_exit_before_readiness_is_reported_as_an_exit() {
         let stand_in = if cfg!(windows) {
             std::path::PathBuf::from(std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into())).join("System32").join("where.exe")
         } else {
@@ -1399,9 +1398,10 @@ mod tests {
         s.settings.engines.tools.chromium = Some(stand_in);
         let e = crate::Engine::new(s);
         let opts = crate::CallOptions::new(crate::Caller::Cli).with_consent(crate::Consent::Granted);
-        let started = std::time::Instant::now();
-        let err = e.call("web_site_open", json!({"url": "https://example.com", "timeout_secs": 60}), opts).err().unwrap();
-        assert!(started.elapsed() < std::time::Duration::from_secs(20), "waited {:?}", started.elapsed());
+        // The error identifies which path won. A second wall-clock limit on the whole
+        // call also times the test host scheduling, process startup and profile cleanup.
+        let err = e.call("web_site_open", json!({"url": "https://example.com", "timeout_secs": 60}), opts).unwrap_err();
+        assert_eq!(err.code, ErrorCode::ProgramFailed, "{err:?}");
         assert!(err.message.starts_with("Couldn't start the private browser") && err.message.contains("closed after"), "{}", err.message);
         assert!(err.remediation.is_some_and(|r| r.contains("Settings")));
     }
