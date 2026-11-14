@@ -1488,3 +1488,14 @@ Updated to {version}.	Aktualizováno na {version}.
 Use Releases or your package manager to update this installation.	Aktualizujte tuto instalaci přes vydání nebo správce balíčků.
 You're up to date.	Máte nejnovější verzi.
 {version} is available.	Je dostupná verze {version}.
+Earlier investigations	Dřívější šetření
+Continue an earlier investigation	Pokračovat v dřívějším šetření
+Read earlier investigations	Načíst dřívější šetření
+Open the investigation	Otevřít šetření
+Carrying on with an earlier investigation: {question}	Pokračujeme v dřívějším šetření: {question}
+Carrying on with an earlier investigation.	Pokračujeme v dřívějším šetření.
+Hide earlier investigations	Skrýt dřívější šetření
+Show earlier investigations	Zobrazit dřívější šetření
+Investigation	Šetření
+{when} · {evidence} evidence records · {findings} findings	{when} · důkazů: {evidence} · zjištění: {findings}
+Couldn't open that investigation.	Toto šetření se nepodařilo otevřít.

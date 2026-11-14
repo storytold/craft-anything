@@ -1488,3 +1488,14 @@ Updated to {version}.	Đã cập nhật lên {version}.
 Use Releases or your package manager to update this installation.	Dùng Bản phát hành hoặc trình quản lý gói để cập nhật bản cài đặt này.
 You're up to date.	Bạn đang dùng phiên bản mới nhất.
 {version} is available.	Đã có phiên bản {version}.
+Earlier investigations	Các cuộc điều tra trước
+Continue an earlier investigation	Tiếp tục một cuộc điều tra trước
+Read earlier investigations	Đọc các cuộc điều tra trước
+Open the investigation	Mở cuộc điều tra
+Carrying on with an earlier investigation: {question}	Tiếp tục cuộc điều tra trước: {question}
+Carrying on with an earlier investigation.	Tiếp tục một cuộc điều tra trước.
+Hide earlier investigations	Ẩn các cuộc điều tra trước
+Show earlier investigations	Hiện các cuộc điều tra trước
+Investigation	Cuộc điều tra
+{when} · {evidence} evidence records · {findings} findings	{when} · {evidence} bằng chứng · {findings} phát hiện
+Couldn't open that investigation.	Không mở được cuộc điều tra đó.

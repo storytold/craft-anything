@@ -1488,3 +1488,14 @@ Updated to {version}.	{version} sürümüne güncellendi.
 Use Releases or your package manager to update this installation.	Bu kurulumu güncellemek için Sürümler’i veya paket yöneticinizi kullanın.
 You're up to date.	En güncel sürümdesiniz.
 {version} is available.	{version} sürümü kullanılabilir.
+Earlier investigations	Önceki incelemeler
+Continue an earlier investigation	Önceki bir incelemeye devam et
+Read earlier investigations	Önceki incelemeleri oku
+Open the investigation	İncelemeyi aç
+Carrying on with an earlier investigation: {question}	Önceki bir incelemeye devam ediliyor: {question}
+Carrying on with an earlier investigation.	Önceki bir incelemeye devam ediliyor.
+Hide earlier investigations	Önceki incelemeleri gizle
+Show earlier investigations	Önceki incelemeleri göster
+Investigation	İnceleme
+{when} · {evidence} evidence records · {findings} findings	{when} · {evidence} kanıt · {findings} bulgu
+Couldn't open that investigation.	Bu inceleme açılamadı.

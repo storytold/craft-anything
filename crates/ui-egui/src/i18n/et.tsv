@@ -1488,3 +1488,14 @@ Updated to {version}.	Uuendatud versioonile {version}.
 Use Releases or your package manager to update this installation.	Selle paigalduse uuendamiseks kasuta Väljalaskeid või paketihaldurit.
 You're up to date.	Sul on uusim versioon.
 {version} is available.	Saadaval on {version}.
+Earlier investigations	Varasemad uurimised
+Continue an earlier investigation	Jätka varasemat uurimist
+Read earlier investigations	Loe varasemaid uurimisi
+Open the investigation	Ava uurimine
+Carrying on with an earlier investigation: {question}	Jätkame varasemat uurimist: {question}
+Carrying on with an earlier investigation.	Jätkame varasemat uurimist.
+Hide earlier investigations	Peida varasemad uurimised
+Show earlier investigations	Näita varasemaid uurimisi
+Investigation	Uurimine
+{when} · {evidence} evidence records · {findings} findings	{when} · tõendeid: {evidence} · leide: {findings}
+Couldn't open that investigation.	Seda uurimist ei õnnestunud avada.

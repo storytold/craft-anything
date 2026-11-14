@@ -1488,3 +1488,14 @@ Updated to {version}.	Обновлено до {version}.
 Use Releases or your package manager to update this installation.	Обновите эту установку через выпуски или менеджер пакетов.
 You're up to date.	Установлена последняя версия.
 {version} is available.	Доступна версия {version}.
+Earlier investigations	Прежние исследования
+Continue an earlier investigation	Продолжить прежнее исследование
+Read earlier investigations	Прочитать прежние исследования
+Open the investigation	Открыть исследование
+Carrying on with an earlier investigation: {question}	Продолжаем прежнее исследование: {question}
+Carrying on with an earlier investigation.	Продолжаем прежнее исследование.
+Hide earlier investigations	Скрыть прежние исследования
+Show earlier investigations	Показать прежние исследования
+Investigation	Исследование
+{when} · {evidence} evidence records · {findings} findings	{when} · доказательств: {evidence} · выводов: {findings}
+Couldn't open that investigation.	Не удалось открыть это исследование.

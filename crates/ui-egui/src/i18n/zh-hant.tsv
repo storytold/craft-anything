@@ -1488,3 +1488,14 @@ Updated to {version}.	已更新至 {version}。
 Use Releases or your package manager to update this installation.	請透過「發行版本」或套件管理器更新此安裝。
 You're up to date.	已是最新版本。
 {version} is available.	{version} 已可用。
+Earlier investigations	先前的調查
+Continue an earlier investigation	繼續先前的調查
+Read earlier investigations	讀取先前的調查
+Open the investigation	開啟調查
+Carrying on with an earlier investigation: {question}	繼續先前的調查：{question}
+Carrying on with an earlier investigation.	繼續先前的調查。
+Hide earlier investigations	隱藏先前的調查
+Show earlier investigations	顯示先前的調查
+Investigation	調查
+{when} · {evidence} evidence records · {findings} findings	{when} · {evidence} 筆證據 · {findings} 項發現
+Couldn't open that investigation.	無法開啟該調查。

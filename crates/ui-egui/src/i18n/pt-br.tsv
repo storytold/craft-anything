@@ -1488,3 +1488,14 @@ Updated to {version}.	Atualizado para {version}.
 Use Releases or your package manager to update this installation.	Use Versões ou seu gerenciador de pacotes para atualizar esta instalação.
 You're up to date.	Você está usando a versão mais recente.
 {version} is available.	{version} está disponível.
+Earlier investigations	Investigações anteriores
+Continue an earlier investigation	Continuar uma investigação anterior
+Read earlier investigations	Ler as investigações anteriores
+Open the investigation	Abrir a investigação
+Carrying on with an earlier investigation: {question}	Continuando uma investigação anterior: {question}
+Carrying on with an earlier investigation.	Continuando uma investigação anterior.
+Hide earlier investigations	Ocultar as investigações anteriores
+Show earlier investigations	Mostrar as investigações anteriores
+Investigation	Investigação
+{when} · {evidence} evidence records · {findings} findings	{when} · {evidence} evidências · {findings} descobertas
+Couldn't open that investigation.	Não foi possível abrir essa investigação.
