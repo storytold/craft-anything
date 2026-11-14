@@ -1075,6 +1075,7 @@ Owner: open · Status: in progress
       `inbox/build-progress.json` and stopped the build (R5.3 now names the records in the brief
       and says how to go on). Stop those writes in OpenCode itself, with its permission settings
       or by starting it in `app/`, and check it live
+      — claimed: youkaicountry, branch bugfix/r2.2-opencode-records-fence
 
 **ACP:**
 - [ ] Gemini CLI, opencode, goose via ACP or native adapters; each verified live, then turn ACP on
