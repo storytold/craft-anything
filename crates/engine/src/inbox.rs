@@ -190,12 +190,27 @@ impl Activity {
         Activity { file: inbox.join(ACTIVITY).join(format!("{}-{}.txt", std::process::id(), next_counter())) }
     }
 
+    /// Keep one notice per approval kind until the next build clears the activity folder.
+    pub(crate) fn approval_refused(inbox: &Path, kind: crate::workspace::ActionKind) {
+        let path = inbox.join(ACTIVITY).join(format!("approval-{}.txt", kind.name()));
+        Self::write(
+            &path,
+            &format!(
+                "The builder was refused permission for {}. To ask before trying again, use Approvals or type /approvals {} ask.",
+                kind.what(),
+                kind.name()
+            ),
+        );
+    }
+
     /// Say `line`, in place of what this wait said before.
     pub fn say(&self, line: &str) {
-        let written = match self.file.parent() {
-            Some(dir) => {
-                std::fs::create_dir_all(dir).map_err(|e| e.to_string()).and_then(|()| write_atomic(&self.file, line.as_bytes()).map_err(|e| e.message))
-            }
+        Self::write(&self.file, line);
+    }
+
+    fn write(file: &Path, line: &str) {
+        let written = match file.parent() {
+            Some(dir) => std::fs::create_dir_all(dir).map_err(|e| e.to_string()).and_then(|()| write_atomic(file, line.as_bytes()).map_err(|e| e.message)),
             None => Ok(()),
         };
         if let Err(e) = written {
