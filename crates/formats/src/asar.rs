@@ -163,7 +163,9 @@ fn walk(files: &Value, prefix: &str, depth: usize, max: usize, remaining: &mut u
                 None => false,
                 Some(value) => value.as_bool().ok_or_else(|| AsarError::BadJson(format!("unpacked at {path:?} is not a boolean")))?,
             };
-            let offset = node.get("offset").and_then(|o| o.as_str().and_then(|s| s.parse::<u64>().ok()).or_else(|| o.as_u64()));
+            let offset = node
+                .get("offset")
+                .and_then(|o| o.as_str().and_then(|s| s.bytes().all(|b| b.is_ascii_digit()).then(|| s.parse::<u64>().ok()).flatten()).or_else(|| o.as_u64()));
             if !unpacked && offset.is_none() {
                 return Err(AsarError::BadJson(format!("packed file at {path:?} has no unsigned offset")));
             }
