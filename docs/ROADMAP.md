@@ -537,9 +537,10 @@ been run live.
 - [x] A per-backend request rate in `[[ai.backends]]`, for services that limit requests per
       second or minute (#668): `requests_per_minute`, shared by every conversation on the backend.
       Not run against a live provider — claimed: justinjohn0306, branch `feature/r5.4-requests-per-minute`
-- [ ] Offer `requests_per_minute` in Settings → AI, and say in the feed when a build is waiting
-      for its turn (#668); a tokens-per-minute limit isn't covered either
-      — feed notice claimed: rudycelekli, branch feature/r5.4-request-pacing-feed
+- [ ] Offer `requests_per_minute` in Settings → AI (#668) — in PR #1841
+- [x] Say in the feed when a build is waiting for its turn (#668)
+      — PR #1847; claimed: rudycelekli, branch feature/r5.4-request-pacing-feed
+- [ ] A tokens-per-minute limit is not covered by requests per minute (#668)
 - [x] Find LM Studio on another port (#73): the port in its settings file (when it is there) and
       the ports 1235-1239 are probed like the usual servers; OpenCode's own `baseURL`s were already
       read (#83)
