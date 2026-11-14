@@ -56,6 +56,7 @@ pub const KNOWN: &[(&str, &str, &str)] = &[
     ("aider", "aider", "Aider"),
     ("dsh", "dsh", "DeepSeek Harness"),
     ("devin", "devin", "Devin"),
+    ("codebuddy", "codebuddy", "CodeBuddy Code"),
 ];
 
 pub fn program_for(agent: &str) -> String {
@@ -621,6 +622,9 @@ pub struct CliSpec {
     /// Where Claude Code's session costs are kept, so a resumed turn's cost is what it added
     /// ([`claude_cost`]). None: a resumed turn has no cost.
     pub cost_totals: Option<PathBuf>,
+    /// A session opened only to read an agent's model list and settings: no prompt is sent, so it
+    /// isn't held to what a question is (an agent that can't hold a question can still list them).
+    pub metadata: bool,
 }
 
 /// What a building run needs besides the working folder.
@@ -667,6 +671,7 @@ impl CliSpec {
             preamble: None,
             logs: None,
             cost_totals: None,
+            metadata: false,
             adapters: AgentAdapters::built_in(),
             question: false,
             key: None,
@@ -702,11 +707,14 @@ pub fn builder_conversation(spec: CliSpec, approver: acp::Approver) -> Box<dyn C
 fn acp_for(spec: &CliSpec) -> Option<AcpConversation> {
     let agent = spec.config.model.clone();
     let adapter = spec.adapters.for_agent(&agent);
-    if spec.question && !adapter.answers_questions() {
+    // Reading the model list sends no prompt, so it isn't held to what a question is
+    // (`model_metadata_with_stop` drops the access refusal for it too).
+    if spec.question && !adapter.answers_questions() && !spec.metadata {
         return None;
     }
     let local = spec.config.ssh_host.as_deref().is_none_or(|h| h.trim().is_empty());
-    let acp_args = selected_acp_args(adapter.as_ref(), &agent, &spec.options).filter(|_| local)?;
+    // The adapter's own id names its ACP mode, whatever name the backend was configured under.
+    let acp_args = selected_acp_args(adapter.as_ref(), adapter.ids().first().copied().unwrap_or(&agent), &spec.options).filter(|_| local)?;
     // No program to start: the plain run reports why.
     let program = program_of(&spec.config, &spec.options).ok()?;
     // Same modes as the plain runner, including Clean room chat (no builder, not deep).
@@ -727,6 +735,7 @@ fn acp_for(spec: &CliSpec) -> Option<AcpConversation> {
     let auth = acp::key_auth_method(&agent).map(str::to_string).zip(spec.key.clone());
     Some(
         AcpConversation::new(&spec.config.name, &agent, program, args, cwd, mcp, if spec.question { None } else { spec.resume.clone() })
+            .builder(spec.builder.is_some())
             .with_validation(adapter.validate_options(&spec.options))
             .with_access_limit(adapter.validate_access(access))
             .with_adapter(adapter)
@@ -744,6 +753,7 @@ fn acp_for(spec: &CliSpec) -> Option<AcpConversation> {
 pub fn acp_model_choices(config: &BackendConfig, options: &BackendOptions) -> Result<Vec<String>, ToolError> {
     let mut spec = CliSpec::new(config.clone(), options.clone(), false, None);
     spec.question = true;
+    spec.metadata = true;
     spec.options.cli_model = None;
     spec.options.cli_context = None;
     spec.options.cli_reasoning_effort = None;
@@ -770,6 +780,7 @@ pub(crate) fn acp_model_metadata(
 ) -> Result<acp::ModelMetadata, ToolError> {
     let mut spec = CliSpec::new(config.clone(), options.clone(), false, directory.map(Path::to_path_buf));
     spec.question = true;
+    spec.metadata = true;
     spec.options.cli_context = None;
     spec.options.cli_reasoning_effort = None;
     spec.options.cli_thinking = None;
@@ -914,6 +925,15 @@ fn nothing_done(backend: &str) -> AgentEvent {
 /// builder turn, since a hung hook alone never touches stdout again to reset it).
 const RESULT_GRACE: Duration = Duration::from_secs(5);
 
+/// How long a turn may go without the agent saying anything before it's stopped. A builder turn may
+/// take hours and sit silent for long stretches (Ghidra's first look at a big game, an engine
+/// build, the person answering a question); a chat may not. Both transports use these: the
+/// per-message runner as its idle deadline, and ACP's one long-lived agent as its silence limit —
+/// without one there, an agent that stopped talking mid-message left the conversation busy for as
+/// long as its process lived.
+pub(crate) const BUILDER_QUIET_SECS: u64 = 8 * 3600;
+pub(crate) const CHAT_QUIET_SECS: u64 = 15 * 60;
+
 /// One message as one run of the agent's program (here or over SSH), its events sent on `tx`
 /// as they come. Returns the `TurnDone` that ends the turn, whatever happened, for the caller to
 /// send once the conversation can take the next message. The session it reports is kept for the
@@ -1022,7 +1042,7 @@ fn run_cli(spec: &CliSpec, text: &str, retry: bool, tx: &Sender<AgentEvent>, sto
     // game, an engine build, or the person answering a question. Claude Code's own limits are
     // raised to match, so nothing cuts a long clone short (its defaults stop a quiet tool call at
     // 30 minutes and a background build at 10).
-    let (turn, quiet) = if builder { (24 * 3600, 8 * 3600) } else { (30 * 60, 15 * 60) };
+    let (turn, quiet) = if builder { (24 * 3600, BUILDER_QUIET_SECS) } else { (30 * 60, CHAT_QUIET_SECS) };
     let mut env = agent_env(builder, spec.options.effort);
     let tool_env = match &remote {
         None => adapter.mcp_env(&mcp, access),
@@ -2259,9 +2279,10 @@ mod tests {
     fn a_clean_room_acp_chat_refuses_the_agents_own_actions() {
         let approve = acp::clean_room_chat_approver();
         for tool in ["Read", "Write", "Bash", "WebFetch"] {
-            assert!(!approve(tool, &serde_json::json!({"file_path": "/original/secret.txt"})), "{tool}");
+            let why = approve(tool, &serde_json::json!({"file_path": "/original/secret.txt"}));
+            assert!(why.as_ref().is_some_and(|why| why.contains("Clean room")), "{tool}: {why:?}");
         }
-        assert!(approve("TodoWrite", &serde_json::Value::Null));
+        assert_eq!(approve("TodoWrite", &serde_json::Value::Null), None);
     }
 
     #[test]
@@ -3165,7 +3186,7 @@ echo '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
         reg.register(Arc::new(EchoAgent));
         assert_eq!(
             format!("{reg:?}"),
-            r#"["claude-code", "codex", "gemini-cli", "opencode", "antigravity", "hermes", "maki", "aider", "copilot", "grok", "dsh", "devin", "echo-agent"]"#
+            r#"["claude-code", "codex", "gemini-cli", "opencode", "antigravity", "hermes", "maki", "aider", "copilot", "grok", "dsh", "devin", "codebuddy", "echo-agent"]"#
         );
     }
 

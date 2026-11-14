@@ -857,6 +857,37 @@ Owner: open · Status: in progress
       discovery, MCP-only tool restrictions, model selection and fresh read-only questions;
       unit tests and CLI 1.0.105 with an isolated home and loopback model, all five access modes
       — claimed: qu-gg, branch `feature/r2.2-copilot-integration` (recorded during PR preparation)
+- [ ] CodeBuddy Code as a coding agent over ACP (`codebuddy --acp`): detection on PATH
+      (`codebuddy`), sign-in kept in its own CLI (`codebuddy login`), our tool server on
+      `session/new`, `session/load` to continue a session, and its model list. A build runs in its
+      `default` permission mode, so changes reach our approval policy. Only a deep build is
+      allowed: checked live against 2.183.0, its own `Read` runs without a permission request, so
+      a Clean room run, a deep chat and a question are refused, and a question is never handed a
+      server (its resource readers can't be refused). Setup writes
+      `~/.codebuddy/.mcp.json`. See [CodeBuddy Code](codebuddy.md).
+      Still to open: a live deep build through the app, reasoning depth on the session, notes
+      mid-turn
+- [x] An ACP permission request's own arguments reach the approval policy: a command is read from
+      `rawInput.command` (a string or words), `cmd`, `script` and `rawInput` given as words, never
+      from the agent's description or title, which the policy refused so that a builder's first
+      command ended its turn; a refusal carries the policy's reason back in the request's
+      `message`. Checked with the call CodeBuddy Code 2.183.0 sent on 2026-11-13 (from its session
+      log, kept as a test) and `cargo test -p craft-anything-ai`; a live deep build that runs its
+      commands is still to be seen.
+- [x] An ACP call whose command or target can't be read is refused with that said, instead of
+      being answered as allowed with an empty command (a `Bash` with no command ran nothing and
+      looked like success); a readable call with no words for what it does is refused, not run.
+- [ ] A request CodeBuddy Code can't approve without the person (a command that skips its sandbox,
+      `dangerouslyDisableSandbox`, or one with `; | >` joins) ends its turn on the refusal: decide
+      what a build gets there (let the command run sandboxed, teach the policy the read-only joins,
+      or report the refusal in the feed) — **decision**. Seen live on 2026-11-13: three runs in a
+      row stopped on their first command, all of them marked sandbox-free.
+- [x] An ACP turn that goes silent ends instead of staying busy forever: the agent's last line
+      is timed against the same limits the per-message runner uses (a chat 15 minutes, a builder
+      8 hours), the turn then sends `session/cancel` and reports the stop, and an agent that
+      doesn't answer the cancel within 10 seconds is killed. A prompt given up on no longer holds
+      the next message. Checked with a stand-in ACP agent that answers one word and then goes
+      quiet (it ended the turn after its limit); not yet against CodeBuddy Code itself.
 - [x] Grok Build as a coding agent over ACP (`grok agent stdio`): discovery in `~/.grok/bin`,
       the person's own `grok login` (a missing `auth.json` is unknown, so an API key still
       starts), model and reasoning effort, and our MCP server on the session with `"type": "stdio"`
