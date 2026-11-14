@@ -319,6 +319,94 @@ pub fn parse_params<T: DeserializeOwned>(v: Value) -> Result<T, ToolError> {
     })
 }
 
+/// Tool params with a number or a boolean the caller wrote as text (`"limit": "200"`, a model's
+/// usual slip) read as what the tool's schema says they are. Only where the schema types a value
+/// as an integer, a number or a boolean is its text rewritten: a string parameter keeps its text,
+/// even when that text is `"200"`. Nested objects follow `properties`, arrays follow `items`, and
+/// nothing the schema doesn't describe is touched (#1825). A nested type is usually a `$ref` into
+/// the schema's own `$defs` or `definitions`, which is read through by the reference's own path.
+pub fn params_as_schema(schema: &Value, params: Value) -> Value {
+    typed_as_schema(schema, schema, &params, MAX_PARAM_DEPTH)
+}
+
+/// Params are trees the schema bounds, but a self-referencing schema would not end: past this
+/// depth a value is taken as written.
+const MAX_PARAM_DEPTH: usize = 64;
+
+fn typed_as_schema(schema: &Value, root: &Value, params: &Value, depth: usize) -> Value {
+    if depth == 0 {
+        return params.clone();
+    }
+    if let Some(next) = resolve_ref(schema, root) {
+        return typed_as_schema(next, root, params, depth - 1);
+    }
+    match params {
+        Value::String(s) => written_as_schema(schema, s, params),
+        Value::Object(map) => {
+            let properties = schema.get("properties");
+            Value::Object(
+                map.iter()
+                    .map(|(key, value)| match properties.and_then(|p| p.get(key)) {
+                        Some(next) => (key.clone(), typed_as_schema(next, root, value, depth - 1)),
+                        None => (key.clone(), value.clone()),
+                    })
+                    .collect(),
+            )
+        }
+        Value::Array(items) => match schema.get("items") {
+            Some(next) => Value::Array(items.iter().map(|item| typed_as_schema(next, root, item, depth - 1)).collect()),
+            None => params.clone(),
+        },
+        _ => params.clone(),
+    }
+}
+
+/// A `$ref` into the schema itself (`#/$defs/Name`, `#/definitions/Name`), read at the path the
+/// reference names, so a schema that keeps both dictionaries has each reference obey its own.
+fn resolve_ref<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
+    let reference = schema.get("$ref")?.as_str()?;
+    let pointer = reference.strip_prefix('#')?;
+    if !pointer.starts_with('/') {
+        return None;
+    }
+    root.pointer(pointer)
+}
+
+/// A string the caller wrote. Where the schema allows text, text stays text: a number field that
+/// also allows a string keeps `"200"` as written. Where it doesn't, the schema's own kinds decide,
+/// in no particular order: an integer, number or boolean the text spells is read as one.
+fn written_as_schema(schema: &Value, text: &str, params: &Value) -> Value {
+    let kinds = schema_kinds(schema);
+    if kinds.contains(&"string") {
+        return params.clone();
+    }
+    let numeric = kinds.iter().any(|kind| matches!(*kind, "integer" | "number"));
+    if numeric
+        && text.trim() == text
+        && !text.is_empty()
+        && let Ok(Value::Number(number)) = serde_json::from_str::<Value>(text)
+    {
+        return Value::Number(number);
+    }
+    if kinds.contains(&"boolean") {
+        match text {
+            "true" => return Value::Bool(true),
+            "false" => return Value::Bool(false),
+            _ => {}
+        }
+    }
+    params.clone()
+}
+
+/// A schema's allowed types, whether written as one word or as a list (`["integer", "null"]`).
+fn schema_kinds(schema: &Value) -> Vec<&str> {
+    match schema.get("type") {
+        Some(Value::String(kind)) => vec![kind.as_str()],
+        Some(Value::Array(kinds)) => kinds.iter().filter_map(Value::as_str).collect(),
+        _ => Vec::new(),
+    }
+}
+
 /// A JSON Pointer to the rejected value, without guessing when Serde cannot locate it.
 fn parameter_pointer(path: &serde_path_to_error::Path) -> Option<String> {
     const LIMIT: usize = 1024;
@@ -366,6 +454,55 @@ mod parameter_tests {
         }
         let valid = parse_params::<Question>(json!({"question": "Where?", "probes": ["inspect"]})).unwrap();
         assert_eq!(valid, Question { question: "Where?".into(), probes: vec!["inspect".into()] });
+    }
+
+    /// #1825: params follow the schema: a number or a boolean written as text is read as one,
+    /// a string stays text even when it reads as a number, and undescribed values are untouched.
+    #[test]
+    fn a_number_the_schema_types_is_read_as_one_and_text_stays_text() {
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "offset": {"type": "integer"},
+                "ratio": {"type": ["number", "null"]},
+                "deep": {"type": "boolean"},
+                "note": {"type": "string"},
+                "pages": {"type": "array", "items": {"type": "integer"}}
+            }
+        });
+        let typed = params_as_schema(&schema, json!({"offset": "592", "ratio": "1.5", "deep": "true", "note": "200", "pages": ["1", 2], "other": "3"}));
+        assert_eq!(typed, json!({"offset": 592, "ratio": 1.5, "deep": true, "note": "200", "pages": [1, 2], "other": "3"}));
+        // Text that isn't the value the schema wants stays as written, so the error still says
+        // what is wrong where.
+        let typed = params_as_schema(&schema, json!({"deep": "yes", "note": "1"}));
+        assert_eq!(typed, json!({"deep": "yes", "note": "1"}));
+        assert!(parse_params::<Question>(params_as_schema(&json!({"type": "object"}), json!({"question": "Where?"}))).is_ok());
+
+        // A nested type is a `$ref` into the schema's own `$defs`.
+        let nested = json!({
+            "type": "object",
+            "properties": {"range": {"$ref": "#/$defs/ByteRange"}},
+            "$defs": {"ByteRange": {"type": "object", "properties": {"offset": {"type": "integer"}, "length": {"type": "integer"}}}}
+        });
+        let typed = params_as_schema(&nested, json!({"range": {"offset": "592", "length": "1024"}}));
+        assert_eq!(typed, json!({"range": {"offset": 592, "length": 1024}}));
+
+        // A schema that keeps both dictionaries is read by each reference's own path: the one into
+        // `definitions` wants text, the one into `$defs` a number.
+        let both = json!({
+            "type": "object",
+            "properties": {"a": {"$ref": "#/definitions/Value"}, "b": {"$ref": "#/$defs/Value"}},
+            "definitions": {"Value": {"type": "string"}},
+            "$defs": {"Value": {"type": "integer"}}
+        });
+        let typed = params_as_schema(&both, json!({"a": "200", "b": "200"}));
+        assert_eq!(typed, json!({"a": "200", "b": 200}));
+
+        // A list of types is read as a set: the order never decides, and a value the schema also
+        // allows as text keeps its text.
+        let either = json!({"type": "object", "properties": {"maybe": {"type": ["null", "integer"]}, "or_text": {"type": ["integer", "string"]}}});
+        let typed = params_as_schema(&either, json!({"maybe": "200", "or_text": "200"}));
+        assert_eq!(typed, json!({"maybe": 200, "or_text": "200"}));
     }
 
     #[test]
