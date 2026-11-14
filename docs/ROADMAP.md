@@ -795,6 +795,11 @@ Owner: open · Status: in progress
       starts or at the first entry that isn't an instruction start there, and writes the override.
       Live on Ghidra 12.1.4: a Rust async function that timed out after 15 min decompiles in 16 s
       (121 tables) — claimed: justinjohn0306, branch `bugfix/r1.5-bound-unguarded-jump-tables`
+- [x] Ghidra's decompile of one function stops after 120 s: it had no time limit, so a function
+      Ghidra can't finish (such as an unguarded jump table before the bounding above, #1715) ran for over
+      an hour and every request behind it waited the full 15-minute request time (#1711). The
+      request then falls back to the built-in decompiler. Not run live (no Ghidra here)
+      — claimed: bflatastic, branch bugfix/r1.5-ghidra-decompile-time-limit
 - [ ] More pins once their hashes are checked against the publisher: Chromium (no published
       checksums found yet), Rizin for Linux (the tar.xz unpacks to ~800 MB, so it needs streaming
       extraction) and macOS (a .pkg)
