@@ -33,6 +33,22 @@ fn opencode_cli_lists_supported_depths_and_rejects_unsupported_choices() {
     assert_eq!(cli(&["ai", "model", "OpenCode", "test/model", "--default"], cfg.path()).code, Some(2));
 }
 
+/// `ai model <Claude Code> --default` clears an explicit model through the same path as the
+/// positional `default`, with no model-discovery run (Claude Code has no catalogue).
+#[test]
+fn claude_code_default_clears_the_model_without_discovery() {
+    let cfg = tempfile::tempdir().unwrap();
+    for (name, agent) in [("Claude Code", "claude-code"), ("Claude", "claude")] {
+        assert!(cli(&["ai", "add", name, "--kind", "agent_cli", "--model", agent], cfg.path()).success);
+        assert!(cli(&["ai", "model", name, "my-custom-model"], cfg.path()).success);
+        let saved = std::fs::read_to_string(cfg.path().join("config.toml")).unwrap();
+        assert!(saved.contains("my-custom-model"), "{saved}");
+        assert!(cli(&["ai", "model", name, "--default"], cfg.path()).success);
+        let saved = std::fs::read_to_string(cfg.path().join("config.toml")).unwrap();
+        assert!(!saved.contains("cli_model"), "{saved}");
+    }
+}
+
 #[test]
 fn commands_and_exit_codes() {
     let cfg = tempfile::tempdir().unwrap();

@@ -281,6 +281,21 @@ pub fn ai(cli: &Cli, c: &AiCommand, f: Format) -> u8 {
         AiCommand::Model { name, model, thinking, default } if *default || thinking.is_some() => {
             let depth = thinking.as_deref().and_then(craft_anything_ai::Effort::parse);
             let model = if *default { None } else { model.clone().or_else(|| hub.options().get(name).and_then(|o| o.cli_model.clone())) };
+            // Claude Code keeps no live catalogue, so `--default` is its "no --model" choice:
+            // `set_model` clears the override directly instead of a catalogue selection.
+            let claude_code = *default
+                && hub.backends().iter().any(|b| {
+                    b.name == *name && b.kind == BackendKind::AgentCli && craft_anything_ai::cli_agents::adapter_for(&b.model).ids().contains(&"claude-code")
+                });
+            if claude_code {
+                return match hub.set_model(name, craft_anything_ai::anthropic::CLAUDE_CODE_DEFAULT) {
+                    Ok(found) => {
+                        emit(&json!({"name": name, "model": craft_anything_ai::anthropic::CLAUDE_CODE_DEFAULT, "found": found}), f);
+                        if found { 0 } else { 1 }
+                    }
+                    Err(e) => fail(&e, f),
+                };
+            }
             match hub.set_agent_model(name, model.as_deref(), depth) {
                 Ok(found) => {
                     emit(&json!({"name": name, "model": model, "thinking": depth, "found": found}), f);
