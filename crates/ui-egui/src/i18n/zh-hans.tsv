@@ -1488,3 +1488,7 @@ Updated to {version}.	已更新至 {version}。
 Use Releases or your package manager to update this installation.	请通过“发行版本”或软件包管理器更新此安装。
 You're up to date.	已是最新版本。
 {version} is available.	{version} 已可用。
+Add an agent by its program	按程序添加代理
+For a coding agent installed somewhere we don't look.	用于安装在我们不会查找的位置的编程代理。
+Choose an agent	选择一个代理
+Choose its program…	选择它的程序…

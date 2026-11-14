@@ -1488,3 +1488,7 @@ Updated to {version}.	{version}(으)로 업데이트되었습니다.
 Use Releases or your package manager to update this installation.	릴리스 또는 패키지 관리자를 사용하여 이 설치를 업데이트하세요.
 You're up to date.	최신 버전입니다.
 {version} is available.	{version} 버전을 사용할 수 있습니다.
+Add an agent by its program	프로그램으로 에이전트 추가
+For a coding agent installed somewhere we don't look.	찾아보지 않는 곳에 설치된 코딩 에이전트용입니다.
+Choose an agent	에이전트 선택
+Choose its program…	프로그램 선택…

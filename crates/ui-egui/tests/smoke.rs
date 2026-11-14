@@ -1391,13 +1391,13 @@ fn an_ai_server_is_added_by_its_address() {
     h.get_by_label("Add an AI by its address");
     h.state_mut().server_form = craft_anything_ui_egui::ServerForm { name: "Studio box".into(), address: url.clone(), ..Default::default() };
     h.run_steps(1);
-    // The AI settings page scrolls, and the key row added in #1486 puts the form's Add button
-    // below its visible part. A pointer click there lands outside the scroll area, so scroll the
-    // page first, as a person would.
+    // The AI settings page scrolls, and the key row added in #1486 and the add-by-program row put
+    // the form's Add button below its visible part. A pointer click there lands outside the scroll
+    // area, so scroll the page first, as a person would.
     h.event(egui::Event::PointerMoved(egui::pos2(640.0, 400.0)));
     h.event(egui::Event::MouseWheel {
         unit: egui::MouseWheelUnit::Point,
-        delta: egui::vec2(0.0, -300.0),
+        delta: egui::vec2(0.0, -600.0),
         phase: egui::TouchPhase::Move,
         modifiers: egui::Modifiers::NONE,
     });
@@ -1455,6 +1455,43 @@ fn a_saved_program_that_is_gone_is_said_in_settings() {
     h.run_steps(3);
     h.get_by_label("It isn't there any more, so cargo runs in its place.");
     assert!(h.query_by_label("Use it").is_none(), "a name on PATH isn't a file to save");
+}
+
+/// #1060: an agent Detect can't find is chosen from the known agents and added by its program.
+#[test]
+fn an_agent_is_added_by_its_program_in_settings() {
+    let mut h = harness(|| {
+        let mut a = demo::app(demo::engine(Mode::Experienced, true));
+        a.state.settings_open = true;
+        a.state.settings_tab = craft_anything_ui_egui::state::SettingsTab::Ai;
+        a
+    });
+    h.run_steps(2);
+    // The row sits below the visible part of the AI page: scroll to it, as a person would.
+    h.event(egui::Event::PointerMoved(egui::pos2(640.0, 400.0)));
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, -300.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.run_steps(20);
+    h.get_by_label("Add an agent by its program");
+    // Nothing to choose a program for until an agent is chosen.
+    h.get_by_label("Choose its program…").click();
+    h.run_steps(1);
+    assert_eq!(h.state().picking_new_agent, None);
+    h.state_mut().new_agent = "opencode".into();
+    h.run_steps(1);
+    h.get_by_label("Choose its program…").click();
+    h.run_steps(1);
+    assert_eq!(h.state().picking_new_agent.as_deref(), Some("opencode"), "the file dialog is for a new OpenCode");
+
+    let d = tempfile::tempdir().unwrap();
+    let program = d.path().join("opencode-cli.exe");
+    std::fs::write(&program, "").unwrap();
+    h.state_mut().add_agent_program("opencode".into(), program.display().to_string());
+    assert!(wait(&mut h, |a| a.backends.iter().any(|b| b.name == "OpenCode" && b.model == "opencode")));
 }
 
 /// Claude Code's effort is chosen in Settings → AI, from every level Claude offers.

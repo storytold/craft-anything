@@ -1488,3 +1488,7 @@ Updated to {version}.	อัปเดตเป็น {version} แล้ว
 Use Releases or your package manager to update this installation.	ใช้รุ่นที่เผยแพร่หรือตัวจัดการแพ็กเกจเพื่ออัปเดตการติดตั้งนี้
 You're up to date.	คุณใช้เวอร์ชันล่าสุดแล้ว
 {version} is available.	มี {version} พร้อมใช้งานแล้ว
+Add an agent by its program	เพิ่มเอเจนต์จากโปรแกรมของมัน
+For a coding agent installed somewhere we don't look.	สำหรับเอเจนต์เขียนโค้ดที่ติดตั้งไว้ในที่ที่เราไม่ได้ค้นหา
+Choose an agent	เลือกเอเจนต์
+Choose its program…	เลือกโปรแกรมของมัน…

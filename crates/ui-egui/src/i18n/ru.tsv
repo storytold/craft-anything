@@ -1488,3 +1488,7 @@ Updated to {version}.	Обновлено до {version}.
 Use Releases or your package manager to update this installation.	Обновите эту установку через выпуски или менеджер пакетов.
 You're up to date.	Установлена последняя версия.
 {version} is available.	Доступна версия {version}.
+Add an agent by its program	Добавить агента по его программе
+For a coding agent installed somewhere we don't look.	Для агента-программиста, установленного там, где мы не ищем.
+Choose an agent	Выберите агента
+Choose its program…	Выбрать его программу…

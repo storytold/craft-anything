@@ -1488,3 +1488,7 @@ Updated to {version}.	{version} sürümüne güncellendi.
 Use Releases or your package manager to update this installation.	Bu kurulumu güncellemek için Sürümler’i veya paket yöneticinizi kullanın.
 You're up to date.	En güncel sürümdesiniz.
 {version} is available.	{version} sürümü kullanılabilir.
+Add an agent by its program	Bir ajanı programıyla ekle
+For a coding agent installed somewhere we don't look.	Bakmadığımız bir yere kurulmuş bir kodlama ajanı için.
+Choose an agent	Bir ajan seçin
+Choose its program…	Programını seç…

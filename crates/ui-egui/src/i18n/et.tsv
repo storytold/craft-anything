@@ -1488,3 +1488,7 @@ Updated to {version}.	Uuendatud versioonile {version}.
 Use Releases or your package manager to update this installation.	Selle paigalduse uuendamiseks kasuta Väljalaskeid või paketihaldurit.
 You're up to date.	Sul on uusim versioon.
 {version} is available.	Saadaval on {version}.
+Add an agent by its program	Lisa agent tema programmi järgi
+For a coding agent installed somewhere we don't look.	Kodeerimisagendile, mis on paigaldatud kohta, kust me ei otsi.
+Choose an agent	Vali agent
+Choose its program…	Vali tema programm…

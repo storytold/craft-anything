@@ -1488,3 +1488,7 @@ Updated to {version}.	Aktualizováno na {version}.
 Use Releases or your package manager to update this installation.	Aktualizujte tuto instalaci přes vydání nebo správce balíčků.
 You're up to date.	Máte nejnovější verzi.
 {version} is available.	Je dostupná verze {version}.
+Add an agent by its program	Přidat agenta podle jeho programu
+For a coding agent installed somewhere we don't look.	Pro programovacího agenta nainstalovaného tam, kde nehledáme.
+Choose an agent	Vyberte agenta
+Choose its program…	Vybrat jeho program…

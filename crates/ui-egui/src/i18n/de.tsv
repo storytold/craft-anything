@@ -1488,3 +1488,7 @@ Updated to {version}.	Auf {version} aktualisiert.
 Use Releases or your package manager to update this installation.	Aktualisiere diese Installation über die Veröffentlichungen oder deine Paketverwaltung.
 You're up to date.	Du bist auf dem neuesten Stand.
 {version} is available.	{version} ist verfügbar.
+Add an agent by its program	Einen Agenten über sein Programm hinzufügen
+For a coding agent installed somewhere we don't look.	Für einen Coding-Agenten, der dort installiert ist, wo wir nicht suchen.
+Choose an agent	Agenten wählen
+Choose its program…	Sein Programm wählen…

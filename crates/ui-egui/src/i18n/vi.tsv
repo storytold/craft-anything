@@ -1488,3 +1488,7 @@ Updated to {version}.	Đã cập nhật lên {version}.
 Use Releases or your package manager to update this installation.	Dùng Bản phát hành hoặc trình quản lý gói để cập nhật bản cài đặt này.
 You're up to date.	Bạn đang dùng phiên bản mới nhất.
 {version} is available.	Đã có phiên bản {version}.
+Add an agent by its program	Thêm một agent theo chương trình của nó
+For a coding agent installed somewhere we don't look.	Dành cho agent lập trình được cài ở nơi chúng tôi không tìm.
+Choose an agent	Chọn một agent
+Choose its program…	Chọn chương trình của nó…
