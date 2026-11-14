@@ -579,6 +579,8 @@ file unreadable, dropping its code, names and constants from reports. A reader c
 must preserve fields and payload it can still understand: report the unknown bits as a warning,
 derive known modes from their defined bits, and test that the warning and recovered data coexist.
 
+**Validating only the fields you edit.** Uninstall's `inert_config_text` checked just `version`, `auto_mode` and `ai.backends`, so a file with valid TOML but an unrelated field the settings loader rejects (`theme = 123`) was reported inert — and the app, on next load, renames such a file aside and falls back to defaults with auto mode on again. Validate a rewritten config through the real loader (`read_settings`) and check the loaded automatic-execution state (`auto_mode` off, no backend enabled) before accepting either the changed or the already-inert result; a file the loader rejects stays untouched and the uninstall is partial. Test the invalid-unrelated-field case, not only syntax errors and bad versions, for both the main config and the pending sidecar.
+
 **A round of checks that nothing could stop.** The builder's own checks ran one after another on
 the build's thread with no time limit, Pause was looked at only between tool calls, and the feed
 said only "checking its work against the original" for the whole round, so a check that stalled
@@ -589,6 +591,8 @@ call, so a limit that only applies "at the next tool call" leaves exactly the st
 A check that's cut off is a failed check with its reason, never a silent wait. And every way a
 run can end — including a caught bug — records the project's status: leaving the last status on
 disk ("Checking" while nothing runs) reads as a stuck build that can't be retried.
+
+**An empty environment variable was treated as unset.** `Host::current()` dropped empty values, and `Host::settings_path()` filtered them again, so with `CRAFT_ANYTHING_CONFIG_DIR` set to empty, uninstall fixed the platform config while the app loaded `config.toml` from its working directory. Empty is a value where the consumer treats it as one: mirror the consumer's exact rule (`var_os`, no emptiness check) instead of normalising environment values at capture, and test the empty case explicitly. The first fix kept the value as a `String`, so a non-UTF-8 path was still dropped by `std::env::var`: mirror the consumer's type too, not just its emptiness rule — capture the path as an `OsString`. The same divergence lived in the platform fallback: setup re-derived it from `APPDATA`/`XDG_CONFIG_HOME` while the engine uses `dirs::config_dir()`, so on Windows (`%APPDATA%` vs the Known Folder path) or with a relative/non-UTF-8 `XDG_CONFIG_HOME` on Linux, uninstall fixed the wrong file. Don't re-derive a path another crate owns: call its function for the production fallback, and keep an injectable path for tests.
 
 **An early error without a terminal event.** Model validation returned after reporting an error,
 but headless chat waits for `TurnDone`, not just an idle worker. Preflight failures and cancellation
