@@ -563,9 +563,10 @@ impl AiHub {
     }
 
     /// Add an OpenAI-compatible server by its address: Ollama or LM Studio on another computer, or
-    /// a hosted service with its key. It's added only when it answers with its models; without a
-    /// model, a chat model it says is loaded (`/api/ps`) is used, else the first one it lists that
-    /// can chat. Returns the model. Anthropic's own
+    /// a hosted service with its key. A named model is saved as given, without asking the server for
+    /// its models (some hosted services have no `/models`). Without one, it's added only when it
+    /// answers with its models: a chat model it says is loaded (`/api/ps`) is used, else the first
+    /// one it lists that can chat. Returns the model. Anthropic's own
     /// address is added as an Anthropic backend, as its API isn't OpenAI's.
     pub fn add_server(&self, name: &str, address: &str, model: Option<&str>, key: Option<String>) -> Result<String, ToolError> {
         self.add_server_within(name, address, model, key, SERVER_ANSWER_WAIT, &CancelToken::default())
@@ -598,6 +599,27 @@ impl AiHub {
         }
         let key = key.map(|k| k.trim().to_string()).filter(|k| !k.is_empty());
         let kind = if anthropic::is_anthropic_api(address) { BackendKind::Anthropic } else { BackendKind::OpenaiCompatible };
+        let model = match model.map(str::trim).filter(|m| !m.is_empty()) {
+            Some(model) => model.to_string(),
+            None => self.server_model(name, address, kind, key.clone(), wait, cancel)?,
+        };
+        cancel.check()?;
+        let config = BackendConfig { name: name.to_string(), kind, model: model.clone(), base_url: Some(address.to_string()), ssh_host: None, enabled: true };
+        self.add_backend(config, key)?;
+        Ok(model)
+    }
+
+    /// The model to save for a server added with none named: asks the server for its models,
+    /// waiting `wait` once reached, and picks a loaded chat model, else the first that can chat.
+    fn server_model(
+        &self,
+        name: &str,
+        address: &str,
+        kind: BackendKind,
+        key: Option<String>,
+        wait: Duration,
+        cancel: &CancelToken,
+    ) -> Result<String, ToolError> {
         let (asked_name, asked_address, asked_key) = (name.to_string(), address.to_string(), key.clone());
         let listed = until_cancelled(cancel, move || {
             if kind == BackendKind::Anthropic {
@@ -635,17 +657,11 @@ impl AiHub {
             }
             detect::chat_model(&openai::OpenAi::compatible(name, address, key.clone(), "").loaded_models(Duration::from_secs(5)))
         };
-        let model = match model.map(str::trim).filter(|m| !m.is_empty()) {
-            Some(m) => m.to_string(),
-            None => loaded().or_else(|| detect::chat_model(&models)).ok_or_else(|| {
-                let reason = if models.is_empty() { "has no models yet" } else { "doesn't list a model that can chat" };
-                ToolError::new(ErrorCode::NotFound, format!("{address} {reason}."))
-                    .with_remediation("Load a chat model on the server first, or enter the name of a chat model you know is available.")
-            })?,
-        };
-        let config = BackendConfig { name: name.to_string(), kind, model: model.clone(), base_url: Some(address.to_string()), ssh_host: None, enabled: true };
-        self.add_backend(config, key)?;
-        Ok(model)
+        loaded().or_else(|| detect::chat_model(&models)).ok_or_else(|| {
+            let reason = if models.is_empty() { "has no models yet" } else { "doesn't list a model that can chat" };
+            ToolError::new(ErrorCode::NotFound, format!("{address} {reason}."))
+                .with_remediation("Load a chat model on the server first, or enter the name of a chat model you know is available.")
+        })
     }
 
     /// Like [`AiHub::add_backend`], with options.

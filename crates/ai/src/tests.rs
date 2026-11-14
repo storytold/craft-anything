@@ -946,6 +946,22 @@ fn a_server_is_added_by_its_address() {
     assert_eq!(h.backends().len(), 2, "only the ones that answered");
 }
 
+/// A model named when adding a server is saved as given: the server isn't asked for its models,
+/// as some hosted services have no `/models` to answer with.
+#[test]
+fn a_named_model_is_added_without_asking_for_the_model_list() {
+    let (h, _d) = hub();
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    l.set_nonblocking(true).unwrap();
+    let url = format!("http://{}/v1", l.local_addr().unwrap());
+    assert_eq!(h.add_server("Hosted", &url, Some(" my-model "), Some("sk-test".into())).unwrap(), "my-model");
+    let b = h.backends().into_iter().find(|b| b.name == "Hosted").unwrap();
+    assert_eq!((b.kind, b.model.as_str(), b.base_url.as_deref()), (BackendKind::OpenaiCompatible, "my-model", Some(url.as_str())));
+    assert!(matches!(l.accept(), Err(e) if e.kind() == std::io::ErrorKind::WouldBlock), "no request was sent to the server");
+    let missing = serve("404 Not Found", "no model list here");
+    assert_eq!(h.add_server("No list", &missing, Some("my-model"), None).unwrap(), "my-model", "a missing /models doesn't stop it");
+}
+
 /// #1429: a server that takes the request and doesn't list its models in time (still starting, or
 /// loading a model) is told to wait, not to check its address, and the message isn't repeated.
 #[test]
