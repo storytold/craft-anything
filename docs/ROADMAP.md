@@ -231,6 +231,7 @@ only when it's green and a maintainer has fully reviewed it, code as well as wor
 - [ ] `website_tools::tests::a_browser_that_exits_at_once_is_reported_at_once` (engine) failed once
       on Windows with the whole engine suite running (66 s under load) and passes alone, three
       times in a row. Find what it times
+      — claimed: rudycelekli, branch test/r5.2-browser-exit-diagnostic
 - [x] `a_remote_query_expands_only_the_remote_working_directory` compares the shell's `$PWD`
       with the fixture's canonical path, so macOS's `/var` → `/private/var` alias does not fail
       the test. Remote expansion and special-character quoting checks are retained — PR #949
