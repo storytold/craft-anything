@@ -101,7 +101,12 @@ fn reported_tokens(n: u64, incomplete: bool, units: bool) -> String {
     if n == 0 && incomplete {
         return tr("Unknown");
     }
-    let count = if incomplete { format!("{n}+") } else { tokens_short(n) };
+    // A partial count is a lower bound: truncate before the millions formatter rounds.
+    let count = match (incomplete, n) {
+        (true, 1_000_000..) => format!("{}.{}M+", n / 1_000_000, n / 100_000 % 10),
+        (true, _) => format!("{}+", tokens_short(n)),
+        (false, _) => tokens_short(n),
+    };
     if units { trf("{n} tokens", &[("n", &count)]) } else { count }
 }
 
@@ -196,7 +201,10 @@ mod tests {
         usage.add_turn(17, 0, None, false);
         assert_eq!(token_total(&usage, true), "17+ tokens");
         assert_eq!(token_total(&usage, false), "17+");
-        assert_eq!(reported_tokens(1_980_000, true, false), "1980000+");
+        assert_eq!(reported_tokens(999, true, false), "999+");
+        assert_eq!(reported_tokens(12_999, true, false), "12k+");
+        assert_eq!(reported_tokens(1_000_000, true, false), "1.0M+");
+        assert_eq!(reported_tokens(1_980_000, true, false), "1.9M+");
         assert!(explain(&usage, "x").starts_with("17+ tokens in, Unknown out."));
     }
 
