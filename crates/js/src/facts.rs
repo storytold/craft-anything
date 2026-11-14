@@ -23,6 +23,11 @@ const MAX_FN_CALLS: usize = 200;
 const MAX_FN_STRINGS: usize = 64;
 const MAX_PATH_DEPTH: usize = 24;
 const MAX_NAMED_OBJECTS: usize = 4_096;
+/// Longest text read through constants (`base + "/v1"`, `` `${base}/v1` ``), in bytes. Longer
+/// text reads as not literal, so concatenating a constant with itself can't double without end.
+const MAX_CONST_TEXT: usize = 4 * 1024;
+/// Room for constant text beyond the source's own size, shared by every constant in the file.
+const CONST_TEXT_SLACK: usize = 1024 * 1024;
 
 /// Keys that make an object literal worth remembering as window options, or as webPreferences.
 const WINDOW_OPTION_KEYS: &[&str] = &["webPreferences", "width", "height", "show", "frame", "title", "parent", "modal"];
@@ -155,6 +160,8 @@ pub(crate) struct FactVisitor<'s> {
     scoping: Option<&'s Scoping>,
     aliases: HashMap<Key, Ref>,
     const_strings: HashMap<Key, String>,
+    /// Bytes `const_strings` may still hold: the source's size plus [`CONST_TEXT_SLACK`].
+    const_room: usize,
     /// Object literals bound to a variable: name → (prop → qualified function name).
     object_members: HashMap<Key, Vec<ExposedMember>>,
     frames: Vec<Frame>,
@@ -193,6 +200,7 @@ impl<'s> FactVisitor<'s> {
             facts: ModuleFacts::default(),
             aliases: HashMap::new(),
             const_strings: HashMap::new(),
+            const_room: src.len().saturating_add(CONST_TEXT_SLACK),
             object_members: HashMap::new(),
             frames: Vec::new(),
             pending: HashMap::new(),
@@ -325,6 +333,7 @@ impl<'s> FactVisitor<'s> {
     }
 
     /// Render an expression as a string when it is (partly) literal: `(text, fully_literal)`.
+    /// Text built from more than one part is at most [`MAX_CONST_TEXT`] bytes, or `None`.
     pub(crate) fn render_value(&self, e: &Expression<'_>, depth: usize) -> Option<(String, bool)> {
         if depth > 16 {
             return None;
@@ -347,6 +356,9 @@ impl<'s> FactVisitor<'s> {
                             }
                         }
                     }
+                    if out.len() > MAX_CONST_TEXT && !t.expressions.is_empty() {
+                        return None;
+                    }
                 }
                 Some((out, literal))
             }
@@ -358,6 +370,9 @@ impl<'s> FactVisitor<'s> {
                 }
                 let (ls, ll) = l.unwrap_or_else(|| (hole(&b.left, self), false));
                 let (rs, rl) = r.unwrap_or_else(|| (hole(&b.right, self), false));
+                if ls.len().saturating_add(rs.len()) > MAX_CONST_TEXT {
+                    return None;
+                }
                 Some((format!("{ls}{rs}"), ll && rl))
             }
             Expression::Identifier(id) => self.key_ref(id).and_then(|k| self.const_strings.get(&k)).map(|v| (v.clone(), true)),
@@ -1255,11 +1270,22 @@ impl<'a> Visit<'a> for FactVisitor<'_> {
                 _ => {}
             }
             if let Some(n) = &name {
-                if let Some((v, true)) = self.render_value(inner, 0)
-                    && let BindingPattern::BindingIdentifier(b) = &it.id
-                {
+                if let BindingPattern::BindingIdentifier(b) = &it.id {
+                    // Read the value first: it may use the binding's old one (`var u = u + "/x"`).
+                    let value = self.render_value(inner, 0);
                     let k = self.key_bind(b);
-                    self.const_strings.insert(k, v);
+                    // A new value replaces the old one even when it can't be read or kept.
+                    if let Some(old) = self.const_strings.remove(&k) {
+                        self.const_room = self.const_room.saturating_add(old.len());
+                    }
+                    // Every constant shares one budget, so many long ones can't add up without end.
+                    if let Some((v, true)) = value
+                        && v.len() <= MAX_CONST_TEXT
+                        && v.len() <= self.const_room
+                    {
+                        self.const_room = self.const_room.saturating_sub(v.len());
+                        self.const_strings.insert(k, v);
+                    }
                 }
                 if is_function_like(inner) {
                     self.name_next(inner, n.clone());
