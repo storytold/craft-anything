@@ -2585,6 +2585,8 @@ Owner: open · Status: in progress
       is plain JSON (Claude Code's, Claude Desktop's) stays plain JSON after an uninstall; an
       object written with trailing commas keeps them, new members included.
       — claimed: Plastic-time, branch bugfix/r3.12-jsonc-no-new-trailing-comma
+- [x] Preserve CR-only JSONC line endings and member indentation when inserting or removing settings.
+      — claimed: Plastic-time, branch bugfix/r3.12-jsonc-cr-lines-1113
 - [x] Preserve CRLF when creating the first JSONC object in a whitespace-only or comment-only file.
       — claimed: Plastic-time, branch bugfix/r3.12-jsonc-first-object-eol-1111
 - [x] SQLite rows keep each value on its own column when a table has VIRTUAL generated columns:
