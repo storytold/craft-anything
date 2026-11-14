@@ -46,7 +46,7 @@ pub fn show(app: &mut CraftApp, ui: &mut Ui) {
             // Over the row icons when folded, in the corner when open.
             let layout = if fold { egui::Layout::top_down(egui::Align::Center) } else { egui::Layout::right_to_left(egui::Align::Min) };
             ui.with_layout(layout, |ui| {
-                if icons::button(ui, icon, 24.0, false, tip).clicked() {
+                if icons::button(ui, icon, theme::ControlSize::Small, false, tip).clicked() {
                     app.state.sidebar_folded = !fold;
                 }
             });
@@ -65,12 +65,12 @@ pub fn show(app: &mut CraftApp, ui: &mut Ui) {
         crate::pins::section(app, ui, fold);
         // Folded, the heading's words don't fit: the rule and the icon stay, on the same line, so
         // nothing moves when the sidebar folds.
-        let refresh = |ui: &mut Ui| icons::button(ui, "refresh-cw", 22.0, false, "Look for projects again").clicked();
+        let refresh = |ui: &mut Ui| icons::button(ui, "refresh-cw", theme::ControlSize::Small, false, "Look for projects again").clicked();
         let again = if fold {
             centred_row(ui, 22.0, refresh)
         } else {
             ui.horizontal(|ui| {
-                ui.add_space(12.0);
+                ui.add_space(theme::space::MD);
                 widgets::caption(ui, "Projects");
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), refresh).inner
             })
@@ -79,7 +79,7 @@ pub fn show(app: &mut CraftApp, ui: &mut Ui) {
         if again {
             app.refresh_projects();
         }
-        ui.add_space(4.0);
+        ui.add_space(theme::space::XS);
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             if app.projects.is_empty() && !fold {
                 egui::Frame::new().inner_margin(egui::Margin { left: 12, right: 8, top: 2, bottom: 2 }).show(ui, |ui| {
@@ -111,7 +111,7 @@ pub fn show(app: &mut CraftApp, ui: &mut Ui) {
         });
     });
     ui.painter().hline(ui.max_rect().x_range(), ui.cursor().top() + 1.0, egui::Stroke::new(1.0, t.separator));
-    ui.add_space(10.0);
+    ui.add_space(theme::space::MD);
     if row(ui, "settings", "Settings", None, app.state.settings_open).clicked() {
         app.state.settings_open = !app.state.settings_open;
     }
@@ -149,7 +149,13 @@ pub(crate) fn row(ui: &mut Ui, icon: &str, label: &str, status: Option<(egui::Co
     // Project names are shown as written; the app's own rows are translated.
     let text = if status.is_some() { label.to_string() } else { tr(label) };
     let icon_x = if fold { rect.center().x } else { rect.left() + 22.0 };
-    icons::paint(ui, egui::Rect::from_center_size(egui::pos2(icon_x, rect.center().y), Vec2::splat(16.0)), icon, 16.0, if on { t.text } else { t.icon });
+    icons::paint(
+        ui,
+        egui::Rect::from_center_size(egui::pos2(icon_x, rect.center().y), Vec2::splat(16.0)),
+        icon,
+        theme::icon::MD,
+        if on { t.text } else { t.icon },
+    );
     let name = match status {
         Some((_, s, _)) => format!("{text}, {}", tr(s)),
         None => text.clone(),

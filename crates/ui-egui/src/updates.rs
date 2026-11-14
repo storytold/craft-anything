@@ -1,5 +1,6 @@
 //! Native release checks and verified installation through craft-update's platform helpers.
 use crate::i18n::{tr, trf};
+use crate::widgets::{Button, ButtonKind};
 use craft_update::pins::{Choice, Pins};
 use craft_update::{App, Http, Paths, Platform, Release, Stop, self_update};
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
@@ -167,16 +168,12 @@ impl Updates {
                     ui.horizontal(|ui| {
                         if let Some(release) = &self.release {
                             ui.hyperlink_to(tr("Releases"), &release.html_url);
-                            install = ui
-                                .add_enabled(
-                                    safe_to_install && self.installable && self.worker.is_none() && self.restart.is_none(),
-                                    egui::Button::new(tr("Update and restart")),
-                                )
-                                .clicked();
+                            let ready = safe_to_install && self.installable && self.worker.is_none() && self.restart.is_none();
+                            install = ui.add(Button::new(ButtonKind::Primary, "Update and restart").enabled(ready)).clicked();
                         } else {
                             ui.hyperlink_to(tr("Releases"), APP.releases_url());
                         }
-                        again = ui.add_enabled(self.worker.is_none() && !self.installing, egui::Button::new(tr("Check again"))).clicked();
+                        again = ui.add(Button::new(ButtonKind::Secondary, "Check again").enabled(self.worker.is_none() && !self.installing)).clicked();
                     });
                 });
             self.open = open || self.installing;
@@ -239,7 +236,11 @@ mod tests {
     use super::*;
 
     fn draw(updates: &mut Updates, safe: bool, close: bool) -> egui::FullOutput {
+        // The app's fonts, as its own context has them (they apply from the second pass): the
+        // window's buttons are set in them.
         let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        ctx.run_ui(egui::RawInput::default(), |_| {}).textures_delta.clear();
         let mut input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(640.0, 400.0))), ..Default::default() };
         if close {
             input.viewports.entry(egui::ViewportId::ROOT).or_default().events.push(egui::ViewportEvent::Close);
@@ -408,7 +409,13 @@ mod tests {
     fn the_manual_result_window_is_visible_without_network() -> Result<(), String> {
         use egui_kittest::kittest::Queryable as _;
         let mut updates = Updates { open: true, message: "You're up to date.".into(), ..Updates::default() };
+        let mut first = true;
         let mut harness = egui_kittest::Harness::builder().with_size(egui::vec2(640.0, 360.0)).build_ui(|ui| {
+            if std::mem::take(&mut first) {
+                crate::theme::install_fonts(ui.ctx());
+                ui.ctx().request_repaint();
+                return;
+            }
             updates.show(ui.ctx(), true);
         });
         harness.run();

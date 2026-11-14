@@ -1110,9 +1110,9 @@ impl CraftApp {
             ProblemKind::Broken => "Part of the app got stuck, so it was stopped and the rest carried on. Your work is kept.",
             _ => "Part of the app is stuck. Restarting clears it, and your work is kept.",
         };
-        egui::Panel::top("stuck-banner").frame(egui::Frame::new().fill(t.card).inner_margin(egui::Margin::symmetric(14, 8))).show(ui, |ui| {
+        egui::Panel::top("stuck-banner").frame(egui::Frame::new().fill(t.card).inner_margin(theme::pad::BAR)).show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
-                icons::show(ui, "triangle-alert", 16.0, t.danger);
+                icons::show(ui, "triangle-alert", crate::theme::icon::MD, t.danger);
                 ui.label(egui::RichText::new(i18n::tr(text)).color(t.text)).on_hover_text(problem.summary.clone());
                 if let Some(path) = &problem.log
                     && widgets::secondary(ui, None, "Open log").on_hover_text(path.display().to_string()).clicked()
@@ -1962,7 +1962,7 @@ impl CraftApp {
             egui::Panel::left("app-sidebar")
                 .exact_size(sidebar::width(self, &ctx))
                 .resizable(false)
-                .frame(egui::Frame::new().fill(t.chrome).inner_margin(egui::Margin::symmetric(8, 0)))
+                .frame(egui::Frame::new().fill(t.chrome).inner_margin(theme::pad::GUTTER))
                 .show(ui, |ui| guard_ui(ui, "sidebar", |ui| sidebar::show(self, ui)));
             egui::CentralPanel::default().frame(egui::Frame::new().fill(t.canvas)).show(ui, |ui| {
                 guard_ui(ui, "simple", |ui| match self.state.screen {
@@ -2017,21 +2017,21 @@ impl CraftApp {
                     .stroke(egui::Stroke::new(1.0, if *error { t.danger.gamma_multiply(0.6) } else { t.card_border }))
                     .corner_radius(t.r_lg())
                     .shadow(egui::Shadow { offset: [0, 4], blur: 16, spread: 0, color: t.shadow })
-                    .inner_margin(egui::Margin::symmetric(14, 8))
+                    .inner_margin(theme::pad::BAR)
                     .show(ui, |ui| {
                         ui.set_width(width - 28.0);
                         ui.horizontal(|ui| {
                             let (icon, col) = if *error { ("triangle-alert", t.danger) } else { ("check", t.success) };
-                            icons::show(ui, icon, 15.0, col);
+                            icons::show(ui, icon, crate::theme::icon::MD, col);
                             ui.add(egui::Label::new(egui::RichText::new(text).color(if *error { t.text } else { t.text_dim })).wrap());
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if icons::button(ui, "x", 28.0, false, "Dismiss").clicked() {
+                                if icons::button(ui, "x", crate::theme::ControlSize::Medium, false, "Dismiss").clicked() {
                                     dismiss = Some(i);
                                 }
                             });
                         });
                     });
-                ui.add_space(6.0);
+                ui.add_space(crate::theme::space::SM);
             }
         });
         if let Some(i) = dismiss {

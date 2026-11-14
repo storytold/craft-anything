@@ -138,9 +138,12 @@ pub fn ask_screen(app: &mut CraftApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     let side_w = 300.0_f32.min(ui.available_width() * 0.3);
     // What's open sits on the right; the app's sidebar is on the left.
-    egui::Panel::right("ask-side").exact_size(side_w).resizable(false).frame(egui::Frame::new().fill(t.canvas).inner_margin(Margin::same(20))).show(ui, |ui| {
-        target_card(app, ui);
-    });
+    egui::Panel::right("ask-side").exact_size(side_w).resizable(false).frame(egui::Frame::new().fill(t.canvas).inner_margin(theme::pad::ROOMY)).show(
+        ui,
+        |ui| {
+            target_card(app, ui);
+        },
+    );
     egui::CentralPanel::default().frame(egui::Frame::new().fill(t.canvas).inner_margin(PANE_MARGIN)).show(ui, |ui| {
         conversation(app, ui, false);
     });
@@ -155,16 +158,16 @@ fn target_card(app: &mut CraftApp, ui: &mut Ui) {
                 ui.horizontal(|ui| {
                     let (rect, _) = ui.allocate_exact_size(Vec2::splat(48.0), egui::Sense::hover());
                     ui.painter().rect_filled(rect, t.radius, t.accent_soft);
-                    icons::paint(ui, rect, crate::kind_icon(target.kind), 26.0, t.accent_ink);
+                    icons::paint(ui, rect, crate::kind_icon(target.kind), theme::icon::XL, t.accent_ink);
                     ui.vertical(|ui| {
                         ui.add(egui::Label::new(theme::heading(&target.name, theme::CARD)).truncate());
                         ui.label(RichText::new(crate::human_bytes(target.bytes.len())).color(t.text_faint).size(theme::CAPTION));
                     });
                 });
-                ui.add_space(10.0);
+                ui.add_space(theme::space::MD);
                 widgets::caption(ui, "What is it");
                 ui.label(RichText::new(tr(target.kind.plain())).size(theme::BODY));
-                ui.add_space(10.0);
+                ui.add_space(theme::space::MD);
                 ui.horizontal_wrapped(|ui| {
                     if app.view.clean_room {
                         widgets::pill(ui, "Clean room", t.success, t.raised).on_hover_text(tr("Nothing inside it is read."));
@@ -184,13 +187,13 @@ fn target_card(app: &mut CraftApp, ui: &mut Ui) {
             }
         }
     });
-    ui.add_space(14.0);
+    ui.add_space(theme::space::LG);
     widgets::card(&t).show(ui, |ui| {
         ui.set_width(ui.available_width());
         widgets::caption(ui, "Try asking");
-        ui.add_space(4.0);
+        ui.add_space(theme::space::XS);
         let kind = app.view.active_target().map(|t| t.kind);
-        ui.spacing_mut().item_spacing.y = 6.0;
+        ui.spacing_mut().item_spacing.y = theme::space::SM;
         ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
             for q in suggestions(kind) {
                 if widgets::suggestion(ui, q).clicked() {
@@ -199,12 +202,12 @@ fn target_card(app: &mut CraftApp, ui: &mut Ui) {
             }
         });
     });
-    ui.add_space(14.0);
+    ui.add_space(theme::space::LG);
     ui.horizontal(|ui| {
         widgets::toggle(ui, &mut app.state.explain_new, "Explain like I'm new")
             .on_hover_text(tr("Plain words, short sentences, and every technical word explained."));
     });
-    ui.add_space(10.0);
+    ui.add_space(theme::space::MD);
     if widgets::secondary(ui, Some("download"), "Export a report").on_hover_text(tr("Everything found so far, as a Markdown file.")).clicked() {
         app.export_report();
     }
@@ -302,21 +305,21 @@ fn greeting(app: &CraftApp, ui: &mut Ui, dense: bool) {
         ui.label(RichText::new(tr("Ask the agent about this target. It cites evidence for every claim.")).color(t.text_faint));
         return;
     }
-    ui.add_space(24.0);
+    ui.add_space(theme::space::XL);
     let name = app.view.active_target().map(|t| t.name.clone());
     let title = match &name {
         Some(n) => crate::i18n::trf("What would you like to know about {name}?", &[("name", n)]),
         None => tr("What would you like to find out?"),
     };
     ui.label(theme::heading(title, theme::TITLE));
-    ui.add_space(4.0);
+    ui.add_space(theme::space::XS);
     let sub = if app.state.backend.is_some() {
         "Ask in your own words. Every answer shows how sure we are, and the proof."
     } else {
         "No AI brain is set up, so answers come straight from the built-in engines. Add one any time for plain-words explanations."
     };
     ui.label(RichText::new(tr(sub)).color(t.text_dim));
-    ui.add_space(16.0);
+    ui.add_space(theme::space::LG);
 }
 
 fn composer(app: &mut CraftApp, ui: &mut Ui, width: f32, dense: bool) {
@@ -366,10 +369,10 @@ enum ChatAction {
 }
 
 /// The side of a message's copy button.
-const COPY: f32 = 22.0;
+const COPY: f32 = theme::ControlSize::Small.height();
 
 fn margin(dense: bool) -> Margin {
-    if dense { Margin::symmetric(10, 6) } else { Margin::symmetric(16, 12) }
+    if dense { theme::pad::FIELD_COMPACT } else { theme::pad::ROW }
 }
 
 pub(crate) fn bubble(t: &Tokens, user: bool, dense: bool) -> egui::Frame {
@@ -387,7 +390,7 @@ fn copy_button(ui: &mut Ui, over: egui::Rect, at: egui::Pos2, text: &str) {
     if !(ui.rect_contains_pointer(over.union(at)) || ui.memory(|m| m.has_focus(slot.next_auto_id()))) {
         slot.set_opacity(0.0);
     }
-    if icons::button(&mut slot, "copy", COPY, false, "Copy the message").clicked() {
+    if icons::button(&mut slot, "copy", theme::ControlSize::Small, false, "Copy the message").clicked() {
         ui.ctx().copy_text(text.to_owned());
     }
 }
@@ -425,7 +428,7 @@ pub(crate) fn answer_bubble(ui: &mut Ui, dense: bool, text: &str, content: impl 
 pub(crate) fn activity_row(ui: &mut Ui, text: RichText) {
     let t = Tokens::get(ui.ctx());
     ui.horizontal_top(|ui| {
-        icons::show(ui, "activity", 14.0, t.accent);
+        icons::show(ui, "activity", theme::icon::SM, t.accent);
         ui.add(egui::Label::new(text).wrap());
     });
 }
@@ -441,7 +444,7 @@ fn item_ui(ui: &mut Ui, item: &ChatItem, beginner: bool, dense: bool, open: bool
                     widgets::thinking(ui);
                 }
                 if let Some(b) = backend {
-                    ui.add_space(4.0);
+                    ui.add_space(theme::space::XS);
                     ui.label(RichText::new(crate::i18n::trf("Answered by {name}", &[("name", b)])).color(t.text_faint).size(theme::CAPTION));
                 }
             });
@@ -456,9 +459,9 @@ fn item_ui(ui: &mut Ui, item: &ChatItem, beginner: bool, dense: bool, open: bool
                     Some(true) => ("check", t.success),
                     Some(false) => ("triangle-alert", t.danger),
                 };
-                egui::Frame::new().fill(t.raised).corner_radius(t.r_sm()).inner_margin(Margin::symmetric(10, 3)).show(ui, |ui| {
+                egui::Frame::new().fill(t.raised).corner_radius(t.r_sm()).inner_margin(theme::pad::CHIP).show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        icons::show(ui, icon, 13.0, col);
+                        icons::show(ui, icon, theme::icon::SM, col);
                         ui.label(RichText::new(tool.replace('_', " ")).font(theme::mono(theme::CAPTION)).color(t.text_dim));
                     });
                 });
@@ -467,22 +470,22 @@ fn item_ui(ui: &mut Ui, item: &ChatItem, beginner: bool, dense: bool, open: bool
                 }
             });
             if let Some(e) = evidence {
-                ui.add_space(4.0);
+                ui.add_space(theme::space::XS);
                 evidence_ui::proof_card(ui, e, dense, false);
             }
         }
         ChatItem::Proof { intro, evidence } => {
             if !intro.is_empty() {
                 ui.label(RichText::new(intro).color(t.text_dim));
-                ui.add_space(4.0);
+                ui.add_space(theme::space::XS);
             }
             evidence_ui::proof_card(ui, evidence, dense, open);
         }
         ChatItem::Consent { call_id, title, explanation, answer, .. } => {
-            egui::Frame::new().fill(t.card).stroke(egui::Stroke::new(1.5, t.warning)).corner_radius(t.r_lg()).inner_margin(Margin::same(14)).show(ui, |ui| {
+            egui::Frame::new().fill(t.card).stroke(egui::Stroke::new(1.5, t.warning)).corner_radius(t.r_lg()).inner_margin(theme::pad::CARD).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.horizontal(|ui| {
-                    icons::show(ui, "shield", 18.0, t.warning);
+                    icons::show(ui, "shield", theme::icon::LG, t.warning);
                     ui.label(RichText::new(crate::i18n::trf("May I run \"{title}\"?", &[("title", title)])).font(theme::semibold(theme::BODY)));
                 });
                 ui.label(RichText::new(explanation).color(t.text_dim));
@@ -491,7 +494,7 @@ fn item_ui(ui: &mut Ui, item: &ChatItem, beginner: bool, dense: bool, open: bool
                         .color(t.text_faint)
                         .size(theme::CAPTION),
                 );
-                ui.add_space(6.0);
+                ui.add_space(theme::space::SM);
                 match answer {
                     None => {
                         ui.horizontal(|ui| {
@@ -522,11 +525,11 @@ fn item_ui(ui: &mut Ui, item: &ChatItem, beginner: bool, dense: bool, open: bool
                 .fill(t.card)
                 .stroke(egui::Stroke::new(1.0, t.danger.gamma_multiply(0.6)))
                 .corner_radius(t.r_lg())
-                .inner_margin(Margin::same(12))
+                .inner_margin(theme::pad::PANEL)
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.horizontal(|ui| {
-                        icons::show(ui, "triangle-alert", 16.0, t.danger);
+                        icons::show(ui, "triangle-alert", theme::icon::MD, t.danger);
                         ui.add(egui::Label::new(RichText::new(message).color(t.text)).wrap());
                     });
                     if let Some(r) = remediation {
@@ -540,17 +543,17 @@ fn item_ui(ui: &mut Ui, item: &ChatItem, beginner: bool, dense: bool, open: bool
                 });
         }
         ChatItem::AddBrain => {
-            egui::Frame::new().fill(t.accent_soft).corner_radius(t.r_lg()).inner_margin(Margin::same(14)).show(ui, |ui| {
+            egui::Frame::new().fill(t.accent_soft).corner_radius(t.r_lg()).inner_margin(theme::pad::CARD).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.horizontal(|ui| {
-                    icons::show(ui, "sparkles", 20.0, t.accent_ink);
+                    icons::show(ui, "sparkles", theme::icon::LG, t.accent_ink);
                     ui.vertical(|ui| {
                         ui.label(RichText::new(tr("Want answers in plain words?")).font(theme::semibold(theme::BODY)));
                         ui.label(
                             RichText::new(tr("Add an AI brain and I'll read this evidence for you, answer follow-up questions and point at the proof."))
                                 .color(t.text_dim),
                         );
-                        ui.add_space(4.0);
+                        ui.add_space(theme::space::XS);
                         if widgets::primary_icon(ui, Some("plus"), "Add a brain", true).clicked() {
                             actions.push(ChatAction::AddBrain);
                         }
@@ -583,7 +586,7 @@ pub fn rich_text(ui: &mut Ui, text: &str, with_glossary: bool) {
         }
         let trimmed = line.trim_start();
         if trimmed.is_empty() {
-            ui.add_space(4.0);
+            ui.add_space(theme::space::XS);
             continue;
         }
         if let Some(h) = trimmed.strip_prefix("### ").or_else(|| trimmed.strip_prefix("## ")).or_else(|| trimmed.strip_prefix("# ")) {
@@ -701,7 +704,7 @@ fn paragraph(ui: &mut Ui, text: &str, bullet: bool, with_glossary: bool, body: &
 }
 
 fn code_block(ui: &mut Ui, code: &str, t: &Tokens) {
-    egui::Frame::new().fill(t.code_bg).corner_radius(t.r()).inner_margin(Margin::same(10)).show(ui, |ui| {
+    egui::Frame::new().fill(t.code_bg).corner_radius(t.r()).inner_margin(theme::pad::PANEL).show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.add(egui::Label::new(RichText::new(code.trim_end()).font(theme::mono(theme::CAPTION)).color(t.text)).wrap());
     });

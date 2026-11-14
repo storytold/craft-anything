@@ -355,7 +355,7 @@ impl CraftApp {
 pub fn built_by(app: &mut CraftApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     let Some(default) = app.default_builder() else {
-        icons::show(ui, "triangle-alert", 16.0, t.warning);
+        icons::show(ui, "triangle-alert", theme::icon::MD, t.warning);
         ui.label(RichText::new(tr("Building needs a coding agent such as Claude Code, or an AI with an API key.")).size(theme::BODY).color(t.text_dim));
         if widgets::link(ui, "Set one up").clicked() {
             app.need_builder(false);
@@ -399,7 +399,7 @@ pub fn need_builder_modal(app: &mut CraftApp, ui: &mut Ui, start: bool, close: &
     ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(Vec2::splat(48.0), egui::Sense::hover());
         ui.painter().rect_filled(rect, t.radius, t.accent_soft);
-        icons::paint(ui, rect, "bot", 24.0, t.accent_ink);
+        icons::paint(ui, rect, "bot", theme::icon::XL, t.accent_ink);
         ui.vertical(|ui| {
             ui.label(theme::heading(tr("Set up a builder"), theme::CARD));
             ui.add(
@@ -413,7 +413,7 @@ pub fn need_builder_modal(app: &mut CraftApp, ui: &mut Ui, start: bool, close: &
             );
         });
     });
-    ui.add_space(14.0);
+    ui.add_space(theme::space::LG);
     let found: Vec<BackendConfig> = app.found_agents().cloned().collect();
     if app.detecting {
         ui.horizontal(|ui| {
@@ -442,7 +442,7 @@ pub fn need_builder_modal(app: &mut CraftApp, ui: &mut Ui, start: bool, close: &
         widgets::panel(&t).show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.horizontal(|ui| {
-                icons::show(ui, "bot", 18.0, t.accent);
+                icons::show(ui, "bot", theme::icon::LG, t.accent);
                 ui.vertical(|ui| {
                     ui.label(RichText::new(&b.name).font(theme::semibold(theme::SMALL)));
                     ui.label(RichText::new(tr("Found on this computer")).color(t.text_faint).size(theme::CAPTION));
@@ -461,9 +461,9 @@ pub fn need_builder_modal(app: &mut CraftApp, ui: &mut Ui, start: bool, close: &
                 });
             });
         });
-        ui.add_space(6.0);
+        ui.add_space(theme::space::SM);
     }
-    ui.add_space(10.0);
+    ui.add_space(theme::space::MD);
     ui.horizontal(|ui| {
         if !app.detecting && widgets::secondary(ui, Some("radar"), "Look again").on_hover_text(tr("After installing one, look for it again.")).clicked() {
             app.detect_backends();

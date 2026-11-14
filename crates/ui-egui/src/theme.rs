@@ -322,12 +322,115 @@ pub const TITLE: f32 = 26.0;
 pub const SECTION: f32 = 18.0;
 pub const CARD: f32 = 16.0;
 /// Text: the line under a title (and Simple mode's main field), reading text, secondary text
-/// and list rows, fine print (paths, counts, notes), and tags painted in tight spots.
+/// and list rows, the labels of small controls and section captions, fine print (paths, counts,
+/// notes), and tags painted in tight spots.
 pub const LEAD: f32 = 17.0;
 pub const BODY: f32 = 15.0;
 pub const SMALL: f32 = 14.0;
+pub const LABEL: f32 = 13.0;
 pub const CAPTION: f32 = 12.0;
 pub const TINY: f32 = 11.0;
+/// Code, paths and numbers in JetBrains Mono (the workbench's dense lists may use `TINY`).
+pub const CODE: f32 = 12.5;
+
+/// The spacing steps: every gap between things is one of these.
+pub mod space {
+    /// A nudge between two lines that belong together.
+    pub const XXS: f32 = 2.0;
+    pub const XS: f32 = 4.0;
+    pub const SM: f32 = 8.0;
+    pub const MD: f32 = 12.0;
+    pub const LG: f32 = 16.0;
+    pub const XL: f32 = 24.0;
+    pub const XXL: f32 = 32.0;
+}
+
+/// Icon sizes.
+pub mod icon {
+    pub const XS: f32 = 12.0;
+    pub const SM: f32 = 14.0;
+    pub const MD: f32 = 16.0;
+    pub const LG: f32 = 20.0;
+    pub const XL: f32 = 24.0;
+    pub const XXL: f32 = 32.0;
+}
+
+/// The padding inside frames, built from the spacing steps.
+pub mod pad {
+    use egui::Margin;
+    /// Code blocks and dense workbench boxes.
+    pub const TIGHT: Margin = Margin::same(8);
+    pub const PANEL: Margin = Margin::same(12);
+    pub const CARD: Margin = Margin::same(16);
+    /// Dialogs, side panes and a screen's main card.
+    pub const ROOMY: Margin = Margin::same(24);
+    /// A card that holds one row.
+    pub const ROW: Margin = Margin::symmetric(16, 12);
+    /// A banner across the window.
+    pub const BAR: Margin = Margin::symmetric(16, 8);
+    /// A tag around a word or two.
+    pub const CHIP: Margin = Margin::symmetric(8, 4);
+    /// A strip that only keeps its content off the edges.
+    pub const GUTTER: Margin = Margin::symmetric(8, 0);
+    /// A text field as tall as a large control, and one as tall as a medium control.
+    pub const FIELD: Margin = Margin::symmetric(12, 10);
+    pub const FIELD_COMPACT: Margin = Margin::symmetric(8, 6);
+}
+
+/// The sizes a control (button, icon button, switch, field) comes in. Height, label size, side
+/// padding and icon size go together, so two controls of one size always line up.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ControlSize {
+    /// Inline and dense: toolbars, rows of a list, the workbench.
+    Small,
+    /// The default.
+    #[default]
+    Medium,
+    /// A screen's main switch or field.
+    Large,
+    /// The one action a screen is for (Simple mode's Start).
+    Hero,
+}
+
+impl ControlSize {
+    pub const ALL: [ControlSize; 4] = [ControlSize::Small, ControlSize::Medium, ControlSize::Large, ControlSize::Hero];
+
+    pub const fn height(self) -> f32 {
+        match self {
+            ControlSize::Small => 24.0,
+            ControlSize::Medium => 32.0,
+            ControlSize::Large => 40.0,
+            ControlSize::Hero => 48.0,
+        }
+    }
+
+    /// The label's size (set in the medium weight).
+    pub const fn text(self) -> f32 {
+        match self {
+            ControlSize::Small => LABEL,
+            ControlSize::Medium => SMALL,
+            ControlSize::Large => BODY,
+            ControlSize::Hero => CARD,
+        }
+    }
+
+    /// The room left and right of the label.
+    pub const fn pad_x(self) -> f32 {
+        match self {
+            ControlSize::Small => space::MD,
+            ControlSize::Medium => space::LG,
+            ControlSize::Large | ControlSize::Hero => space::XL,
+        }
+    }
+
+    pub const fn icon(self) -> f32 {
+        match self {
+            ControlSize::Small => icon::SM,
+            ControlSize::Medium | ControlSize::Large => icon::MD,
+            ControlSize::Hero => icon::LG,
+        }
+    }
+}
 
 /// A heading: DM Sans bold, at one of the heading sizes above.
 pub fn heading(text: impl Into<String>, size: f32) -> egui::RichText {
@@ -349,10 +452,9 @@ pub fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
     Color32::from_rgba_premultiplied(m(a.r(), b.r()), m(a.g(), b.g()), m(a.b(), b.b()), m(a.a(), b.a()))
 }
 
-/// A short label (captions, buttons, the title bar) in sentence case. `size` is the old
-/// uppercase-mono size; mixed-case DM Sans needs a point and a half more to read the same.
+/// A short label (captions, buttons, the title bar): DM Sans medium at one of the text sizes.
 pub fn label_text(text: &str, size: f32) -> egui::RichText {
-    egui::RichText::new(text).font(medium(size + 1.5))
+    egui::RichText::new(text).font(medium(size))
 }
 
 /// Scroll bars that can always be seen and grabbed. egui's thin preset paints the thumb in the
@@ -405,13 +507,14 @@ pub fn apply(ctx: &egui::Context, kind: ThemeKind, roomy: bool) {
     v.handle_shape = egui::style::HandleShape::Circle;
     v.striped = false;
     v.indent_has_left_vline = false;
-    let r = t.r_sm();
+    // egui's own buttons, combo boxes and fields share the corner of ours.
+    let r = t.r();
     let w = &mut v.widgets;
     w.noninteractive.bg_fill = t.card;
     w.noninteractive.weak_bg_fill = t.card;
     w.noninteractive.bg_stroke = Stroke::new(1.0, t.separator);
     w.noninteractive.fg_stroke = Stroke::new(1.0, t.text_dim);
-    w.noninteractive.corner_radius = r;
+    w.noninteractive.corner_radius = t.r_sm();
     // Buttons and combo boxes are hairline boxes on the surface (weak fill transparent at rest).
     for (wv, bg, weak, stroke) in [
         (&mut w.inactive, t.field, Color32::TRANSPARENT, t.field_border),
@@ -427,23 +530,27 @@ pub fn apply(ctx: &egui::Context, kind: ThemeKind, roomy: bool) {
         wv.expansion = 0.0;
     }
     ctx.set_visuals(v);
-    // Simple mode is for anyone, including people who find small text hard to read.
-    let body = if roomy { 16.0 } else { 13.0 };
+    // Simple mode is for anyone, including people who find small text hard to read. egui's own
+    // controls (combo boxes, menu rows) are as tall as ours of the mode's size, with its label.
+    let control = if roomy { ControlSize::Medium } else { ControlSize::Small };
     ctx.global_style_mut(|s| {
         s.text_styles = [
-            (TextStyle::Small, FontId::proportional(if roomy { 13.5 } else { 11.0 })),
-            (TextStyle::Body, FontId::proportional(body)),
-            (TextStyle::Button, FontId::proportional(body)),
+            (TextStyle::Small, FontId::proportional(if roomy { LABEL } else { TINY })),
+            (TextStyle::Body, FontId::proportional(if roomy { BODY } else { LABEL })),
+            (TextStyle::Button, FontId::proportional(control.text())),
             (TextStyle::Heading, semibold(if roomy { SECTION } else { CARD })),
-            (TextStyle::Monospace, FontId::monospace(if roomy { 13.5 } else { 12.5 })),
+            (TextStyle::Monospace, FontId::monospace(if roomy { LABEL } else { CODE })),
         ]
         .into();
-        s.spacing.item_spacing = if roomy { egui::vec2(10.0, 8.0) } else { egui::vec2(8.0, 5.0) };
-        s.spacing.button_padding = if roomy { egui::vec2(12.0, 6.0) } else { egui::vec2(9.0, 4.0) };
-        s.spacing.interact_size = egui::vec2(24.0, if roomy { 28.0 } else { 24.0 });
-        s.spacing.menu_margin = egui::Margin::same(6);
-        s.spacing.window_margin = egui::Margin::same(18);
-        s.spacing.icon_width = 14.0;
+        s.spacing.item_spacing = egui::vec2(space::SM, if roomy { space::SM } else { space::XS });
+        // Padding that brings a line of the label up to the control's height; a row of plain text
+        // stays as tall as a small control.
+        let pad_y = ((control.height() - control.text() * 1.3) / 2.0).ceil();
+        s.spacing.button_padding = egui::vec2(if roomy { space::MD } else { space::SM }, pad_y);
+        s.spacing.interact_size = egui::Vec2::splat(ControlSize::Small.height());
+        s.spacing.menu_margin = pad::TIGHT;
+        s.spacing.window_margin = pad::ROOMY;
+        s.spacing.icon_width = icon::SM;
         s.spacing.scroll = scroll_style();
         s.spacing.tooltip_width = 320.0;
         s.interaction.tooltip_delay = 0.3;
@@ -519,6 +626,63 @@ mod tests {
             }
         }
         assert!(checked > 40, "the source scan checked only {checked} text sizes");
+    }
+
+    /// Outside this file nothing writes a gap, a frame's padding, a colour or a font size as a
+    /// number: screens take them from the scale, so they can't drift apart again. (A size worked
+    /// out from another, such as `body.size + 2.0`, is left to the reviewer.)
+    #[test]
+    fn screens_take_sizes_and_colours_from_the_scale() {
+        let followed_by_digit =
+            |line: &str, marker: &str| line.match_indices(marker).any(|(at, m)| line[at + m.len()..].starts_with(|c: char| c.is_ascii_digit()));
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut found = Vec::new();
+        let mut files = 0;
+        for entry in std::fs::read_dir(&src).unwrap().flatten() {
+            let path = entry.path();
+            if path.extension().is_none_or(|e| e != "rs") || path.file_name().is_some_and(|n| n == "theme.rs") {
+                continue;
+            }
+            files += 1;
+            for (n, line) in std::fs::read_to_string(&path).unwrap().lines().enumerate() {
+                if line.trim_start().starts_with("//") {
+                    continue;
+                }
+                let numbered =
+                    ["add_space(", "Margin::same(", "Margin::symmetric(", "medium(", "semibold(", "mono(", "FontId::proportional(", "FontId::monospace("];
+                let named = ["Color32::from_rgb", "Color32::from_gray", "Color32::WHITE", "Color32::BLACK"];
+                if numbered.iter().any(|m| followed_by_digit(line, m)) || named.iter().any(|m| line.contains(m)) {
+                    found.push(format!("{}:{}: {}", path.file_name().unwrap().to_string_lossy(), n + 1, line.trim()));
+                }
+            }
+        }
+        assert!(files > 10, "the source scan found only {files} files");
+        assert!(
+            found.is_empty(),
+            "use the theme's scale (`space`, `pad`, the text sizes, `Tokens`):
+{}",
+            found.join(
+                "
+"
+            )
+        );
+    }
+
+    /// Controls step up evenly, and each size's label and icon come from the scale.
+    #[test]
+    fn control_sizes_step_up_on_the_grid() {
+        let texts = [TINY, CAPTION, LABEL, SMALL, BODY, CARD, LEAD, SECTION, TITLE];
+        let icons = [icon::XS, icon::SM, icon::MD, icon::LG, icon::XL, icon::XXL];
+        for pair in ControlSize::ALL.windows(2) {
+            assert_eq!(pair[1].height() - pair[0].height(), space::SM, "{pair:?}");
+            assert!(pair[1].text() > pair[0].text() && pair[1].pad_x() >= pair[0].pad_x() && pair[1].icon() >= pair[0].icon(), "{pair:?}");
+        }
+        for size in ControlSize::ALL {
+            assert!(texts.contains(&size.text()) && icons.contains(&size.icon()), "{size:?}");
+            // The label and the padding around it fit the height.
+            assert!(size.text() * 1.3 + space::XS <= size.height(), "{size:?}");
+        }
+        assert_eq!(ControlSize::default(), ControlSize::Medium);
     }
 
     /// The text between `open`'s parenthesis and its match, or `None` when it isn't closed on
@@ -769,8 +933,17 @@ mod tests {
     fn contrast_meets_wcag_aa_in_both_themes() {
         for k in ThemeKind::ALL {
             let t = Tokens::for_kind(k);
-            // `success` is text too: the Clean room and Ready pills.
-            for (name, fg) in [("text", t.text), ("text_dim", t.text_dim), ("text_faint", t.text_faint), ("accent_ink", t.accent_ink), ("success", t.success)] {
+            // `success` is text too (the Clean room and Ready pills), and so is `danger` (the
+            // label of a button that deletes).
+            let inks = [
+                ("text", t.text),
+                ("text_dim", t.text_dim),
+                ("text_faint", t.text_faint),
+                ("accent_ink", t.accent_ink),
+                ("success", t.success),
+                ("danger", t.danger),
+            ];
+            for (name, fg) in inks {
                 for bg in [t.canvas, t.card, t.chrome, t.raised] {
                     assert!(contrast(fg, bg) >= 4.5, "{k:?} {name} on {bg:?}: {:.2}", contrast(fg, bg));
                 }

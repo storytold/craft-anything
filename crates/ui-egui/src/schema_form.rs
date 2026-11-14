@@ -134,7 +134,7 @@ pub fn show(ui: &mut Ui, fields: &[Field], values: &mut BTreeMap<String, String>
         for f in fields {
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(&f.name).font(theme::mono(12.5)));
+                    ui.label(RichText::new(&f.name).font(theme::mono(theme::CODE)));
                     if f.required {
                         ui.label(RichText::new("*").color(t.accent));
                     }
@@ -165,7 +165,7 @@ pub fn show(ui: &mut Ui, fields: &[Field], values: &mut BTreeMap<String, String>
                     FieldKind::Json => {
                         ui.add(
                             egui::TextEdit::multiline(v)
-                                .font(theme::mono(12.0))
+                                .font(theme::mono(theme::CODE))
                                 .desired_rows(2)
                                 .desired_width(320.0)
                                 .hint_text("JSON")

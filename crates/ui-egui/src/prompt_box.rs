@@ -167,7 +167,9 @@ pub fn show(ui: &mut Ui, text: &mut String, attachments: &[PathBuf], b: PromptBo
                                 let x = egui::Rect::from_min_size(rect.right_top() + egui::vec2(-26.0, 4.0), egui::Vec2::splat(22.0));
                                 ui.painter().circle_filled(x.center(), 10.0, t.card);
                                 // A child of its own, so the row's next tile isn't placed after it.
-                                if icons::button(&mut ui.new_child(egui::UiBuilder::new().max_rect(x)), "x", 22.0, false, &remove).clicked() {
+                                if icons::button(&mut ui.new_child(egui::UiBuilder::new().max_rect(x)), "x", theme::ControlSize::Small, false, &remove)
+                                    .clicked()
+                                {
                                     out.remove = Some(i);
                                 }
                             }
@@ -180,9 +182,9 @@ pub fn show(ui: &mut Ui, text: &mut String, attachments: &[PathBuf], b: PromptBo
                                     .inner_margin(Margin { left: 8, right: 2, top: 2, bottom: 2 })
                                     .show(ui, |ui| {
                                         ui.horizontal(|ui| {
-                                            icons::show(ui, "paperclip", 13.0, t.icon);
+                                            icons::show(ui, "paperclip", theme::icon::SM, t.icon);
                                             ui.add(egui::Label::new(RichText::new(&name).size(theme::SMALL)).truncate()).on_hover_text(p.display().to_string());
-                                            if icons::button(ui, "x", 24.0, false, &remove).clicked() {
+                                            if icons::button(ui, "x", theme::ControlSize::Small, false, &remove).clicked() {
                                                 out.remove = Some(i);
                                             }
                                         });
@@ -191,7 +193,7 @@ pub fn show(ui: &mut Ui, text: &mut String, attachments: &[PathBuf], b: PromptBo
                         }
                     }
                 });
-                ui.add_space(6.0);
+                ui.add_space(theme::space::SM);
             }
             let line = ui.fonts_mut(|f| f.row_height(&egui::FontId::proportional(b.font_size)));
             // Up at the very start (or in an empty box) takes back the last waiting message; it's
@@ -255,10 +257,10 @@ pub fn show(ui: &mut Ui, text: &mut String, attachments: &[PathBuf], b: PromptBo
             if text.trim_start().starts_with('/') && !text.trim().contains(' ') {
                 ui.label(RichText::new(format!("{} {}", tr("Commands:"), crate::slash::names())).size(theme::CAPTION).color(t.text_faint));
             }
-            ui.add_space(4.0);
+            ui.add_space(theme::space::XS);
             ui.horizontal(|ui| {
                 if let Some(tip) = b.attach
-                    && icons::button(ui, "paperclip", 30.0, false, tip).clicked()
+                    && icons::button(ui, "paperclip", theme::ControlSize::Medium, false, tip).clicked()
                 {
                     out.attach = true;
                 }
@@ -360,7 +362,7 @@ fn send_button(ui: &mut Ui, ready: bool) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(egui::Vec2::splat(32.0), egui::Sense::click());
     let fill = if ready { crate::theme::mix(t.accent, t.accent_hover, widgets::hover_t(ui, &resp)) } else { t.raised };
     ui.painter().rect_filled(rect, t.radius, fill);
-    icons::paint(ui, rect, "send", 16.0, if ready { t.on_accent } else { t.text_faint });
+    icons::paint(ui, rect, "send", theme::icon::MD, if ready { t.on_accent } else { t.text_faint });
     widgets::focus_ring(ui, &resp, rect);
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tr("Send (Enter)")));
     resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tr("Send (Enter)"))

@@ -1645,6 +1645,17 @@ Gaps found while using the app for real projects.
       a Rust project rewritten in Python is still checked with Cargo until the old manifest is
       moved out (#1837): record the stack from what was built for every toolchain, and check
       with that
+- [x] One design system for the desktop app: a typed scale (text sizes, gaps, padding, icon and
+      control sizes) in `theme.rs`, one set of buttons (primary, secondary, ghost, danger),
+      switches and fields in `widgets.rs`, and every screen moved onto them, so sizes and spacing
+      stop differing from screen to screen; a test keeps literal sizes, paddings and colours out
+      of the screens (`docs/design-system.md`). Checked on every snapshot scene in both themes
+      and in the app on Windows; not on macOS or Linux
+      — claimed: bflatastic, branch refactor/ui-design-system
+- [ ] Design system, left for later: links come in two sizes (`widgets::link` follows the text
+      around it); the title bar keeps its own control height (30, or 26 on macOS) instead of a
+      `ControlSize`; frames with four different sides (prompt box, sidebar, workbench rails)
+      still write their padding where it is used
 
 ### R2.10 Pinned builds
 Owner: maintainers · Status: in progress

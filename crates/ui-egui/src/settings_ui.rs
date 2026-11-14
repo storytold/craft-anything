@@ -20,13 +20,13 @@ pub fn show(app: &mut CraftApp, ctx: &egui::Context) {
     // A modal (dimmed backdrop, Esc or a click outside closes) with a full-size close button;
     // egui's window close box is 14 px.
     let resp = egui::Modal::new(egui::Id::new("settings-window"))
-        .frame(egui::Frame::new().fill(t.card).corner_radius(t.r_lg()).inner_margin(egui::Margin::same(20)).stroke(egui::Stroke::new(1.0, t.card_border)))
+        .frame(egui::Frame::new().fill(t.card).corner_radius(t.r_lg()).inner_margin(theme::pad::ROOMY).stroke(egui::Stroke::new(1.0, t.card_border)))
         .show(ctx, |ui| {
             ui.set_width(680.0);
             ui.horizontal(|ui| {
                 ui.label(theme::heading(tr("Settings"), theme::SECTION));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if icons::button(ui, "x", 32.0, false, "Close").clicked() {
+                    if icons::button(ui, "x", theme::ControlSize::Medium, false, "Close").clicked() {
                         open = false;
                     }
                 });
@@ -34,16 +34,16 @@ pub fn show(app: &mut CraftApp, ctx: &egui::Context) {
             // An error (a save that failed) shows here too: the message bar is behind this window.
             if let Some(i) = app.state.toasts.iter().rposition(|(_, error)| *error) {
                 let text = app.state.toasts[i].0.clone();
-                ui.add_space(8.0);
+                ui.add_space(theme::space::SM);
                 ui.horizontal(|ui| {
-                    icons::show(ui, "triangle-alert", 16.0, t.danger);
+                    icons::show(ui, "triangle-alert", theme::icon::MD, t.danger);
                     ui.add(egui::Label::new(RichText::new(text).color(t.danger)).wrap());
-                    if icons::button(ui, "x", 24.0, false, "Dismiss").clicked() {
+                    if icons::button(ui, "x", theme::ControlSize::Small, false, "Dismiss").clicked() {
                         app.state.toasts.remove(i);
                     }
                 });
             }
-            ui.add_space(12.0);
+            ui.add_space(theme::space::MD);
             ui.horizontal_top(|ui| {
                 ui.vertical(|ui| {
                     ui.set_width(150.0);
@@ -130,13 +130,13 @@ fn row(ui: &mut Ui, title: &str, sub: &str, add: impl FnOnce(&mut Ui)) {
         });
         add(ui);
     });
-    ui.add_space(10.0);
+    ui.add_space(theme::space::MD);
 }
 
 fn general(app: &mut CraftApp, ui: &mut Ui) {
     row(ui, "Mode", "Simple: say what you want and it's handled for you. Advanced: every tool, the evidence and the logs.", |ui| {
         let sel = usize::from(app.settings.mode == Mode::Experienced);
-        if let Some(i) = widgets::segmented(ui, &["Simple", "Advanced"], sel, 30.0) {
+        if let Some(i) = widgets::segmented(ui, &["Simple", "Advanced"], sel, theme::ControlSize::Medium) {
             app.set_mode(if i == 0 { Mode::Beginner } else { Mode::Experienced });
         }
     });
@@ -154,10 +154,11 @@ fn general(app: &mut CraftApp, ui: &mut Ui) {
     let mut remove = None;
     for f in &app.settings.project_folders {
         ui.horizontal(|ui| {
-            ui.add_space(12.0);
-            crate::icons::show(ui, "folder", 14.0, Tokens::get(ui.ctx()).text_faint);
-            ui.add(egui::Label::new(RichText::new(f.display().to_string()).font(theme::mono(12.0))).truncate());
-            if crate::icons::button(ui, "x", 22.0, false, &trf("Stop listing {folder}", &[("folder", &f.display().to_string())])).clicked() {
+            ui.add_space(theme::space::MD);
+            crate::icons::show(ui, "folder", theme::icon::SM, Tokens::get(ui.ctx()).text_faint);
+            ui.add(egui::Label::new(RichText::new(f.display().to_string()).font(theme::mono(theme::CODE))).truncate());
+            if crate::icons::button(ui, "x", theme::ControlSize::Small, false, &trf("Stop listing {folder}", &[("folder", &f.display().to_string())])).clicked()
+            {
                 remove = Some(f.clone());
             }
         });
@@ -178,7 +179,7 @@ fn general(app: &mut CraftApp, ui: &mut Ui) {
     });
     row(ui, "Theme", "", |ui| {
         let sel = usize::from(app.theme_kind() == ThemeKind::StudioLight);
-        if let Some(i) = widgets::segmented(ui, &["Studio", "Studio Light"], sel, 30.0) {
+        if let Some(i) = widgets::segmented(ui, &["Studio", "Studio Light"], sel, theme::ControlSize::Medium) {
             app.settings.theme = ThemeKind::ALL.get(i).copied().unwrap_or_default().id().into();
             app.settings_changed();
         }
@@ -230,7 +231,7 @@ fn path_field(ui: &mut Ui, value: &mut Option<PathBuf>, name: &str, hint: &str) 
             .hint_text(tr(hint))
             // Up to 240, leaving room for a Choose… button after it, so a row never widens the window (#68).
             .desired_width((ui.available_width() - 34.0).clamp(120.0, 240.0))
-            .font(theme::mono(12.0))
+            .font(theme::mono(theme::CODE))
             .frame(widgets::text_field_frame_compact(&Tokens::get(ui.ctx()))),
     );
     widgets::named(r.clone(), &tr(name));
@@ -254,12 +255,12 @@ fn engines(app: &mut CraftApp, ui: &mut Ui) {
         "Clean room never reads the original's code, files or page source: it works from what you can see. Deep reads them with every tool, and with Ghidra when it's installed. Every finding records which was used.",
         |ui| {
             let sel = usize::from(app.settings.deep_mode);
-            if let Some(i) = widgets::segmented(ui, &["Clean room", "Deep"], sel, 30.0) {
+            if let Some(i) = widgets::segmented(ui, &["Clean room", "Deep"], sel, theme::ControlSize::Medium) {
                 app.set_deep(i == 1);
             }
         },
     );
-    ui.add_space(12.0);
+    ui.add_space(theme::space::MD);
     row(ui, "Ghidra", "Adds its decompiler to Deep mode. Craft Anything can download and set it up for you.", |ui| {
         crate::engine_ui::ghidra_status(app, ui);
     });
@@ -270,12 +271,12 @@ fn engines(app: &mut CraftApp, ui: &mut Ui) {
         |ui| crate::engine_ui::ghidra_memory_setting(app, ui),
     );
     ui.label(RichText::new(crate::engine_ui::ghidra_memory_guide()).color(t.text_faint).size(theme::CAPTION));
-    ui.add_space(8.0);
+    ui.add_space(theme::space::SM);
     row(ui, "Ghidra folder", "Leave empty to use the one Craft Anything sets up.", |ui| {
         if path_field(ui, &mut app.settings.engines.ghidra.install_dir, "Ghidra folder", "managed") {
             app.settings_changed();
         }
-        if icons::button(ui, "folder-open", 26.0, false, "Choose…").clicked() {
+        if icons::button(ui, "folder-open", theme::ControlSize::Small, false, "Choose…").clicked() {
             app.pick(Pick::GhidraDir);
         }
     });
@@ -284,12 +285,12 @@ fn engines(app: &mut CraftApp, ui: &mut Ui) {
             app.settings_changed();
         }
     });
-    ui.add_space(12.0);
+    ui.add_space(theme::space::MD);
     crate::engine_ui::settings_section(app, ui);
-    ui.add_space(12.0);
+    ui.add_space(theme::space::MD);
     widgets::caption(ui, "Your own tool installs (optional)");
     ui.label(RichText::new(tr("Leave a path empty to use the managed install. We never need environment variables.")).color(t.text_faint).size(theme::CAPTION));
-    ui.add_space(6.0);
+    ui.add_space(theme::space::SM);
     let mut changed = false;
     egui::Grid::new("tool-paths").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         // Names and purposes come from the engine table; the override list matches it (tested).
@@ -324,9 +325,9 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
     }
     let t = Tokens::get(ui.ctx());
     crate::engine_ui::assets_settings(app, ui);
-    ui.add_space(16.0);
+    ui.add_space(theme::space::LG);
     widgets::caption(ui, "Your brains");
-    ui.add_space(4.0);
+    ui.add_space(theme::space::XS);
     if app.backends.is_empty() {
         ui.label(RichText::new(tr("No AI is set up yet. The built-in engines still work; an AI adds plain-words answers.")).color(t.text_dim));
     }
@@ -352,7 +353,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
             // The name and model on their own row (shortened, full text on hover), the buttons on a
             // row below that wraps: nothing overlaps however long the name or narrow the window.
             ui.horizontal(|ui| {
-                icons::show(ui, "bot", 18.0, if b.enabled { t.accent } else { t.text_faint });
+                icons::show(ui, "bot", theme::icon::LG, if b.enabled { t.accent } else { t.text_faint });
                 ui.vertical(|ui| {
                     ui.add(egui::Label::new(RichText::new(&b.name).font(theme::semibold(theme::SMALL))).truncate());
                     let model_in_use = craft_anything_ai::model_in_use(b, app.backend_options.get(&b.name));
@@ -402,7 +403,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                             folder_drafts.remove(&b.name);
                         }
                         let mut text = folder_drafts.get(&b.name).cloned().unwrap_or_else(|| saved.clone());
-                        ui.add_space(4.0);
+                        ui.add_space(theme::space::XS);
                         let label = ui.label(RichText::new(tr("Claude Code folder (CLAUDE_CONFIG_DIR)")).size(theme::CAPTION).color(t.text_dim));
                         ui.label(
                             RichText::new(tr("Its own sign-in, settings and conversations: another folder is another account. Empty: its usual folder."))
@@ -424,7 +425,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                         if r.lost_focus() && text.trim() != saved {
                             save_folder = Some((b.name.clone(), text.trim().to_string()));
                         }
-                        ui.add_space(4.0);
+                        ui.add_space(theme::space::XS);
                     }
                     // How hard it thinks: every Claude level for Claude, OpenAI's for the OpenAI-style APIs.
                     let effort = craft_anything_ai::effort_in_use(b, app.backend_options.get(&b.name));
@@ -436,7 +437,9 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                             .unwrap_or_else(|| app.backend_options.get(&b.name).and_then(|o| o.command.clone()).unwrap_or_default());
                         ui.horizontal_wrapped(|ui| {
                             ui.label(tr("Remote program"));
-                            ui.add(egui::TextEdit::singleline(&mut program).hint_text(&b.model).desired_width(200.0));
+                            ui.add(
+                                egui::TextEdit::singleline(&mut program).hint_text(&b.model).desired_width(200.0).frame(widgets::text_field_frame_compact(&t)),
+                            );
                             if widgets::link(ui, "Apply").clicked() {
                                 remote_program = Some((b.name.clone(), program.clone()));
                             }
@@ -502,7 +505,9 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                                     let id = egui::Id::new(("other-model", &b.name));
                                     let mut other = ui.data_mut(|d| d.get_temp::<String>(id)).unwrap_or_default();
                                     let label = ui.label(RichText::new(tr("Another model")).color(t.text_faint).size(theme::CAPTION));
-                                    let r = ui.add(egui::TextEdit::singleline(&mut other).desired_width(140.0)).labelled_by(label.id);
+                                    let r = ui
+                                        .add(egui::TextEdit::singleline(&mut other).desired_width(140.0).frame(widgets::text_field_frame_compact(&t)))
+                                        .labelled_by(label.id);
                                     let entered = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                                     if (widgets::link(ui, "Use").clicked() || entered) && !other.trim().is_empty() && other.trim() != current {
                                         chosen_model = Some((b.name.clone(), other.trim().to_string()));
@@ -559,7 +564,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                                 model_options_loading(ui, &b.name);
                                 if let Some(error) = &draft.error {
                                     ui.add(egui::Label::new(RichText::new(error).color(t.danger)).wrap());
-                                    if icons::button(ui, "refresh-cw", 24.0, false, "Load model options").clicked() {
+                                    if icons::button(ui, "refresh-cw", theme::ControlSize::Small, false, "Load model options").clicked() {
                                         tune_models.push(b.name.clone());
                                     }
                                 } else {
@@ -607,11 +612,11 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                         }
                     });
                 });
-                ui.add_space(4.0);
+                ui.add_space(theme::space::XS);
             }
-            ui.add_space(6.0);
+            ui.add_space(theme::space::SM);
             ui.horizontal_wrapped(|ui| {
-                ui.add_space(26.0);
+                ui.add_space(theme::space::XL);
                 if app.state.backend.as_ref() == Some(&b.name) {
                     widgets::pill(ui, "In use", t.on_accent, t.accent);
                 } else if widgets::secondary(ui, None, "Use").clicked() {
@@ -660,14 +665,14 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                     // A key save or forget for this backend is still running: the save could
                     // write the key back after the backend and its key are gone.
                     ui.add_enabled_ui(!app.backend_key_pending.contains(&b.name), |ui| {
-                        if widgets::secondary(ui, Some("trash-2"), "Remove it and its key").clicked() {
+                        if widgets::danger(ui, Some("trash-2"), "Remove it and its key").clicked() {
                             remove = Some(b.name.clone());
                         }
                     });
                     if widgets::link(ui, "Keep it").clicked() {
                         ui.data_mut(|d| d.remove::<String>(confirm_id));
                     }
-                } else if icons::button(ui, "trash-2", 26.0, false, &trf("Remove {name}", &[("name", &b.name)])).clicked() {
+                } else if icons::button(ui, "trash-2", theme::ControlSize::Small, false, &trf("Remove {name}", &[("name", &b.name)])).clicked() {
                     ui.data_mut(|d| d.insert_temp(confirm_id, b.name.clone()));
                 }
             });
@@ -682,7 +687,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                 ui.label(RichText::new(message).color(color).size(theme::CAPTION));
             }
         });
-        ui.add_space(6.0);
+        ui.add_space(theme::space::SM);
     }
     key_drafts.retain(|name, _| app.backends.iter().any(|backend| &backend.name == name));
     app.backend_key_inputs = key_drafts;
@@ -753,7 +758,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
     if let Some(e) = extracts {
         app.set_role(craft_anything_ai::Role::Extractor, e);
     }
-    ui.add_space(8.0);
+    ui.add_space(theme::space::SM);
     let detected = app.detected.clone().unwrap_or_default();
     widgets::caption(ui, "Found on this computer");
     let tab = ui
@@ -767,7 +772,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
             tab
         })
         .inner;
-    ui.add_space(4.0);
+    ui.add_space(theme::space::XS);
     if detected.is_empty() && !app.detecting {
         ui.label(
             RichText::new(tr("Nothing found yet. We look for API keys, local model servers (Ollama, LM Studio) and agent apps you already have. One on another port or computer can be added by its address below."))
@@ -832,7 +837,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                 });
             }
         });
-        ui.add_space(6.0);
+        ui.add_space(theme::space::SM);
     }
     server_form(app, ui);
 }
@@ -842,10 +847,10 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
 /// The first run's AI step shows it too.
 pub(crate) fn server_form(app: &mut CraftApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
-    ui.add_space(14.0);
+    ui.add_space(theme::space::LG);
     widgets::caption(ui, "Add an AI by its address");
     ui.label(RichText::new(tr("Ollama or LM Studio on another computer, or any service that speaks the OpenAI API.")).color(t.text_faint).size(theme::CAPTION));
-    ui.add_space(4.0);
+    ui.add_space(theme::space::XS);
     let form = &mut app.server_form;
     // `width` is the text's; the compact frame adds 8 points a side and its border.
     const FRAME: f32 = 18.0;
@@ -924,7 +929,7 @@ fn builds(app: &mut CraftApp, ui: &mut Ui) {
     row(ui, "Builds at once", "How many projects may build at the same time. More wait their turn.", |ui| {
         changed |= number(ui, &mut b.parallel, 1..=8, "", "");
     });
-    ui.add_space(8.0);
+    ui.add_space(theme::space::SM);
     if let Some(bytes) = app.pinned_copy_bytes {
         row(ui, "Pinned builds", "Size", |ui| {
             ui.label(craft_anything_engine::evidence::human_bytes(bytes));
@@ -974,7 +979,7 @@ fn plugins(app: &mut CraftApp, ui: &mut Ui) {
         )
         .wrap(),
     );
-    ui.add_space(10.0);
+    ui.add_space(theme::space::MD);
     let plugins = app.settings.plugins.mcp.clone();
     let wasm = app.settings.plugins.wasm.clone();
     if plugins.is_empty() && wasm.is_empty() {
@@ -998,15 +1003,15 @@ fn plugins(app: &mut CraftApp, ui: &mut Ui) {
                 if widgets::toggle(ui, &mut app.settings.plugins.mcp[i].enabled, "On").changed() {
                     changed = true;
                 }
-                if icons::button(ui, "refresh-cw", 26.0, false, "Read its tools").clicked() {
+                if icons::button(ui, "refresh-cw", theme::ControlSize::Small, false, "Read its tools").clicked() {
                     app.act("plugins_refresh", serde_json::json!({"id": p.id}), tr("Read the plugin's tools"));
                 }
-                if icons::button(ui, "trash-2", 26.0, false, "Remove").clicked() {
+                if icons::button(ui, "trash-2", theme::ControlSize::Small, false, "Remove").clicked() {
                     app.act("plugins_remove", serde_json::json!({"id": p.id}), tr("Remove a plugin"));
                 }
             });
         });
-        ui.add_space(6.0);
+        ui.add_space(theme::space::SM);
     }
     for (i, p) in wasm.iter().enumerate() {
         widgets::panel(&t).show(ui, |ui| {
@@ -1022,12 +1027,12 @@ fn plugins(app: &mut CraftApp, ui: &mut Ui) {
                 if widgets::toggle(ui, &mut app.settings.plugins.wasm[i].enabled, "On").changed() {
                     changed = true;
                 }
-                if icons::button(ui, "trash-2", 26.0, false, "Remove").clicked() {
+                if icons::button(ui, "trash-2", theme::ControlSize::Small, false, "Remove").clicked() {
                     app.act("plugins_remove", serde_json::json!({"id": p.id}), tr("Remove a plugin"));
                 }
             });
         });
-        ui.add_space(6.0);
+        ui.add_space(theme::space::SM);
     }
     if changed {
         app.settings_changed();
@@ -1035,9 +1040,9 @@ fn plugins(app: &mut CraftApp, ui: &mut Ui) {
     if !plugins.is_empty() || !wasm.is_empty() {
         ui.label(RichText::new(tr("Turning a plugin on or off takes effect from the next start.")).color(t.text_faint).size(theme::CAPTION));
     }
-    ui.add_space(14.0);
+    ui.add_space(theme::space::LG);
     widgets::caption(ui, "Add a plugin");
-    ui.add_space(4.0);
+    ui.add_space(theme::space::XS);
     let form = &mut app.state.plugin_form;
     ui.horizontal(|ui| {
         let id =
@@ -1055,7 +1060,7 @@ fn plugins(app: &mut CraftApp, ui: &mut Ui) {
         );
         widgets::named(args, "Plugin arguments");
     });
-    ui.add_space(6.0);
+    ui.add_space(theme::space::SM);
     let params = app.state.plugin_form.params();
     if widgets::primary_icon(ui, Some("plus"), "Add", params.is_some()).clicked()
         && let Some(params) = params
@@ -1080,7 +1085,7 @@ fn safety(app: &mut CraftApp, ui: &mut Ui) {
     );
     if !app.settings.ask_before_running {
         ui.horizontal(|ui| {
-            icons::show(ui, "triangle-alert", 15.0, t.warning);
+            icons::show(ui, "triangle-alert", theme::icon::MD, t.warning);
             ui.label(RichText::new(tr("Tools may now run code from what you open without asking. Turn this back on unless you're sure.")).color(t.warning));
         });
     }
@@ -1101,7 +1106,7 @@ fn safety(app: &mut CraftApp, ui: &mut Ui) {
         |ui| {
             use craft_anything_engine::workspace::Questions;
             let sel = usize::from(app.settings.questions() == Questions::Decide);
-            if let Some(i) = widgets::segmented(ui, &["Ask me", "Decide yourself"], sel, 30.0) {
+            if let Some(i) = widgets::segmented(ui, &["Ask me", "Decide yourself"], sel, theme::ControlSize::Medium) {
                 app.settings.questions = Some(if i == 0 { Questions::Ask } else { Questions::Decide });
                 app.settings_changed();
             }
@@ -1118,13 +1123,13 @@ fn safety(app: &mut CraftApp, ui: &mut Ui) {
         },
     );
     if let Some(p) = app.view.project.clone() {
-        ui.add_space(8.0);
+        ui.add_space(theme::space::SM);
         widgets::caption(ui, &format!("{} {}", tr("Allowed in"), p));
         if app.view.project_allows.is_empty() {
             ui.label(RichText::new(tr("Nothing allowed yet.")).color(t.text_faint));
         }
         for tool in app.view.project_allows.clone() {
-            ui.label(RichText::new(tool).font(theme::mono(12.0)));
+            ui.label(RichText::new(tool).font(theme::mono(theme::CODE)));
         }
     }
 }

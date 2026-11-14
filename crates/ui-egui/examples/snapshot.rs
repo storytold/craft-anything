@@ -22,6 +22,9 @@ fn arg(args: &[String], name: &str) -> Option<String> {
 /// `--lang`: the UI language for every scene (English when absent).
 static LANG: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
+/// `--light`: every scene in Studio Light.
+static LIGHT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 fn render(out: &std::path::Path, name: &str, w: f32, h: f32, scale: f32, make: impl FnOnce() -> CraftApp + 'static) {
     let mut harness =
         egui_kittest::Harness::builder().with_size(egui::vec2(w, h)).with_pixels_per_point(scale).with_max_steps(64).wgpu().build_eframe(move |cc| {
@@ -29,6 +32,9 @@ fn render(out: &std::path::Path, name: &str, w: f32, h: f32, scale: f32, make: i
             let mut app = make();
             // A made-up folder: the default names the account of whoever renders the pictures.
             app.settings.projects_dir = Some(PathBuf::from("~/Documents/Craft Anything"));
+            if LIGHT.load(std::sync::atomic::Ordering::Relaxed) {
+                app.settings.theme = "studio-light".into();
+            }
             app.settings.language = LANG.get().cloned().unwrap_or_else(|| "en".into());
             craft_anything_ui_egui::i18n::set_language(&app.settings.language);
             app
@@ -54,6 +60,7 @@ fn main() {
     let out = PathBuf::from(arg(&args, "--out-dir").unwrap_or_else(|| "target/snapshots".into()));
     let scale: f32 = arg(&args, "--scale").and_then(|s| s.parse().ok()).unwrap_or(1.5);
     let only = arg(&args, "--only");
+    LIGHT.store(args.iter().any(|a| a == "--light"), std::sync::atomic::Ordering::Relaxed);
     if let Some(l) = arg(&args, "--lang") {
         let _ = LANG.set(l);
     }
