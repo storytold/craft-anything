@@ -1223,11 +1223,13 @@ Owner: open · Status: in progress
       `--screenshot`, `--self-test` or mechanics sheet. A site stack with nothing to recreate is a
       website, whatever the request says
       — claimed: xerenon, branch feature/r2.7-own-project-checks; PR #760
-- [ ] Run the Go, .NET, Maven and Gradle rows of `[[toolchain]]` on real projects, and every row
-      on Windows (`windows_program`): Rust, Node.js, Python and Make were run for real, on a Mac
+- [x] Run the Go row of `[[toolchain]]` on a real existing project on macOS. The opt-in test
+      covers a passing module, a failed test assertion and a build syntax error (Go 1.26.4, arm64)
+      — PR #1849; claimed: rudycelekli, branch test/r2.7-real-go-project-checks
+- [ ] Run the .NET, Maven and Gradle rows of `[[toolchain]]` on real projects, and every row
+      on Windows (`windows_program`): Rust, Node.js, Python, Go and Make were run for real, on a Mac
       only. Also a person's own Unity project: it's opened in batch mode, which should exit with
       an error when its scripts don't compile (not run: no Unity on that machine)
-      — Go on macOS claimed: rudycelekli, branch test/r2.7-real-go-project-checks
 - [ ] A person's own tests that already failed before their request fail the check too, so the
       builder is sent to fix them. If that proves a nuisance, run them once before the first turn
       and hold it only to what it broke
