@@ -3,7 +3,11 @@
 //! time. A string with no translation is shown in English. Tool ids, the CLI and MCP never see
 //! translated text.
 //!
-//! Adding a language: put `xx.tsv` in `i18n/` and add one row to [`LANGUAGES`].
+//! Each language's catalog is a folder, `i18n/<code>/`, whose `.tsv` files `build.rs` joins in
+//! name order. Strings a change adds go in a file of its own in each folder (named for its
+//! branch or roadmap item), so two changes that add strings don't conflict (#1465).
+//!
+//! Adding a language: put its strings in `i18n/xx/core.tsv` and add one row to [`LANGUAGES`].
 
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
@@ -18,24 +22,31 @@ pub struct LangInfo {
     pub source: &'static str,
 }
 
+/// A language's catalog, as `build.rs` joins it from `i18n/<code>/`.
+macro_rules! catalog {
+    ($code:literal) => {
+        include_str!(concat!(env!("OUT_DIR"), "/i18n/", $code, ".tsv"))
+    };
+}
+
 pub static LANGUAGES: &[LangInfo] = &[
     LangInfo { code: "en", name: "English", source: "" },
-    LangInfo { code: "de", name: "Deutsch", source: include_str!("i18n/de.tsv") },
-    LangInfo { code: "ka", name: "ქართული", source: include_str!("i18n/ka.tsv") },
+    LangInfo { code: "de", name: "Deutsch", source: catalog!("de") },
+    LangInfo { code: "ka", name: "ქართული", source: catalog!("ka") },
     LangInfo { code: "fr", name: "Français", source: include_str!("fr.tsv") },
-    LangInfo { code: "it", name: "Italiano", source: include_str!("i18n/it.tsv") },
+    LangInfo { code: "it", name: "Italiano", source: catalog!("it") },
     LangInfo { code: "ja", name: "日本語", source: include_str!("ja.tsv") },
-    LangInfo { code: "zh-hans", name: "简体中文", source: include_str!("i18n/zh-hans.tsv") },
-    LangInfo { code: "zh-hant", name: "繁體中文", source: include_str!("i18n/zh-hant.tsv") },
-    LangInfo { code: "ru", name: "Русский", source: include_str!("i18n/ru.tsv") },
-    LangInfo { code: "ko", name: "한국어", source: include_str!("i18n/ko.tsv") },
-    LangInfo { code: "cs", name: "Čeština", source: include_str!("i18n/cs.tsv") },
-    LangInfo { code: "es", name: "Español", source: include_str!("i18n/es.tsv") },
-    LangInfo { code: "vi", name: "Tiếng Việt", source: include_str!("i18n/vi.tsv") },
-    LangInfo { code: "pt-br", name: "Português (Brasil)", source: include_str!("i18n/pt-br.tsv") },
-    LangInfo { code: "tr", name: "Türkçe", source: include_str!("i18n/tr.tsv") },
-    LangInfo { code: "th", name: "ไทย", source: include_str!("i18n/th.tsv") },
-    LangInfo { code: "et", name: "Eesti", source: include_str!("i18n/et.tsv") },
+    LangInfo { code: "zh-hans", name: "简体中文", source: catalog!("zh-hans") },
+    LangInfo { code: "zh-hant", name: "繁體中文", source: catalog!("zh-hant") },
+    LangInfo { code: "ru", name: "Русский", source: catalog!("ru") },
+    LangInfo { code: "ko", name: "한국어", source: catalog!("ko") },
+    LangInfo { code: "cs", name: "Čeština", source: catalog!("cs") },
+    LangInfo { code: "es", name: "Español", source: catalog!("es") },
+    LangInfo { code: "vi", name: "Tiếng Việt", source: catalog!("vi") },
+    LangInfo { code: "pt-br", name: "Português (Brasil)", source: catalog!("pt-br") },
+    LangInfo { code: "tr", name: "Türkçe", source: catalog!("tr") },
+    LangInfo { code: "th", name: "ไทย", source: catalog!("th") },
+    LangInfo { code: "et", name: "Eesti", source: catalog!("et") },
 ];
 
 /// Match a locale to a registered UI language. An explicit script wins over the region.

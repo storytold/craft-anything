@@ -322,6 +322,12 @@ only when it's green and a maintainer has fully reviewed it, code as well as wor
       `self_cli_path` no longer found the CLI and the two rebuild tests that start it failed on
       `main` and every pull request. It now finds the CLI from that folder too
       — claimed: bflatastic, branch bugfix/r5.2-cli-in-new-build-dir
+- [x] Every PR that adds UI strings appends them to the end of all 14 catalogs, so any two such
+      PRs conflict once one merges (#1465): one folder per language (`i18n/<code>/core.tsv`),
+      each PR adding its own file there, joined in name order by `build.rs`
+      — claimed: justinjohn0306, branch chore/r5.2-catalog-folders
+- [ ] `i18n/awaiting.txt` is still one shared list that PRs append to, so two UI changes that
+      each list strings awaiting translation still conflict there (#1465)
 
 ### R5.3 A builder that can't make progress stops
 Owner: open · Status: todo

@@ -339,6 +339,12 @@ It happened again with Vulkan on Windows (#394): starting Vulkan loaded an Intel
 (`igvk64.dll`) that crashed with `0xc0000005` on startup. Windows now starts DX12 only by default
 (which includes WARP); `WGPU_BACKEND` still allows choosing other backends.
 
+**A build script that missed a removed file.** `build.rs` joins each catalog folder, and
+`cargo::rerun-if-changed` on the folder saw a new or changed file, but not one taken away: Cargo
+compares the newest time in the folder, which a deletion doesn't change, so the joined catalog
+kept the removed file's lines. Also list every file the script read; Cargo runs it again when a
+listed file is gone. Test a generated file by adding an input and then removing it.
+
 **A shader compiler picked by a default that looks around the computer.** wgpu's DX12 `Auto`
 compiler takes a `dxcompiler.dll` it finds on the PATH; one without `dxil.dll` makes unsigned
 shaders, and on an RTX 5060 Ti the device was lost as the window opened ("Parent device is
