@@ -297,6 +297,15 @@ impl CraftApp {
         });
     }
 
+    /// Space an API backend's requests out at the configured rate.
+    pub fn set_requests_per_minute(&mut self, name: &str, rate: u32) -> u64 {
+        let (hub, name) = (self.hub.clone(), name.to_string());
+        self.jobs.spawn(tr("Set request rate"), false, move |_| {
+            hub.set_requests_per_minute(&name, rate).map_err(|e| e.message)?;
+            Ok(crate::backends(&hub))
+        })
+    }
+
     /// Connect the server in Settings → AI's address form. Its key goes to the keychain; the form
     /// keeps what was typed until it's added, so a mistake can be fixed.
     pub fn add_server(&mut self) {

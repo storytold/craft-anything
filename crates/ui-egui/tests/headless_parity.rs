@@ -117,6 +117,7 @@ const ACTIONS: &[Action] = &[
     a("remove_backend_key",  "forget an API key saved in the app",             Cli("ai key <name> --forget")),
     a("pick_model",          "list the models an AI can use",                  Cli("ai model <name>")),
     a("set_model",           "change the model an AI uses",                    Cli("ai model <name> <model>")),
+    a("set_requests_per_minute", "set an API backend's request rate",            Cli("ai request-rate <name> <requests-per-minute>")),
     a("set_effort",          "change how hard an AI thinks",                   Cli("ai effort <name> <level>")),
     a("pick_agent_model",    "list an agent's visible models and thinking depths", Tool(&["ai_models_list"])),
     a("reload_agent_model",  "reload model-specific thinking choices",         Tool(&["ai_models_list"])),

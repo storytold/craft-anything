@@ -48,6 +48,29 @@ fn commands_and_exit_codes() {
     assert_eq!(e["error"]["code"], "bad_input");
 }
 
+#[test]
+fn ai_request_rate_reads_changes_and_clears_an_api_backends_limit() {
+    let config = tempfile::tempdir().unwrap();
+    let run = |args: &[&str]| cli(args, config.path());
+    assert!(run(&["ai", "add", "Local", "--kind", "openai_compatible", "--model", "test"]).success);
+    assert!(run(&["ai", "add", "Claude Code", "--kind", "agent_cli", "--model", "claude-code"]).success);
+    let read_rate = || {
+        let output = run(&["ai", "request-rate", "Local", "--format", "json"]);
+        assert!(output.success);
+        serde_json::from_slice::<Value>(&output.stdout).unwrap()["requests_per_minute"].clone()
+    };
+    assert_eq!(read_rate(), Value::Null);
+    assert!(run(&["ai", "request-rate", "Local", "120"]).success);
+    assert_eq!(read_rate(), 120);
+    assert!(!run(&["ai", "request-rate", "Local", "4294967296"]).success);
+    assert!(!run(&["ai", "request-rate", "Claude Code", "120"]).success);
+    assert!(!run(&["ai", "request-rate", "Unknown", "120"]).success);
+    assert_eq!(read_rate(), 120);
+    assert!(run(&["ai", "request-rate", "Local", "0"]).success);
+    assert_eq!(read_rate(), Value::Null);
+    assert!(!std::fs::read_to_string(config.path().join("config.toml")).unwrap().contains("requests_per_minute"));
+}
+
 /// #1358: the saved key can be reported, replaced and forgotten headlessly, and is never printed.
 #[test]
 fn ai_key_reports_replaces_and_forgets_without_printing_the_key() {

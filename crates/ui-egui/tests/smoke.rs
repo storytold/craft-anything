@@ -1403,6 +1403,37 @@ fn a_model_the_list_doesnt_offer_can_be_typed_in() {
     assert!(wait(&mut h, |a| a.backends.iter().any(|b| b.name == "Box" && b.model == "my-own-model")));
 }
 
+#[test]
+fn an_api_backends_request_rate_is_set_in_settings() {
+    let mut h = harness(|| {
+        let mut app = demo::app(demo::engine(Mode::Experienced, true));
+        app.hub
+            .add_backend(
+                BackendConfig {
+                    name: "Local model".into(),
+                    kind: BackendKind::OpenaiCompatible,
+                    model: "test".into(),
+                    base_url: None,
+                    ssh_host: None,
+                    enabled: true,
+                },
+                None,
+            )
+            .unwrap();
+        app.state.settings_open = true;
+        app.state.settings_tab = craft_anything_ui_egui::state::SettingsTab::Ai;
+        app
+    });
+    h.state_mut().refresh_backends();
+    assert!(wait(&mut h, |app| app.backends.iter().any(|backend| backend.name == "Local model")));
+    h.get_by_label("Requests per minute").focus();
+    h.run_steps(2);
+    h.get_by_label("Requests per minute").type_text("120");
+    h.run_steps(2);
+    h.get_by_label("Apply").click();
+    assert!(wait(&mut h, |app| app.backend_options.get("Local model").and_then(|options| options.requests_per_minute) == Some(120)));
+}
+
 /// #54, #98: an AI server on another computer is added by its address in Settings → AI, with a
 /// model that can chat, and the form empties once it's added.
 #[test]
