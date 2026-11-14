@@ -953,8 +953,17 @@ fn run_cli(spec: &CliSpec, text: &str, retry: bool, tx: &Sender<AgentEvent>, sto
     }
     // The folder the agent's process starts in below.
     let cwd = remote.is_none().then(|| spec.project.clone().or_else(|| std::env::current_dir().ok())).flatten();
-    if let Err(e) = adapter.check_native_options(&spec.options, cwd.as_deref()) {
-        let _ = tx.send(AgentEvent::Error { message: e.message, remediation: e.remediation, log: None });
+    let checked = match remote.as_deref() {
+        Some(host) => adapter.check_remote_options(&spec.options, host, stop),
+        None => adapter.check_native_options(&spec.options, cwd.as_deref()),
+    };
+    if let Err(e) = checked {
+        let event = if e.code == ErrorCode::Cancelled {
+            AgentEvent::Status { text: "Stopped.".into() }
+        } else {
+            AgentEvent::Error { message: e.message, remediation: e.remediation, log: None }
+        };
+        let _ = tx.send(event);
         return nothing_done(&name);
     }
     if let Err(e) = adapter.validate_model(&spec.config, &spec.options, spec.project.as_deref(), stop) {
@@ -1041,6 +1050,9 @@ fn run_cli(spec: &CliSpec, text: &str, retry: bool, tx: &Sender<AgentEvent>, sto
         && let (Some(var), Some(dir)) = (adapter.folder_var(), spec.options.config_dir_text())
     {
         env.push((var, dir.to_string()));
+    }
+    if remote.is_some() {
+        env.extend(adapter.remote_run_env());
     }
     let (prog, argv) = match &remote {
         Some(host) => ("ssh".to_string(), crate::ssh::ssh_line_args(host, remote_command(&program, args, &env))),

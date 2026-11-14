@@ -122,10 +122,134 @@ impl AgentAdapter for Aider {
         )
     }
 
+    fn check_remote_options(&self, options: &BackendOptions, host: &str, stop: &Stop) -> Result<(), ToolError> {
+        stop.check()?;
+        let stop = stop.clone();
+        let args = crate::ssh::ssh_line_args(host, remote_setup_line(options));
+        let out = Process::new("ssh").args(&args).timeout(std::time::Duration::from_secs(15)).stdout_cap(1024).cancel_when(move || stop.is_stopped()).run()?;
+        remote_setup_status(host, &out)
+    }
+
+    fn remote_run_env(&self) -> Option<(&'static str, String)> {
+        Some(("BROWSER", "true".into()))
+    }
+
     /// Nothing Aider offers to open is worth a page during a run, offline or not.
     fn process(&self, program: &str) -> Process {
         Process::new(program).env("BROWSER", "true")
     }
+}
+
+/// Determine only whether the SSH account can start Aider without browser sign-in. Shell
+/// arguments contain booleans and the optional dotenv path, never the model or credential values.
+/// The remote scan reads regular files only and reports its decision by exit status.
+fn remote_setup_line(options: &BackendOptions) -> String {
+    let model = configured_model(options, &|_| None, &Files::for_run(None, None, None));
+    let mode = match model.as_deref() {
+        Some(model) if model.starts_with("openrouter/") => "openrouter",
+        Some(_) => "configured",
+        None => "discover",
+    };
+    let openrouter = key_in_args(&options.args, "OPENROUTER_API_KEY");
+    let any_key = DEFAULT_MODEL_KEYS.iter().any(|key| key_in_args(&options.args, key));
+    let args = [
+        mode,
+        if openrouter { "1" } else { "0" },
+        if any_key { "1" } else { "0" },
+        &flag_value(&options.args, "--env-file").unwrap_or_default(),
+        &SETTINGS_FILE_CAP.to_string(),
+        &DEFAULT_MODEL_KEYS.join(" "),
+    ];
+    let script = crate::ssh::shell_quote(REMOTE_SETUP);
+    let args = args.into_iter().map(crate::ssh::shell_quote).collect::<Vec<_>>().join(" ");
+    format!("sh -c {script} aider-setup {args} </dev/null >/dev/null 2>&1")
+}
+
+const REMOTE_SETUP: &str = r#"
+command -v awk >/dev/null && command -v wc >/dev/null || exit 12
+# The SSH runner starts Aider in the login folder; ~/.env is also the default dotenv.
+small_file() {
+    [ -n "$1" ] && [ -f "$1" ] && bytes=$(wc -c < "$1") && [ "$bytes" -le "$2" ]
+}
+# Keep the selected dotenv path literal, even if it begins with a dash.
+file=$4
+case "$file" in ""|/*) ;; *) file="./$file";; esac
+env_file=/dev/null
+home_env=/dev/null
+oauth=/dev/null
+conf=/dev/null
+if small_file "$file" "$5"; then env_file=$file; fi
+if small_file "$HOME/.env" "$5"; then home_env=$HOME/.env; fi
+if small_file "$HOME/.aider/oauth-keys.env" "$5"; then oauth=$HOME/.aider/oauth-keys.env; fi
+if small_file "$HOME/.aider.conf.yml" "$5"; then conf=$HOME/.aider.conf.yml; fi
+awk -v mode="$1" -v router="$2" -v any="$3" -v keys="$6" '
+function trim(s) {
+    sub(/^[[:space:]]+/, "", s)
+    sub(/[[:space:]]+$/, "", s)
+    return s
+}
+function value(s) {
+    s=trim(s)
+    if (s ~ /^#/) return ""
+    if (s !~ /^["\047]/) sub(/ #.*/, "", s)
+    s=trim(s)
+    gsub(/^["\047]+|["\047]+$/, "", s)
+    return s
+}
+function dotenv(file,    line, key, v, eq) {
+    while ((getline line < file) > 0) {
+        line=trim(line)
+        sub(/^export /, "", line)
+        eq=index(line, "=")
+        if (!eq) continue
+        key=trim(substr(line, 1, eq-1))
+        v=value(substr(line, eq+1))
+        if (v != "" && !(key in dot)) dot[key]=v
+    }
+    close(file)
+}
+function config(file,    line, key, eq) {
+    while ((getline line < file) > 0) {
+        if (line ~ /^model:/ && conf_model == "") conf_model=value(substr(line, 7))
+        line=trim(line)
+        sub(/^-+/, "", line)
+        line=value(line)
+        eq=index(line, "=")
+        if (eq && trim(substr(line, eq+1)) != "") configured[substr(line, 1, eq-1)]=1
+    }
+    close(file)
+}
+function has_key(key,    provider) {
+    provider=key
+    sub(/_API_KEY$/, "", provider)
+    return dot[key] != "" || dot["AIDER_" key] != "" || trim(ENVIRON[key]) != "" ||
+        trim(ENVIRON["AIDER_" key]) != "" || configured[key] || configured[tolower(provider)]
+}
+BEGIN {
+    dotenv(ARGV[1]); dotenv(ARGV[2]); dotenv(ARGV[3]); config(ARGV[4])
+    model=dot["AIDER_MODEL"]
+    if (model == "") model=trim(ENVIRON["AIDER_MODEL"])
+    if (model == "") model=conf_model
+    if (mode == "openrouter" || (mode == "discover" && model ~ /^openrouter\//))
+        exit (router || has_key("OPENROUTER_API_KEY")) ? 0 : 11
+    if (mode == "configured" || model != "" || any) exit 0
+    split(keys, defaults, " ")
+    for (i in defaults) if (has_key(defaults[i])) exit 0
+    exit 10
+}' "$env_file" "$home_env" "$oauth" "$conf"
+"#;
+
+fn remote_setup_status(host: &str, out: &craft_anything_platform::Output) -> Result<(), ToolError> {
+    if out.success {
+        return Ok(());
+    }
+    let (message, fix) = match out.code {
+        Some(10) => ("has no model or API key set up", "Set a model or API key in Aider's settings on that computer."),
+        Some(11) => ("needs an OpenRouter API key for its selected model", "Set OPENROUTER_API_KEY on that computer, or select another model."),
+        Some(12) => ("couldn't check Aider's settings", "Install the standard awk and wc utilities on that computer."),
+        _ => ("couldn't check Aider's settings", "Verify the SSH connection and the remote shell in a terminal, then try again."),
+    };
+    Err(ToolError::new(ErrorCode::BadSettings, format!("On {host}, Aider {message}.")).with_remediation(fix))
 }
 
 /// The settings files Aider reads for a run, each list with the file it loads last (whose
@@ -309,6 +433,53 @@ mod tests {
     /// The files of a run outside any project, with this home folder.
     fn at_home(home: Option<&Path>) -> Files {
         Files::for_run(None, home, None)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ssh_setup_uses_only_the_remote_home_and_keeps_credentials_there() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path();
+        let run = |options: &BackendOptions| {
+            Process::new("sh")
+                .args(["-c", &remote_setup_line(options)])
+                .cwd(home)
+                .env_clear()
+                .env("PATH", "/usr/bin:/bin")
+                .env("HOME", home.as_os_str())
+                .timeout(std::time::Duration::from_secs(5))
+                .run()
+                .unwrap()
+        };
+        let bare = BackendOptions::default();
+        let result = run(&bare);
+        assert_eq!(result.code, Some(10));
+        let error = remote_setup_status("fixture", &result).unwrap_err();
+        assert!(error.message.contains("On fixture"));
+        std::fs::write(home.join(".aider.conf.yml"), "model: openrouter/fixture\n").unwrap();
+        assert_eq!(run(&bare).code, Some(11));
+
+        let oauth = home.join(".aider");
+        std::fs::create_dir(&oauth).unwrap();
+        std::fs::write(oauth.join("oauth-keys.env"), "OPENROUTER_API_KEY=sk-test\n").unwrap();
+        let result = run(&bare);
+        assert!(result.success);
+        assert!(result.stdout.is_empty() && result.stderr.is_empty());
+        std::fs::remove_file(oauth.join("oauth-keys.env")).unwrap();
+
+        std::fs::write(home.join(".env"), "OPENROUTER_API_KEY=sk-test # fixture\n").unwrap();
+        assert!(run(&bare).success);
+        std::fs::remove_file(home.join(".env")).unwrap();
+
+        let path = "-override 'name'.env";
+        std::fs::write(home.join(path), "AIDER_MODEL=ollama/fixture\n").unwrap();
+        let explicit_file = BackendOptions { args: vec!["--env-file".into(), path.into()], ..Default::default() };
+        assert!(run(&explicit_file).success);
+
+        let explicit_key = BackendOptions { args: vec!["--api-key".into(), "openrouter=sk-test".into()], ..Default::default() };
+        assert!(!remote_setup_line(&explicit_key).contains("sk-test"));
+        assert!(run(&explicit_key).success);
+        assert_eq!(Aider.remote_run_env(), Some(("BROWSER", "true".into())));
     }
 
     #[test]

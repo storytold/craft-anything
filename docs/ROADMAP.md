@@ -1014,8 +1014,8 @@ Owner: open · Status: in progress
 - [x] Aider: read project-folder `.aider.conf.yml` and `.env` in `check_setup`, which needs the working directory passed into `check_native_options`.
       It reads the run's folder, the top of its git repository, then the home folder, as Aider
       does — PR #1210; claimed: rmsff, branch feature/r2.2-aider-project-settings
-- [ ] Aider over SSH: its setup check still reads this computer's environment and home folder.
-      Read the remote host's `~/.env`, `~/.aider.conf.yml` and `~/.aider/oauth-keys.env` there
+- [x] Check Aider's settings on the SSH host before its turn, including the remote environment,
+      `~/.env`, `~/.aider.conf.yml` and `~/.aider/oauth-keys.env`. Only a setup status returns.
       — claimed: rudycelekli, branch bugfix/r2.2-aider-ssh-setup
 - [x] OpenCode takes its message on stdin (`opencode run` with no message argument reads it there,
       V1 and V2), so a long one can't pass Windows' command-line limit (#402), as Claude Code, Codex,

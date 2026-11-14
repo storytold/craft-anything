@@ -73,9 +73,19 @@ pub trait AgentAdapter: Send + Sync {
     }
     /// Refuse options that the native transport cannot support, before preflight or process I/O.
     /// Saving a model choice and discovering its catalogue do not imply native execution support.
-    /// `cwd` is the folder the agent will run in on this computer; none for a run over SSH.
+    /// `cwd` is the folder the agent will run in on this computer.
     fn check_native_options(&self, _options: &BackendOptions, _cwd: Option<&Path>) -> Result<(), ToolError> {
         Ok(())
+    }
+
+    /// Check native settings where an SSH agent actually runs.
+    fn check_remote_options(&self, options: &BackendOptions, _host: &str, _stop: &Stop) -> Result<(), ToolError> {
+        self.check_native_options(options, None)
+    }
+
+    /// An environment setting that must be applied on the SSH host.
+    fn remote_run_env(&self) -> Option<(&'static str, String)> {
+        None
     }
 
     /// Use ACP by default and refuse the per-message CLI runner. An explicit `acp = false` or
