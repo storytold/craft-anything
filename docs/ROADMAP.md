@@ -1170,7 +1170,7 @@ Owner: maintainers · Status: in progress
       arguments with line breaks are refused (they'd add commands to lldb's command file). The
       callback body was compiled with Python; lldb itself was not run
 - [ ] Run `apple_calls_observe` on a Mac against a small program with `lldb` (the #251 probe):
-      the hit for `alpha` is recorded, and a program lldb can't debug says so
+      the hit for `alpha` is recorded, and a program lldb can't debug says so — claimed: rudycelekli, branch test/r2.4-verify-lldb-call-observation
 - [ ] Window capture tried on macOS and Linux (only Windows so far); games behind a launcher
 - [ ] Short scripted input sessions (enigo) to record screens of the original
 - [x] A macOS app bundle picked as an app target (`TipCalc.app`) is studied as a plain folder: the
