@@ -1016,6 +1016,7 @@ Owner: open · Status: in progress
       does — PR #1210; claimed: rmsff, branch feature/r2.2-aider-project-settings
 - [ ] Aider over SSH: its setup check still reads this computer's environment and home folder.
       Read the remote host's `~/.env`, `~/.aider.conf.yml` and `~/.aider/oauth-keys.env` there
+      — claimed: rudycelekli, branch bugfix/r2.2-aider-ssh-setup
 - [x] OpenCode takes its message on stdin (`opencode run` with no message argument reads it there,
       V1 and V2), so a long one can't pass Windows' command-line limit (#402), as Claude Code, Codex,
       Gemini CLI and DeepSeek Harness already do
