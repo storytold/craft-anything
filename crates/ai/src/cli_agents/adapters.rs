@@ -13,6 +13,7 @@ mod dsh;
 mod grok;
 mod hermes;
 mod maki;
+mod omp;
 mod opencode;
 pub use aider::Aider;
 pub use antigravity::Antigravity;
@@ -22,6 +23,7 @@ pub use dsh::DeepSeekHarness;
 pub use grok::Grok;
 pub use hermes::Hermes;
 pub use maki::Maki;
+pub use omp::Omp;
 pub use opencode::OpenCode;
 
 /// What a run's arguments are built from.
@@ -297,6 +299,7 @@ impl AgentAdapters {
                 Arc::new(Aider),
                 Arc::new(Copilot),
                 Arc::new(Grok),
+                Arc::new(Omp),
                 Arc::new(DeepSeekHarness),
                 Arc::new(Devin),
             ],
