@@ -697,22 +697,34 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                         if b.kind != BackendKind::AgentCli {
                             use craft_anything_ai::Vision;
                             let vision = app.backend_options.get(&b.name).and_then(|o| o.vision).unwrap_or_default();
-                            ui.horizontal_wrapped(|ui| {
-                                ui.style_mut().override_font_id = Some(egui::FontId::proportional(theme::CAPTION));
-                                let label = ui.label(RichText::new(tr("Sees pictures")).color(t.text_faint).size(theme::CAPTION));
-                                let named = |v: Vision| match v {
-                                    Vision::Auto => tr("Auto"),
-                                    Vision::Yes => tr("Yes"),
-                                    Vision::No => tr("No"),
-                                };
-                                let combo = egui::ComboBox::from_id_salt(("vision", &b.name)).icon(widgets::combo_icon).selected_text(named(vision)).show_ui(ui, |ui| {
-                                    for v in Vision::ALL {
-                                        if ui.selectable_label(v == vision, named(v)).clicked() && v != vision {
-                                            save_vision = Some((b.name.clone(), v));
+                            // One change at a time: saves run as jobs that finish in any order, so
+                            // a second change's refresh could land before the first's and Settings
+                            // would show (and keep) the older choice. The row waits for its save,
+                            // as the tool list and the request rate do.
+                            let job_id = ui.make_persistent_id(("vision-job", &b.name));
+                            let pending_job = ui.data(|data| data.get_temp::<u64>(job_id));
+                            let pending = app.jobs.running().any(|job| Some(job.id) == pending_job);
+                            if !pending && pending_job.is_some() {
+                                ui.data_mut(|data| data.remove::<u64>(job_id));
+                            }
+                            ui.add_enabled_ui(!pending, |ui| {
+                                ui.horizontal_wrapped(|ui| {
+                                    ui.style_mut().override_font_id = Some(egui::FontId::proportional(theme::CAPTION));
+                                    let label = ui.label(RichText::new(tr("Sees pictures")).color(t.text_faint).size(theme::CAPTION));
+                                    let named = |v: Vision| match v {
+                                        Vision::Auto => tr("Auto"),
+                                        Vision::Yes => tr("Yes"),
+                                        Vision::No => tr("No"),
+                                    };
+                                    let combo = widgets::dropdown(("vision", &b.name)).selected_text(named(vision)).show_ui(ui, |ui| {
+                                        for v in Vision::ALL {
+                                            if widgets::menu_item(ui, v == vision, named(v)).clicked() && v != vision {
+                                                save_vision = Some((b.name.clone(), v, job_id));
+                                            }
                                         }
-                                    }
+                                    });
+                                    combo.response.labelled_by(label.id).on_hover_text(tr("Whether a builder on this AI is shown pictures: the original's screenshots, your pictures of it, and the check's pictures of the build. Auto: what its server says; a model it says nothing about isn't shown any."));
                                 });
-                                combo.response.labelled_by(label.id).on_hover_text(tr("Whether a builder on this AI is shown pictures: the original's screenshots, your pictures of it, and the check's pictures of the build. Auto: what its server says; a model it says nothing about isn't shown any."));
                             });
                         }
                     }
@@ -982,8 +994,9 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
     if let Some((name, effort)) = chosen_effort {
         app.set_effort(&name, effort);
     }
-    if let Some((name, vision)) = save_vision {
-        app.set_vision(&name, vision);
+    if let Some((name, vision, id)) = save_vision {
+        let job = app.set_vision(&name, vision);
+        ui.data_mut(|data| data.insert_temp(id, job));
     }
     if close_picker {
         app.model_picker = None;

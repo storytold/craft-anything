@@ -1873,14 +1873,20 @@ fn whether_an_ai_sees_pictures_is_chosen_in_settings() {
         h.get_all_by_label(label).last().unwrap().click();
         h.run_steps(2);
     };
+    // The row waits for each save, so a later choice can't be overtaken by an earlier one's
+    // refresh (#1183 review); it takes the next choice once the save is done.
+    let saved = |h: &mut Harness<'static, CraftApp>| {
+        assert!(wait(h, |a| a.jobs.running().next().is_none()));
+        h.run_steps(2);
+    };
     open(&mut h, "Auto");
     pick(&mut h, "Yes");
     assert!(wait(&mut h, |a| vision(a) == Some(craft_anything_ai::Vision::Yes)), "{:?}", vision(h.state()));
-    h.run_steps(2);
+    saved(&mut h);
     open(&mut h, "Yes");
     pick(&mut h, "No");
     assert!(wait(&mut h, |a| vision(a) == Some(craft_anything_ai::Vision::No)), "{:?}", vision(h.state()));
-    h.run_steps(2);
+    saved(&mut h);
     open(&mut h, "No");
     pick(&mut h, "Auto");
     assert!(wait(&mut h, |a| vision(a).is_none()), "Auto isn't written: {:?}", vision(h.state()));
