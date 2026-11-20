@@ -382,6 +382,9 @@ only when it's green and a maintainer has fully reviewed it, code as well as wor
       PRs conflict once one merges (#1465): one folder per language (`i18n/<code>/core.tsv`),
       each PR adding its own file there, joined in name order by `build.rs`
       — claimed: justinjohn0306, branch chore/r5.2-catalog-folders
+- [x] A `.tsv` left beside the language folders fails the catalog build, through the same
+      `join_catalogs` that already refuses a key shared by two files (#1465, follow-up to #1860)
+      — claimed: javapriyan, branch bugfix/r5.2-catalog-duplicate-and-stray-checks
 - [ ] `i18n/awaiting.txt` is still one shared list that PRs append to, so two UI changes that
       each list strings awaiting translation still conflict there (#1465)
 

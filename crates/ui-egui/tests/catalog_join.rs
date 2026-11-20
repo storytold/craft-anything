@@ -43,6 +43,33 @@ fn a_key_in_two_files_of_a_language_is_refused() {
     let problems = build::join_files(&[core.clone(), extra.clone()]).unwrap_err();
     assert_eq!(problems.len(), 1, "{problems:?}");
     assert!(problems[0].contains("\"Settings\"") && problems[0].contains("core.tsv") && problems[0].contains("r5.4-budget.tsv"), "{problems:?}");
+    // The build itself refuses it: `join_catalogs` is what `main` runs, and it does not write the catalog.
+    let src_dir = tempfile::tempdir().unwrap();
+    let out = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(src_dir.path().join("de")).unwrap();
+    std::fs::write(src_dir.path().join("de/core.tsv"), "# de\nSettings\tEinstellungen\n").unwrap();
+    std::fs::write(src_dir.path().join("de/r5.4-budget.tsv"), "Settings\tOptionen\n").unwrap();
+    let problems = build::join_catalogs(src_dir.path(), out.path());
+    assert!(problems.iter().any(|p| p.contains("\"Settings\"") && p.contains("core.tsv") && p.contains("r5.4-budget.tsv")), "{problems:?}");
+    assert!(!out.path().join("de.tsv").exists(), "a repeated key is not embedded");
+}
+
+/// A `.tsv` next to the language folders is the old single-file catalog. The build reports it
+/// instead of skipping it, and still joins the folders.
+#[test]
+fn a_tsv_beside_the_language_folders_fails_the_build() {
+    let src = tempfile::tempdir().unwrap();
+    let out = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(src.path().join("de")).unwrap();
+    std::fs::write(src.path().join("de/core.tsv"), "Settings\tEinstellungen\n").unwrap();
+    std::fs::write(src.path().join("awaiting.txt"), "Settings\n").unwrap();
+    assert!(build::join_catalogs(src.path(), out.path()).is_empty());
+    assert!(out.path().join("de.tsv").is_file());
+    std::fs::write(src.path().join("fr.tsv"), "Settings\tParamètres\n").unwrap();
+    let problems = build::join_catalogs(src.path(), out.path());
+    assert!(problems.iter().any(|p| p.contains("fr.tsv") && p.contains("beside the language folders")), "{problems:?}");
+    assert!(out.path().join("de.tsv").is_file(), "the folders are still joined");
+    assert!(!out.path().join("fr.tsv").exists(), "a stray file is not a language catalog");
 }
 
 /// Every language the app offers comes from its folder, so no catalog is a single shared file.
