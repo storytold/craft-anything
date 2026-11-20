@@ -2321,6 +2321,13 @@ impl eframe::App for CraftApp {
         self.show(ui);
     }
 
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        #[cfg(target_os = "macos")]
+        menu::feed(self, raw_input);
+        #[cfg(not(target_os = "macos"))]
+        let _ = raw_input;
+    }
+
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         if let Ok(s) = serde_json::to_string(&self.prefs()) {
             storage.set_string(PREFS_KEY, s);
