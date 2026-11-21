@@ -79,6 +79,7 @@ pub const TOOLS: &[&str] = &[
     "rebuild_stop",
     // The builder's own project.
     "build_files_list",
+    "build_files_search",
     "build_file_read",
     "build_file_write",
     "build_file_edit",
