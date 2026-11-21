@@ -101,6 +101,29 @@ its version 0.6.1 and intervening behavior, including newer controls' accessibil
 metadata. The native shutdown observations above refer to the November 9
 implementation, not a new native run after this rebase.
 
+On 2026-11-21, the author requested conflict resolution against upstream `e64d7cb`.
+That base still uses the vulnerable 0.26 adapter line. The migration retains
+upstream's newer Figtree variable font and bold script fallbacks, shared control
+sizes, animated dropdowns and segments, Settings/About page, and click-through
+toast layout. The shared dropdown constructor now returns an owned
+`ComboBox<'static>` as required by egui 0.37; its controls retain accessible names.
+Upstream removed Help from the title bar, so its zoom regression checks the
+remaining Settings and Advanced controls with the same strict tolerances rather
+than restoring the obsolete menu. This is an update of the existing layout test,
+not a skipped or relaxed assertion for an extant control. The lockfile is normalized
+by Cargo after reconciliation. Native shutdown evidence above remains dated
+November 9 and is not claimed as a new native run of this revision.
+
+Local validation of this rebase on macOS: 308 desktop/GUI tests passed, one
+existing clipboard test was ignored, and the unchanged upstream
+`a_non_text_folder_is_refused_before_a_look_starts` fixture failed at `create_dir`
+with OS error 92 (illegal byte sequence), before reaching app behavior. The
+fixture and its assertions are unchanged. All 123 smoke tests passed. All-target
+clippy on Rust 1.99.1, formatting, layering, locks, translation coverage, secrets
+and diff checks passed. Optional multilingual font packages were not embedded in
+this local run. Hosted Linux CI is a distinct verification, not implied by these
+local results.
+
 ## Recovery and upstream review
 
 Keep the prior application bundle and settings before installing. A local

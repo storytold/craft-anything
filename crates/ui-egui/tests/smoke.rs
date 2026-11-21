@@ -1960,6 +1960,7 @@ fn a_model_picked_from_a_servers_list_is_chosen_there_and_goes_with_its_address(
     // The form sits below the fold of the AI page: scroll to it, as a person would.
     h.event(egui::Event::PointerMoved(egui::pos2(640.0, 400.0)));
     h.event(egui::Event::MouseWheel {
+        source: egui::MouseWheelSource::Unknown,
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, -300.0),
         phase: egui::TouchPhase::Move,
@@ -2093,7 +2094,7 @@ fn an_openai_compatible_ais_effort_is_set_in_settings() {
     h.state_mut().state.settings_open = true;
     h.state_mut().state.settings_tab = craft_anything_ui_egui::state::SettingsTab::Ai;
     h.run_steps(2);
-    h.get_by_label("Effort:");
+    h.get_by_role_and_label(egui::Role::ComboBox, "Effort:");
     h.get_by_value("default").click();
     h.run();
     assert!(h.query_by_label("max").is_none(), "only OpenAI's levels");
@@ -2310,14 +2311,15 @@ fn title_bar_keeps_its_size_when_zoomed() {
             let r = h.get_all_by_label(label).map(|n| n.rect()).min_by(|a, b| a.top().total_cmp(&b.top())).unwrap();
             egui::Rect::from_min_max(r.min * zoom, r.max * zoom)
         };
-        (rect("Settings"), rect("Advanced"), rect("Help"), rect("Filter"))
+        // Upstream moved Help into Settings/About; exercise the controls still in this bar.
+        (rect("Settings"), rect("Advanced"), rect("Filter"))
     };
-    let (settings, advanced, help, filter) = on_screen(1.0);
+    let (settings, advanced, filter) = on_screen(1.0);
     // The bar is the system title bar's height, and its controls sit centred in it.
     assert!((settings.center().y - 16.0).abs() <= 1.0, "settings button at {settings:?}");
     for zoom in [0.5, 1.5] {
-        let (s, a, h, f) = on_screen(zoom);
-        for (name, at_100, now) in [("Settings", settings, s), ("Advanced", advanced, a), ("Help", help, h)] {
+        let (s, a, f) = on_screen(zoom);
+        for (name, at_100, now) in [("Settings", settings, s), ("Advanced", advanced, a)] {
             let moved = (now.min - at_100.min).length().max((now.max - at_100.max).length());
             assert!(moved <= 1.0, "{name} moved {moved} pt at {zoom}x: {at_100:?} → {now:?}");
         }

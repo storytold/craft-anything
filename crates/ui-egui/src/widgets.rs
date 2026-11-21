@@ -61,7 +61,7 @@ pub fn toggle(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
 
 /// Every dropdown field: egui's combo box with our arrow, and a list whose rows are
 /// [`menu_item`]s sitting close together.
-pub fn dropdown(id_salt: impl egui::AsIdSalt) -> egui::ComboBox {
+pub fn dropdown(id_salt: impl egui::AsIdSalt) -> egui::ComboBox<'static> {
     egui::ComboBox::from_id_salt(id_salt).icon(combo_icon).popup_style(egui::style::StyleModifier::from(|s: &mut egui::Style| {
         s.spacing.item_spacing.y = theme::space::XXS;
     }))

@@ -278,7 +278,7 @@ fn font_definitions(optional: &[CraftFont]) -> FontDefinitions {
     let bold_fallbacks = sans_first(bold_fallbacks);
     fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "Figtree".to_owned());
     fonts.families.entry(FontFamily::Monospace).or_default().insert(0, "JetBrainsMono".to_owned());
-    // Navigation hints use arrows absent from DM Sans and egui's new minimal sans stack.
+    // Navigation hints must keep their arrows with the newer minimal sans stack.
     // This bundled fallback keeps those glyphs available even without optional craft-fonts.
     fonts.families.entry(FontFamily::Proportional).or_default().push("JetBrainsMono".to_owned());
     for fam in [FontFamily::Proportional, FontFamily::Monospace] {
