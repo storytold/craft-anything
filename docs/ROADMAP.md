@@ -1573,13 +1573,13 @@ Owner: open · Status: in progress
 - [ ] Hold the self-test to what the check can see too: picture the game after its scripted
       input and require it to differ from the `--screenshot` picture (a report alone is the
       build's own word)
-- [ ] An accessibility floor the person can turn on: unnamed controls, pictures with no `alt`
-      attribute (an empty `alt` marks a decorative picture and passes) and a missing page
-      language judged on the build alone. `health_notes` (`kinds/website.rs`)
-      flags them only where the build is worse ("Problems the original has too aren't the
-      build's to fix."). The `a11y` block survives Clean room (`visitor_view` keeps it).
-      Passing it is a floor, not an accessibility audit. Test on a page where the original
-      and the build share a barrier
+- [x] An accessibility floor the person can turn on (Settings → Builds → Accessibility floor,
+      `build.a11y_floor`, off by default): every page of a website build gets a claim of its own
+      that fails on controls without a name, pictures with no `alt` attribute (an empty `alt`
+      marks a decorative picture and passes) or a missing page language, judged on the build
+      alone, so a barrier the original shares counts too. Off, `health_notes` still flags only
+      what the build makes worse. The `a11y` block survives Clean room (`visitor_view` keeps
+      it). Passing it is a floor, not an accessibility audit (#2246)
 
 ### R2.7 The request decides how to build
 Owner: open · Status: in progress

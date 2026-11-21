@@ -1085,6 +1085,14 @@ fn builds(app: &mut CraftApp, ui: &mut Ui) {
             changed |= number(ui, v, 30.0..=100.0, "", " %");
         }
     });
+    row(
+        ui,
+        "Accessibility floor",
+        "Websites: every page must give its controls a name, its pictures an alt attribute and say its language, even where the original doesn't. A floor, not an accessibility audit.",
+        |ui| {
+            changed |= widgets::toggle(ui, &mut b.a11y_floor, "Hold to the floor").changed();
+        },
+    );
     row(ui, "Builds at once", "How many projects may build at the same time. More wait their turn.", |ui| {
         changed |= number(ui, &mut b.parallel, 1..=8, "", "");
     });

@@ -159,11 +159,24 @@ pub struct BuildSettings {
     pub picture_good_enough: Option<f64>,
     /// Projects that may build at the same time; more wait their turn (at least 1).
     pub parallel: usize,
+    /// Hold every page of a website build to an accessibility floor of its own: controls without
+    /// a name, pictures with no `alt` attribute and a missing page language fail a claim even
+    /// when the original has them too. Off by default: then only what the build makes worse
+    /// than the original is flagged.
+    pub a11y_floor: bool,
 }
 
 impl Default for BuildSettings {
     fn default() -> Self {
-        BuildSettings { good_enough: 90.0, max_rounds: 6, web_widths: vec![1440, 768, 390], max_pages: 4, picture_good_enough: None, parallel: 2 }
+        BuildSettings {
+            good_enough: 90.0,
+            max_rounds: 6,
+            web_widths: vec![1440, 768, 390],
+            max_pages: 4,
+            picture_good_enough: None,
+            parallel: 2,
+            a11y_floor: false,
+        }
     }
 }
 

@@ -416,7 +416,8 @@ impl StructureLikeness {
 /// What the build gets wrong that the original doesn't, from both captures' `health` and `a11y`:
 /// script and console errors, requests that fail (compared by path, since the build is served
 /// from elsewhere), and controls without a name, pictures without alt text or a missing page
-/// language. Problems the original has too aren't the build's to fix.
+/// language. Problems the original has too aren't the build's to fix (the accessibility floor,
+/// [`super::a11y_floor`], is how the person holds the build to more).
 pub fn health_notes(original: &Value, built: &Value) -> Vec<String> {
     let mut out = Vec::new();
     let new_errors = new_errors(original, built);
@@ -788,7 +789,8 @@ impl Check for WebVisualCheck {
 
     fn run(&self, cx: &mut CheckCx) -> Result<CheckResult, ToolError> {
         let (ws, round) = (cx.ws, cx.round);
-        let widths = cx.build_settings().widths();
+        let settings = cx.build_settings();
+        let widths = settings.widths();
         let Some(site) = site_dir(&ws.app_dir()) else {
             return Ok(CheckResult::new(self.id(), round, false, missing_site_note(ws.app_place(), app_is_empty(ws))));
         };
@@ -851,6 +853,7 @@ impl Check for WebVisualCheck {
             let text = match (read_json(&original.join("capture.json")), read_json(&built.join("capture.json"))) {
                 (Some(o), Some(b)) => {
                     claims.extend(page_claims(&page, &o, &b));
+                    claims.extend(super::a11y_floor::floor_claim(&page, &b, &settings));
                     [text_likeness(&o, &b).map(|t| t.note()), structure_likeness(&o, &b).map(|s| s.note())]
                         .into_iter()
                         .flatten()

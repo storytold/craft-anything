@@ -3835,6 +3835,28 @@ fn the_check_names_errors_failed_requests_and_accessibility_the_build_adds() {
 }
 
 #[test]
+fn the_accessibility_floor_judges_a_barrier_the_original_shares_only_when_turned_on() {
+    use craft_anything_engine::settings::BuildSettings;
+    use kinds::a11y_floor::floor_claim;
+    use kinds::website::{health_notes, page_claims};
+    let shared = json!({"a11y": {"lang": "", "unnamed_controls": 2, "images_without_alt": 1, "landmarks": {"main": 1}}});
+    let off = BuildSettings::default();
+    assert!(health_notes(&shared, &shared).is_empty(), "the build isn't worse than the original");
+    assert!(page_claims("The start page", &shared, &shared).iter().all(|c| c.passed));
+    assert_eq!(floor_claim("The start page", &shared, &off), None, "off, nothing changes");
+    let on = BuildSettings { a11y_floor: true, ..BuildSettings::default() };
+    let claim = floor_claim("The start page", &shared, &on).expect("a claim once the floor is on");
+    assert!(!claim.passed, "a barrier the original has too still fails the floor");
+    for barrier in ["control", "alt attribute", "language"] {
+        assert!(claim.detail.contains(barrier), "{barrier} in {:?}", claim.detail);
+    }
+    // An empty alt marks a decorative picture, which the capture doesn't count, so it passes.
+    let decorative = json!({"a11y": {"lang": "en", "unnamed_controls": 0, "images_without_alt": 0}});
+    assert!(floor_claim("/about", &decorative, &on).is_some_and(|c| c.passed));
+    assert_eq!(floor_claim("/about", &json!({}), &on), None, "older captures make no claim");
+}
+
+#[test]
 fn each_thing_a_page_must_do_is_a_claim_of_its_own() {
     use kinds::website::page_claims;
     let original = json!({
