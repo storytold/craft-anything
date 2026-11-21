@@ -7,6 +7,9 @@ mod note_progress;
 #[path = "stall_tests.rs"]
 mod stall;
 
+#[path = "capture_confirmation_tests.rs"]
+mod capture_confirmation;
+
 // Helpers that take a built-in kind's id, so each test reads as one line.
 fn kind(id: &str) -> Arc<dyn TargetKind> {
     KindRegistry::built_in().get(id).unwrap()

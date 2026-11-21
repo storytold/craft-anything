@@ -2150,8 +2150,9 @@ Gaps found while using the app for real projects.
       Snap Chromium, whose launcher couldn't start in the test shell) and rebuild it signed in
 - [ ] Refresh a saved sign-in from a capture session when the site renews it, so it lasts longer
       than the first sign-in's cookies
-- [ ] Before the builder starts on a signed-in study, show the person the study's first
+- [x] Before the builder starts on a signed-in study, show the person the study's first
       screenshots and ask them to confirm it's the signed-in app (Make screen and an inbox approval)
+      — claimed: MacallanTheRoot, branch feature/r2.9-signed-in-study-confirmation; PR #2269
 - [ ] After a website build, list what plain files can't carry over (forms, sign-ins, payments,
       bookings), read from the capture: Clean room keeps links and form outlines. Copied form
       markup isn't a working form, and a capture with no form or sign-in link doesn't show the

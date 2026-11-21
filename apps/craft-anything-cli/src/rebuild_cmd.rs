@@ -170,6 +170,7 @@ fn run(cli: &Cli, a: &RebuildArgs) -> Result<bool, ToolError> {
         clean_room: Some(engine.session().clean_room()),
         ..RunOptions::default()
     };
+    let project_root = ws.root.clone();
     let mut run = RebuildRun::start(&hub, ws, opts)?;
     if let Some(replacement) = replacement {
         eprintln!("{}", rebuild::replaced_builder_notice(&replacement.saved, &replacement.used));
@@ -211,8 +212,12 @@ fn run(cli: &Cli, a: &RebuildArgs) -> Result<bool, ToolError> {
                 }
                 RunEvent::Ask(r) => {
                     end_line(&mut line_open);
-                    let answer = if a.unattended { auto_answer(&r) } else { prompt_answer(&r) };
-                    run.answer(&r.id, &answer)?;
+                    let answer = if a.unattended { auto_answer(&r) } else { prompt_answer(&r, &project_root) };
+                    if r.capture_review.is_some() {
+                        run.answer_as(&r.id, &answer, if answer.allow == Some(true) { "Capture confirmed" } else { "Capture rejected" })?;
+                    } else {
+                        run.answer(&r.id, &answer)?;
+                    }
                 }
                 RunEvent::Checked(c) => {
                     end_line(&mut line_open);
@@ -255,6 +260,12 @@ fn end_line(open: &mut bool) {
 }
 
 fn auto_answer(r: &Request) -> Answer {
+    if r.capture_review.is_some() {
+        println!(
+            "Signed-in capture refused: unattended operation cannot confirm private account content. Start an attended rebuild to review its screenshots."
+        );
+        return Answer { allow: Some(false), ..Default::default() };
+    }
     match r.kind {
         RequestKind::Question => {
             println!("? {} → {} (unattended)", r.title, r.choices.first().map(String::as_str).unwrap_or("no preference"));
@@ -277,7 +288,17 @@ fn read_line() -> String {
     s.trim().to_string()
 }
 
-fn prompt_answer(r: &Request) -> Answer {
+fn prompt_answer(r: &Request, root: &std::path::Path) -> Answer {
+    if let Some(review) = &r.capture_review {
+        println!("\nConfirm the signed-in website capture: {}", review.website);
+        println!("{}", r.detail);
+        for shot in &review.screenshots {
+            println!("  Local screenshot: {}", root.join("capture").join(&shot.file).display());
+        }
+        print!("Open these local screenshots and check the website and account. Type confirm to permit this capture, or reject to stop: ");
+        let _ = std::io::stdout().flush();
+        return Answer { allow: Some(read_line().eq_ignore_ascii_case("confirm")), ..Default::default() };
+    }
     println!("\n? {}", r.title);
     if !r.detail.is_empty() {
         println!("  {}", r.detail.lines().take(12).collect::<Vec<_>>().join("\n  "));
@@ -301,5 +322,25 @@ fn prompt_answer(r: &Request) -> Answer {
             let line = read_line().to_lowercase();
             Answer { allow: Some(line.starts_with('y') || line.starts_with('a')), always: line.starts_with('a'), ..Default::default() }
         }
+    }
+}
+
+#[cfg(test)]
+mod capture_confirmation_tests {
+    use super::*;
+    use craft_anything_engine::{capture_review::CaptureReview, inbox::Inbox};
+
+    #[test]
+    fn unattended_operation_refuses_a_capture_instead_of_choosing_for_the_person() {
+        let dir = tempfile::tempdir().unwrap();
+        let inbox = Inbox::new(dir.path());
+        let id = inbox
+            .post_capture_review(CaptureReview { website: "https://example.test".into(), capture_sha256: "synthetic".into(), screenshots: Vec::new() })
+            .unwrap();
+        let request = inbox.pending().pop().unwrap();
+        inbox.answer(&id, &auto_answer(&request)).unwrap();
+        let answer = inbox.wait(&id, std::time::Duration::ZERO, &|| false).unwrap();
+        assert_eq!(answer.allow, Some(false));
+        assert!(!answer.always);
     }
 }

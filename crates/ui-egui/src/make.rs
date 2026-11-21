@@ -81,6 +81,9 @@ pub fn own_stack<'a>(kinds: &craft_anything_ai::rebuild::KindRegistry, d: &'a Ma
 /// The front door: make your own version of something, work on a project you already have, or
 /// just look inside something.
 pub fn hero(app: &mut CraftApp, ui: &mut Ui, w: f32) {
+    if crate::project::capture_confirmation_on_make(app, ui) {
+        return;
+    }
     let t = Tokens::get(ui.ctx());
     let door = if app.state.make.look { 2 } else { usize::from(app.state.make.mine) };
     // The ways in, with Simple / Advanced at the row's end (it adds no height above Start), or
@@ -445,6 +448,16 @@ fn sign_in(app: &mut CraftApp, ui: &mut Ui, url: Option<&str>) {
             }
         }
     });
+    if url.is_some() {
+        ui.add(
+            egui::Label::new(
+                RichText::new(tr("If the study uses a saved sign-in, you will check its first screenshots before the builder can use the captured content."))
+                    .size(theme::SMALL)
+                    .color(t.text_dim),
+            )
+            .wrap(),
+        );
+    }
 }
 
 /// What to tell the person once a sign-in window has closed, from `web_site_sign_in`'s result,

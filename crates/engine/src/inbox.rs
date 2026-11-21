@@ -48,6 +48,9 @@ pub struct Request {
     /// For approvals: the action's kind, so "always allow" can be remembered per kind.
     #[serde(default)]
     pub action: Option<String>,
+    /// A one-use signed-in website capture approval, never covered by Auto or Always.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capture_review: Option<crate::capture_review::CaptureReview>,
     pub created_ms: u64,
 }
 
@@ -126,10 +129,34 @@ impl Inbox {
         allow_text: bool,
         action: Option<String>,
     ) -> Result<String, ToolError> {
+        self.post_request(Request {
+            id: String::new(),
+            kind,
+            title: title.to_string(),
+            detail: detail.to_string(),
+            choices,
+            allow_text,
+            action,
+            capture_review: None,
+            created_ms: 0,
+        })
+    }
+
+    /// Post a capture-specific approval through the same cross-process inbox as other approvals.
+    pub fn post_capture_review(&self, review: crate::capture_review::CaptureReview) -> Result<String, ToolError> {
+        self.post_request(Request {
+            id: String::new(), kind: RequestKind::Approval, title: "Confirm the signed-in website capture".into(),
+            detail: "Check that these screenshots show the signed-in app and account you intended. Confirming permits the builder to use this captured site content, which may include private account information. A saved sign-in alone does not prove you are signed in. Reject if this is the wrong page or account.".into(),
+            choices: Vec::new(), allow_text: false, action: None, capture_review: Some(review), created_ms: 0,
+        })
+    }
+
+    fn post_request(&self, mut req: Request) -> Result<String, ToolError> {
         std::fs::create_dir_all(&self.dir).map_err(|e| ToolError::io(self.dir.display(), e))?;
         let n = next_counter();
         let id = format!("{}-{}-{n}", now_ms(), std::process::id());
-        let req = Request { id: id.clone(), kind, title: title.to_string(), detail: detail.to_string(), choices, allow_text, action, created_ms: now_ms() };
+        req.id = id.clone();
+        req.created_ms = now_ms();
         let bytes = serde_json::to_vec_pretty(&req).map_err(|e| ToolError::internal(e.to_string()))?;
         craft_anything_platform::fs::write_atomic_private(&self.path(&id, "request")?, &bytes)?;
         Ok(id)
@@ -147,6 +174,28 @@ impl Inbox {
             .collect();
         out.sort_by_key(|r| r.created_ms);
         out
+    }
+
+    /// A restarted study replaces abandoned capture requests. Ordinary action approvals and
+    /// questions are unaffected. A withdrawn request can never authorize a new request id.
+    pub fn withdraw_capture_reviews(&self) -> Result<(), ToolError> {
+        for request in self.pending().into_iter().filter(|r| r.capture_review.is_some()) {
+            for suffix in ["request", "answer"] {
+                let path = self.path(&request.id, suffix)?;
+                match std::fs::remove_file(&path) {
+                    Ok(()) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => return Err(ToolError::io(path.display(), e)),
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether this request still waits in this inbox, including one already answered but not
+    /// yet consumed. Used to stop a capture wait if another run withdraws it.
+    pub fn contains_request(&self, id: &str) -> bool {
+        self.path(id, "request").is_ok_and(|p| p.is_file())
     }
 
     /// Write the person's answer.

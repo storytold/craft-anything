@@ -45,7 +45,7 @@ pub fn specs() -> Vec<ToolSpec> {
         ToolSpec {
             id: "project_inbox_answer",
             title: "Answer a project's question",
-            summary: "Answer a question or approval a project is waiting on (an id from project_show): a choice or text for questions, allow (and always) for approvals. The answer reaches a running build at once and is kept in the project's conversation.",
+            summary: "Answer a question or approval a project is waiting on (an id from project_show): a choice or text for questions, allow (and always) for approvals. Signed-in capture approvals carry local screenshot paths in capture_review; only a person in the app or CLI may confirm them, using allow without always. The answer reaches a running build at once and is kept in the project's conversation.",
             beginner: "Answers a question the builder asked you.",
             toolset: Toolset::Projects,
             effects: Effects::WRITES_FILESYSTEM.union(Effects::CHANGES_UI_STATE),
@@ -592,7 +592,7 @@ fn project_show(_ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolErr
     Ok(ToolOutput::Value(out))
 }
 
-fn project_inbox_answer(_ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
+fn project_inbox_answer(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
     let p: AnswerParams = parse_params(params)?;
     let ws = open(&p.project)?;
     let inbox = Inbox::new(ws.inbox_dir());
@@ -601,6 +601,16 @@ fn project_inbox_answer(_ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput,
         return Err(ToolError::new(ErrorCode::NotFound, format!("No question {} is waiting in this project.", p.id))
             .with_remediation("Use project_show to see the questions still waiting."));
     };
+    if question.capture_review.is_some() {
+        if matches!(ctx.caller, crate::Caller::Agent | crate::Caller::Mcp) {
+            return Err(ToolError::new(ErrorCode::NoPermission, "Only the person may confirm a signed-in capture.")
+                .with_remediation("Review the local screenshots, then answer in the app or with the CLI's project-inbox-answer command."));
+        }
+        if p.always || p.allow.is_none() {
+            return Err(ToolError::invalid("A capture confirmation needs allow: true or false and cannot be remembered with always.")
+                .with_remediation("Check the local screenshots, then confirm or reject this capture only."));
+        }
+    }
     let answer = Answer { choice: p.choice, text: p.text, allow: p.allow, always: p.always };
     let shown = match answer.allow {
         Some(true) if answer.always => "Always allowed".to_string(),
@@ -836,5 +846,32 @@ mod tests {
         assert_eq!(folder_to_open(&ws, false, None).unwrap(), ws.root);
         assert_eq!(folder_to_open(&ws, true, None).unwrap(), ws.app_dir());
         assert!(folder_to_open(&ws, false, Some(8)).is_err(), "no such pin");
+    }
+}
+
+#[cfg(test)]
+mod capture_approval_tests {
+    use super::*;
+    use crate::capture_review::CaptureReview;
+    use crate::workspace::TargetRef;
+    use crate::{CallOptions, Caller, Engine};
+
+    #[test]
+    fn only_the_person_can_answer_a_one_use_capture_approval() {
+        let dir = tempfile::tempdir().unwrap();
+        let ws = Workspace::create(dir.path(), "Synthetic site", "Rebuild a site", TargetRef::None).unwrap();
+        let inbox = Inbox::new(ws.inbox_dir());
+        let id = inbox
+            .post_capture_review(CaptureReview { website: "https://example.test".into(), capture_sha256: "synthetic".into(), screenshots: Vec::new() })
+            .unwrap();
+        let engine = Engine::new(crate::testing::session());
+        for caller in [Caller::Agent, Caller::Mcp] {
+            let error = engine.call("project_inbox_answer", json!({"project":ws.root,"id":id,"allow":true}), CallOptions::new(caller)).unwrap_err();
+            assert_eq!(error.code, ErrorCode::NoPermission);
+            assert_eq!(inbox.pending().len(), 1);
+        }
+        assert!(engine.call("project_inbox_answer", json!({"project":ws.root,"id":id,"allow":true,"always":true}), CallOptions::new(Caller::Cli)).is_err());
+        engine.call("project_inbox_answer", json!({"project":ws.root,"id":id,"allow":false}), CallOptions::new(Caller::Cli)).unwrap();
+        assert_eq!(inbox.wait(&id, std::time::Duration::ZERO, &|| false).unwrap().allow, Some(false));
     }
 }

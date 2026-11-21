@@ -3919,3 +3919,101 @@ fn a_workspace_members_build_shows_play_on_the_project_screen() {
     h.run_steps(2);
     h.get_by_label("Pin this build");
 }
+
+/// Own generated PNG and invented address; the inbox is real, with no AI or network involved.
+fn capture_approval_fixture(broken: bool) -> (tempfile::TempDir, CraftApp, craft_anything_engine::inbox::Inbox, String) {
+    use craft_anything_engine::tools::web_common::{Image, encode_png};
+    use craft_anything_engine::{
+        capture_review::{CaptureReview, Screenshot},
+        inbox::Inbox,
+        workspace::{TargetRef, Workspace},
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let ws =
+        Workspace::create(dir.path(), "Synthetic account app", "Rebuild this website", TargetRef::Website { url: "https://example.test/app".into() }).unwrap();
+    std::fs::create_dir_all(ws.capture_dir()).unwrap();
+    let mut rgba = Vec::new();
+    for y in 0..100 {
+        for x in 0..320 {
+            let pixel = if x < 70 {
+                [30, 55, 80, 255]
+            } else if y < 24 {
+                [65, 110, 145, 255]
+            } else {
+                [215, 230, 240, 255]
+            };
+            rgba.extend_from_slice(&pixel);
+        }
+    }
+    let bytes = encode_png(&Image { width: 320, height: 100, rgba }).unwrap();
+    let review = CaptureReview {
+        website: "https://example.test/app".into(),
+        capture_sha256: "synthetic-capture".into(),
+        screenshots: vec![Screenshot { file: "screenshot-1440.png".into(), sha256: craft_anything_engine::evidence::sha256_hex(&bytes) }],
+    };
+    let path = ws.capture_dir().join("screenshot-1440.png");
+    std::fs::write(path, if broken { b"changed screenshot".as_slice() } else { &bytes }).unwrap();
+    let inbox = Inbox::new(ws.inbox_dir());
+    let id = inbox.post_capture_review(review).unwrap();
+    let request = inbox.pending().pop().unwrap();
+    let mut app = demo::app(demo::engine(Mode::Beginner, true));
+    app.state.feed = vec![craft_anything_ui_egui::state::FeedItem::Ask { request, answer: None }];
+    app.workspace = Some(ws);
+    app.state.screen = Screen::Project;
+    (dir, app, inbox, id)
+}
+
+#[test]
+fn capture_confirmation_is_keyboard_accessible_and_answers_the_project_inbox() {
+    let (_dir, mut app, inbox, id) = capture_approval_fixture(false);
+    app.state.screen = Screen::Home;
+    let evidence = std::env::var_os("CRAFT_CAPTURE_APPROVAL_EVIDENCE_DIR").map(std::path::PathBuf::from);
+    let mut builder = Harness::builder().with_size(egui::vec2(1280.0, 900.0)).with_max_steps(64);
+    if evidence.is_some() {
+        builder = builder.wgpu();
+    }
+    let mut h = builder.build_eframe(move |cc| {
+        CraftApp::setup_context(&cc.egui_ctx);
+        app
+    });
+    assert!(wait(&mut h, |a| a.thumbs.values().any(|t| matches!(t, craft_anything_ui_egui::project::Thumb::Ready(_)))));
+    h.run_steps(3);
+    h.get_by_label_contains("Screenshot of https://example.test/app");
+    assert!(h.query_by_label("Always for this project").is_none());
+    h.get_by_label("Confirm").focus();
+    h.run_steps(2);
+    assert!(h.get_by_label("Confirm").is_focused());
+    h.key_press(egui::Key::Tab);
+    h.run_steps(2);
+    assert!(h.get_by_label("Reject").is_focused(), "Tab follows the visible decision order");
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::Tab);
+    h.run_steps(2);
+    assert!(h.get_by_label("Confirm").is_focused());
+    if let Some(dir) = evidence {
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("capture-confirmation-accessibility.txt"), format!("{:#?}", h.root())).unwrap();
+        h.render().unwrap().save(dir.join("capture-confirmation.png")).unwrap();
+    }
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    let answer = inbox.wait(&id, Duration::ZERO, &|| false).unwrap();
+    assert_eq!(answer.allow, Some(true));
+    assert!(!answer.always);
+}
+
+#[test]
+fn an_unloadable_capture_disables_confirmation_and_remains_rejectable_by_keyboard() {
+    use egui_kittest::kittest::NodeT;
+    let (_dir, app, inbox, id) = capture_approval_fixture(true);
+    let mut h = harness(move || app);
+    assert!(wait(&mut h, |a| a.thumbs.values().any(|t| matches!(t, craft_anything_ui_egui::project::Thumb::Missing))));
+    h.run_steps(3);
+    h.get_by_label_contains("This screenshot could not be loaded or has changed");
+    assert!(h.get_by_label("Confirm").accesskit_node().is_disabled());
+    h.get_by_label("Reject").focus();
+    h.run_steps(2);
+    assert!(h.get_by_label("Reject").is_focused());
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    assert_eq!(inbox.wait(&id, Duration::ZERO, &|| false).unwrap().allow, Some(false));
+}

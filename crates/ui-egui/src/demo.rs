@@ -303,14 +303,14 @@ pub fn fill_project(app: &mut CraftApp) {
         FeedItem::Agent { text: "I studied the screenshots and the layout: one centred card with a heading, two short paragraphs and a link, on a soft grey page.".into(), streaming: false },
         FeedItem::Work { tools: ["Read", "Read", "Write", "Write", "Write", "Bash", "Bash"].iter().map(|t| (t.to_string(), Some(true))).collect(), notes: Vec::new() },
         FeedItem::Ask {
-            request: Request { id: "1-1-0".into(), kind: RequestKind::Question, title: "Is example.com your site, or should I use placeholder text?".into(), detail: "If it's yours, I can keep the original wording.".into(), choices: vec!["It's mine — keep the text".into(), "Use placeholder text".into()], allow_text: true, action: None, created_ms: 0 },
+            request: Request { id: "1-1-0".into(), kind: RequestKind::Question, title: "Is example.com your site, or should I use placeholder text?".into(), detail: "If it's yours, I can keep the original wording.".into(), choices: vec!["It's mine — keep the text".into(), "Use placeholder text".into()], allow_text: true, action: None, capture_review: None, created_ms: 0 },
             answer: Some("Use placeholder text".into()),
         },
         FeedItem::Step { step: Step::Check, text: "Checking the build against the original…".into() },
         FeedItem::Check(check),
         FeedItem::Agent { text: "Your version is ready: a centred card with the same spacing, font sizes and colours as the original, built with React. The words are placeholders. You could ask for a dark mode or a contact form next.".into(), streaming: false },
         FeedItem::Ask {
-            request: Request { id: "1-1-1".into(), kind: RequestKind::Approval, title: "Run a command: `curl https://example.com/robots.txt`".into(), detail: "{\n  \"command\": \"curl https://example.com/robots.txt\"\n}".into(), choices: vec![], allow_text: false, action: Some("bash:curl".into()), created_ms: 0 },
+            request: Request { id: "1-1-1".into(), kind: RequestKind::Approval, title: "Run a command: `curl https://example.com/robots.txt`".into(), detail: "{\n  \"command\": \"curl https://example.com/robots.txt\"\n}".into(), choices: vec![], allow_text: false, action: Some("bash:curl".into()), capture_review: None, created_ms: 0 },
             answer: None,
         },
     ];

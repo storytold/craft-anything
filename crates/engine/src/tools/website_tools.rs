@@ -931,6 +931,8 @@ fn web_site_capture(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, Tool
         b.insert("signed_in".into(), json!(signed_in));
         b.insert("signed_in_site".into(), json!(site.signed_in));
         b.insert("sign_in_page".into(), json!(sign_in_page));
+        b.insert("sign_in_revision".into(), json!(site.sign_in_revision));
+        b.insert("screenshots".into(), json!(shots));
     }
 
     let url = blueprint.get("url").and_then(Value::as_str).unwrap_or_default().to_string();

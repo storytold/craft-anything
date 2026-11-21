@@ -27,3 +27,19 @@ Stopped the sign-in.
 Wait until the new project is made.
 This project's usage record couldn't be read, so what its builds spent isn't known.
 Arguments in square brackets must be a list of quoted words, like ["--port", "8080"]. Or leave out the brackets and separate them with spaces.
+
+Confirm the signed-in website capture
+Check that these screenshots show the signed-in app and account you intended. Confirming permits the builder to use this captured site content, which may include private account information. A saved sign-in alone does not prove you are signed in. Reject if this is the wrong page or account.
+Screenshot of {website}: {file}
+Loading the local screenshot…
+This screenshot could not be loaded or has changed. Reject this capture and start a new study.
+No screenshots are available. Reject this capture and start a new study.
+A screenshot is unavailable. This capture cannot be confirmed.
+Loading screenshots. Confirmation is unavailable until they are ready.
+Confirm
+Reject
+Capture confirmed
+Capture rejected
+If the study uses a saved sign-in, you will check its first screenshots before the builder can use the captured content.
+Screenshots ready. Confirm or reject this capture.
+Confirmation ended without approval

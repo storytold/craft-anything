@@ -6,6 +6,17 @@ pub use craft_anything_engine::feed::*;
 use super::activity::{Activity, ActivityFile};
 use super::*;
 
+fn close_capture_reviews(feed: &mut [FeedItem]) {
+    for item in feed {
+        if let FeedItem::Ask { request, answer } = item
+            && request.capture_review.is_some()
+            && answer.is_none()
+        {
+            *answer = Some("Confirmation ended without approval".into());
+        }
+    }
+}
+
 /// Fold one workflow event into the feed.
 pub fn apply(feed: &mut Vec<FeedItem>, e: &RunEvent) {
     let end_stream = |feed: &mut Vec<FeedItem>| {
@@ -71,11 +82,17 @@ pub fn apply(feed: &mut Vec<FeedItem>, e: &RunEvent) {
             end_stream(feed);
             feed.push(FeedItem::User(UserItem::new(shown.clone(), pictures.clone())));
         }
-        RunEvent::Ask(r) => feed.push(FeedItem::Ask { request: r.clone(), answer: None }),
+        RunEvent::Ask(r) => {
+            if r.capture_review.is_some() {
+                close_capture_reviews(feed);
+            }
+            feed.push(FeedItem::Ask { request: r.clone(), answer: None });
+        }
         RunEvent::Checked(c) => feed.push(FeedItem::Check(c.clone())),
         RunEvent::Preview(_) => {}
         RunEvent::Finished { ok, message, paused } => {
             end_stream(feed);
+            close_capture_reviews(feed);
             // #504: a run that ends with steps still open marks them stopped on the plan card,
             // instead of leaving them "Doing"; a later run's checklist updates the list again.
             if let Some(FeedItem::Plan(steps)) = feed.iter_mut().rev().find(|i| matches!(i, FeedItem::Plan(_))) {

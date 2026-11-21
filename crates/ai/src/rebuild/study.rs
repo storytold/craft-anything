@@ -34,6 +34,45 @@ pub(super) fn tools_run_remotely(over_ssh: bool, api_loop: bool) -> bool {
 }
 
 impl Worker {
+    /// One approval per run, bound to the exact capture and target. Auto mode and a project's
+    /// action preferences never authorize captured account data. A restart posts a new id.
+    pub(super) fn confirm_capture(&mut self, ws: &mut Workspace) -> Result<(), ToolError> {
+        use craft_anything_engine::{capture_review, tools::site_sign_in};
+        let engine = self.engine.clone();
+        let saved_for = |ws: &Workspace| {
+            let TargetRef::Website { url } = &ws.manifest.target else { return None };
+            let key = site_sign_in::site_key(url).ok()?;
+            site_sign_in::saved(&engine.session(), &key)
+        };
+        let saved = saved_for(ws);
+        let Some(review) = capture_review::prepare(ws, saved.as_ref())? else { return Ok(()) };
+        self.inbox.withdraw_capture_reviews()?;
+        self.step(ws, Step::Study, Status::NeedsYou, "Check the first screenshots before the builder uses this signed-in capture.")?;
+        let id = self.inbox.post_capture_review(review.clone())?;
+        self.relay_inbox();
+        let answer = self.inbox.wait(&id, Duration::from_secs(1800), &|| self.stop.is_cancelled() || !self.inbox.contains_request(&id));
+        self.stop.check()?;
+        if !answer.is_some_and(|a| a.allow == Some(true) && !a.always) {
+            // A rejected capture is studied again on the next run, rather than silently reused.
+            *ws = Workspace::open(&ws.root)?;
+            ws.manifest.capture_deep = None;
+            ws.save()?;
+            return Err(ToolError::new(ErrorCode::NoPermission, "The signed-in capture was not confirmed. The builder did not start.")
+                .with_remediation("Start a new study when you are ready to check the website and account again."));
+        }
+        // Read disk again: switching targets/accounts or replacing any captured content while
+        // the person looks at the screenshots cannot release different content to the builder.
+        let current = Workspace::open(&ws.root)?;
+        let saved = saved_for(&current);
+        let fresh = capture_review::prepare(&current, saved.as_ref());
+        *ws = current;
+        if fresh? != Some(review) {
+            return Err(ToolError::new(ErrorCode::NoPermission, "The website, account or capture changed while confirmation was waiting.")
+                .with_remediation("Start a new study and confirm its new screenshots. The builder did not start."));
+        }
+        self.stop.check()
+    }
+
     /// A run after the first skips the study, so its session has nothing open and the builder's
     /// first `native_*` calls said "Nothing is open yet" (#1421). Open what the study looked at, so
     /// the builder's tool server gets it. A failure only says why: the builder can still open it.

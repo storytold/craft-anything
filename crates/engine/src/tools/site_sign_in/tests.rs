@@ -703,6 +703,22 @@ fn a_sign_in_made_in_a_window_is_seen_by_a_headless_capture() {
     assert_eq!(cap["title"], "Signed in", "the session cookie didn't survive: {}", cap["title"]);
     assert_eq!(cap["signed_in"], true);
     assert_eq!(cap["sign_in_page"], false);
+    // The real capture can be reviewed locally before any builder is given it.
+    let ws = crate::workspace::Workspace::create(
+        out.path(),
+        "Synthetic signed-in study",
+        "Rebuild the local fixture",
+        crate::workspace::TargetRef::Website { url: format!("{base}/account") },
+    )
+    .unwrap();
+    std::fs::rename(out.path().join("signed-in"), ws.capture_dir()).unwrap();
+    let saved = saved(&e.session(), &site_key(&base).unwrap()).unwrap();
+    let review = crate::capture_review::prepare(&ws, Some(&saved)).unwrap().unwrap();
+    assert!(!review.screenshots.is_empty());
+    for screenshot in &review.screenshots {
+        let bytes = review.preview_bytes(&ws.root, screenshot).unwrap();
+        assert!(web_common::decode_png(&bytes).is_ok(), "the confirmation can display the actual capture locally");
+    }
     // A cookie with no expiry (a sign-in without "remember me") is kept too.
     assert_eq!(cap["headings"][1]["text"], "session-only cookie kept: true", "{}", cap["headings"]);
 

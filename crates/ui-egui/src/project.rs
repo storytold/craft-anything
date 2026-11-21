@@ -12,6 +12,7 @@ use craft_anything_ai::AgentEvent;
 use craft_anything_ai::rebuild::activity::{Action, ActivityNow, LineKind};
 use craft_anything_ai::rebuild::feed::{self, apply};
 use craft_anything_ai::rebuild::{self, AppKind, KindRegistry, KindWords, Note, RebuildRun, RunEvent, RunOptions, Started, Step, Stopped, TargetKind};
+use craft_anything_engine::capture_review::{CaptureReview, Screenshot};
 use craft_anything_engine::inbox::{Answer, Inbox, Request, RequestKind};
 use craft_anything_engine::workspace::{CheckResult, Status, TargetRef, Workspace, suggest_name};
 use egui::{Color32, RichText, Ui, Vec2};
@@ -561,6 +562,32 @@ impl CraftApp {
 
     pub fn thumb_ready(&mut self, path: PathBuf, image: Option<egui::TextureHandle>) {
         self.thumbs.insert(path, image.map_or(Thumb::Missing, Thumb::Ready));
+    }
+
+    /// The whole first screenshot, loaded locally after the engine checks its project path and
+    /// content digest. The cache identity includes the capture, so a later study never shows an
+    /// earlier account's thumbnail. Decoding and disk reads stay off the drawing thread.
+    fn capture_thumb(&mut self, ctx: &egui::Context, root: &Path, review: &CaptureReview, shot: &Screenshot) -> Thumb {
+        let key = root.join(format!(".capture-preview-{}-{}", review.capture_sha256, shot.sha256));
+        if let Some(t) = self.thumbs.get(&key) {
+            return t.clone();
+        }
+        self.thumbs.insert(key.clone(), Thumb::Loading);
+        let (root, review, shot, ctx) = (root.to_path_buf(), review.clone(), shot.clone(), ctx.clone());
+        self.jobs.spawn(tr("Load a screenshot"), false, move |_| {
+            use craft_anything_engine::tools::web_common::{decode_png, resize};
+            let image = review.preview_bytes(&root, &shot).ok().and_then(|bytes| decode_png(&bytes).ok()).map(|image| {
+                let image = if image.width > THUMB_WIDTH {
+                    resize(&image, THUMB_WIDTH, (u64::from(image.height) * u64::from(THUMB_WIDTH) / u64::from(image.width)).max(1) as u32)
+                } else {
+                    image
+                };
+                let ci = egui::ColorImage::from_rgba_unmultiplied([image.width as usize, image.height as usize], &image.rgba);
+                ctx.load_texture("Captured website preview", ci, egui::TextureOptions::LINEAR)
+            });
+            Ok(Done::Thumb { path: key, image })
+        });
+        Thumb::Loading
     }
 
     /// A screenshot thumbnail (the top of the page), read and decoded on a worker the first time.
@@ -1428,7 +1455,7 @@ fn draw_items(
             // Pinned above the prompt box instead (see `checklist`).
             FeedItem::Plan(_) | FeedItem::PlanDismissed => {}
             FeedItem::Ask { request, answer } => {
-                if let Some(a) = ask_card(app, ui, request, answer.as_deref()) {
+                if let Some(a) = ask_card(app, ui, ws, request, answer.as_deref()) {
                     answers.push(a);
                 }
             }
@@ -1582,20 +1609,45 @@ fn done_button(app: &mut CraftApp, ui: &mut Ui, ws: &Workspace) {
     }
 }
 
-fn ask_card(app: &mut CraftApp, ui: &mut Ui, r: &Request, answered: Option<&str>) -> Option<(String, Answer, String)> {
+/// Make and Project share the same card and the same inbox answer path. While the open
+/// project's capture waits, Make shows that decision instead of starting another draft.
+pub(crate) fn capture_confirmation_on_make(app: &mut CraftApp, ui: &mut Ui) -> bool {
+    let Some(ws) = app.workspace.clone() else { return false };
+    let request = app.state.feed.iter().rev().find_map(|item| match item {
+        FeedItem::Ask { request, answer: None } if request.capture_review.is_some() => Some(request.clone()),
+        _ => None,
+    });
+    let Some(request) = request else { return false };
+    if let Some((id, answer, shown)) = ask_card(app, ui, &ws, &request, None) {
+        app.answer_request(&id, answer, shown);
+        app.state.screen = Screen::Project;
+    }
+    true
+}
+
+fn ask_card(app: &mut CraftApp, ui: &mut Ui, ws: &Workspace, r: &Request, answered: Option<&str>) -> Option<(String, Answer, String)> {
     let t = Tokens::get(ui.ctx());
     let approval = r.kind == RequestKind::Approval;
+    let capture = r.capture_review.as_ref();
     let border = if approval { t.warning } else { t.accent };
     let mut out = None;
     egui::Frame::new().fill(t.card).stroke(egui::Stroke::new(1.5, border)).corner_radius(t.r_lg()).inner_margin(theme::pad::CARD).show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.horizontal(|ui| {
             icons::show(ui, if approval { "shield" } else { "circle-help" }, theme::icon::LG, border);
-            let title = if approval { trf("May I {action}?", &[("action", &lower_first(&r.title))]) } else { r.title.clone() };
+            let title = if capture.is_some() {
+                tr("Confirm the signed-in website capture")
+            } else if approval {
+                trf("May I {action}?", &[("action", &lower_first(&r.title))])
+            } else {
+                r.title.clone()
+            };
             ui.add(egui::Label::new(RichText::new(title).font(theme::semibold(theme::BODY))).wrap());
         });
         if !r.detail.is_empty() {
-            if approval {
+            if capture.is_some() {
+                ui.add(egui::Label::new(RichText::new(tr("Check that these screenshots show the signed-in app and account you intended. Confirming permits the builder to use this captured site content, which may include private account information. A saved sign-in alone does not prove you are signed in. Reject if this is the wrong page or account.")).color(t.text_dim)).wrap());
+            } else if approval {
                 egui::CollapsingHeader::new(RichText::new(tr("Details")).color(t.text_faint).size(theme::CAPTION))
                     .id_salt(("detail", &r.id))
                     .icon(widgets::disclosure_icon)
@@ -1608,7 +1660,63 @@ fn ask_card(app: &mut CraftApp, ui: &mut Ui, r: &Request, answered: Option<&str>
         }
         ui.add_space(theme::space::SM);
         if let Some(a) = answered {
-            ui.label(RichText::new(trf("You answered: {a}", &[("a", a)])).color(t.text_faint));
+            let shown = if capture.is_some() {
+                match a {
+                    "Confirmation ended without approval" => tr("Confirmation ended without approval"),
+                    _ => tr(a),
+                }
+            } else { trf("You answered: {a}", &[("a", a)]) };
+            ui.label(RichText::new(shown).color(t.text_faint));
+            return;
+        }
+        if let Some(review) = capture {
+            ui.add(egui::Label::new(RichText::new(&review.website).font(theme::mono(theme::CODE))).wrap());
+            let mut ready = !review.screenshots.is_empty();
+            let mut missing = review.screenshots.is_empty();
+            for shot in &review.screenshots {
+                let alt = trf("Screenshot of {website}: {file}", &[("website", &review.website), ("file", &shot.file)]);
+                match app.capture_thumb(ui.ctx(), &ws.root, review, shot) {
+                    Thumb::Ready(tex) => {
+                        let width = ui.available_width().min(tex.size_vec2().x);
+                        let size = Vec2::new(width, width * tex.size_vec2().y / tex.size_vec2().x);
+                        ui.add(egui::Image::new((tex.id(), size)).alt_text(alt));
+                    }
+                    Thumb::Loading => {
+                        ready = false;
+                        ui.label(tr("Loading the local screenshot…"));
+                    }
+                    Thumb::Missing => {
+                        ready = false;
+                        missing = true;
+                        ui.label(
+                            RichText::new(tr("This screenshot could not be loaded or has changed. Reject this capture and start a new study."))
+                                .color(t.warning),
+                        );
+                    }
+                }
+            }
+            if review.screenshots.is_empty() {
+                ui.label(RichText::new(tr("No screenshots are available. Reject this capture and start a new study.")).color(t.warning));
+            }
+            let status = ui.label(tr(if ready {
+                "Screenshots ready. Confirm or reject this capture."
+            } else if missing {
+                "A screenshot is unavailable. This capture cannot be confirmed."
+            } else {
+                "Loading screenshots. Confirmation is unavailable until they are ready."
+            }));
+            status.ctx.accesskit_node_builder(status.id, |node| {
+                node.set_role(egui::accesskit::Role::Status);
+                node.set_live(egui::accesskit::Live::Polite);
+            });
+            ui.horizontal_wrapped(|ui| {
+                if widgets::primary_icon(ui, Some("check"), "Confirm", ready).clicked() {
+                    out = Some((r.id.clone(), Answer { allow: Some(true), ..Default::default() }, tr("Capture confirmed")));
+                }
+                if widgets::secondary(ui, None, "Reject").clicked() {
+                    out = Some((r.id.clone(), Answer { allow: Some(false), ..Default::default() }, tr("Capture rejected")));
+                }
+            });
             return;
         }
         if approval {

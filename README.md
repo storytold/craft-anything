@@ -227,6 +227,13 @@ folder holds `craft.json` (the request, target, status and history), `capture/` 
 recorded from the target), `app/` (the generated project), `checks/` (each comparison against
 the original), `investigation.cany/` (evidence) and `inbox/` (open questions).
 
+When a website study uses a saved sign-in, the builder waits while you check the study's first
+screenshots. Confirm only if they show the website and account you intended: this permits the
+builder to use the captured content, which may include private account information. Reject stops
+the build. The desktop shows the local previews; the terminal names the local files and asks you
+to type `confirm`. `--unattended` refuses this approval. See
+[Signed-in study confirmation](docs/signed-in-study-confirmation.md) for the inbox flow and limits.
+
 A project can also start in a folder you pick (Choose a folder… under Start, or `--project-folder`).
 If it already has files, you say what they are: the app itself, which the builder edits in place,
 or material to start from, with the app built in `app/` beside them (Settings → General can

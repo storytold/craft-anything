@@ -869,13 +869,15 @@ impl Worker {
         let first = starts_with_study(opts, kept, capture_in_mode(ws, run_deep));
         if first {
             self.study(ws, kind, run_deep)?;
-            if let Some((name, ex)) = extractor {
-                self.extract(ws, kind, &name, ex)?;
-            }
         } else {
             // An API builder over SSH still calls tools in this process, so only a coding agent
             // on the other computer has a tool server this one can't hand the program to.
             self.reopen_target(ws, kind, study::tools_run_remotely(remote, api.is_some()), run_deep)?;
+        }
+        // Every path, including follow-ups and resumes, stops here before any builder sees the capture.
+        self.confirm_capture(ws)?;
+        if first && let Some((name, ex)) = extractor {
+            self.extract(ws, kind, &name, ex)?;
         }
         // A coding agent resumes its own session; our loop resumes its kept transcript.
         let resumable = api.as_ref().is_none_or(crate::agent::ApiConversation::resumed);

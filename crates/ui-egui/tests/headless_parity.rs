@@ -172,6 +172,7 @@ const PLUMBING: &[(&str, &str)] = &[
     ("tick", "the frame loop"), ("show", "drawing"), ("toasts", "drawing"), ("shortcuts", "keys"),
     ("builder_backend", "part of start_make"), ("need_builder", "part of start_make"), ("start_run", "part of start_make"), ("start_run_with", "part of start_run and continue_build"),
     ("resume", "part of follow_up"), ("poll_run", "polling"), ("launch", "part of start_run: RunSet::start, the queue rebuild_start uses too"),
+    ("capture_thumb", "drawing a local capture preview; approval uses project_inbox_answer"),
     ("thumb_ready", "a job's result"), ("thumb", "drawing"), ("refresh_side_panel", "a view tally"),
     ("previews", "drawing"), ("preview", "drawing"), ("preview_ready", "a job's result"),
 ];
