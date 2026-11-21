@@ -25,6 +25,10 @@ pub const EFFORT_LEVELS: &[(&str, &[Effort])] = &[
     ("claude-sonnet-4-6", &[Effort::Low, Effort::Medium, Effort::High, Effort::Max]),
     ("claude-opus-4-5", &[Effort::Low, Effort::Medium, Effort::High]),
 ];
+/// Claude models that read pictures, by model id prefix: every family from Claude 3 on (Claude's
+/// vision guide). Claude 2 and Claude Instant, and any model not listed, say nothing, so they're
+/// treated as models that can't unless the person says they can.
+pub const SEES_PICTURES: &[&str] = &["claude-3", "claude-opus-", "claude-sonnet-", "claude-haiku-", "claude-fable-"];
 
 /// The effort level `model` is sent: `effort`, or the nearest level below it the model has.
 pub fn effort_for(model: &str, effort: Effort) -> Effort {
@@ -376,10 +380,11 @@ impl ChatModel for Anthropic {
         self.model.clone()
     }
 
-    /// Every Claude model reads pictures. Another model behind an Anthropic-style endpoint says
-    /// nothing, and is treated as one that can't unless the person says it can.
+    /// A Claude model in `SEES_PICTURES` reads pictures. Another model behind an Anthropic-style
+    /// endpoint says nothing, and is treated as one that can't unless the person says it can.
     fn sees_pictures(&self) -> Option<crate::sight::Sight> {
-        model_id(&self.model).starts_with("claude-").then_some(crate::sight::Sight { sees: true, source: "Claude" })
+        let model = model_id(&self.model);
+        SEES_PICTURES.iter().any(|family| model.starts_with(family)).then_some(crate::sight::Sight { sees: true, source: "Claude" })
     }
 }
 
@@ -480,16 +485,26 @@ mod tests {
     }
 
     /// A gateway names Claude `anthropic/claude-…` or `anthropic.claude-…`; it still sees pictures,
-    /// and another model behind an Anthropic-style endpoint still says nothing.
+    /// and another model behind an Anthropic-style endpoint, or a Claude before Claude 3, still says
+    /// nothing.
     #[test]
     fn claude_behind_a_gateway_still_sees_pictures() {
         use crate::model::ChatModel;
-        for model in ["claude-sonnet-4-6", " claude-opus-5-5", "anthropic/claude-sonnet-4-6", "anthropic.claude-opus-4-6"] {
+        for model in ["claude-sonnet-4-6", " claude-opus-5-5", "anthropic/claude-sonnet-4-6", "anthropic.claude-opus-4-6", "claude-3-5-sonnet-20241022"] {
             let sight = Anthropic::new(None, "sk-test".into(), model).sees_pictures();
             assert_eq!(sight.map(|s| (s.sees, s.source)), Some((true, "Claude")), "{model}");
         }
-        for model in ["glm-4.6", "anthropic/glm-4.6", "minimax-m2", "my-claude-"] {
+        for model in ["glm-4.6", "anthropic/glm-4.6", "minimax-m2", "my-claude-", "claude-2.1", "claude-instant-1.2"] {
             assert!(Anthropic::new(None, "sk-test".into(), model).sees_pictures().is_none(), "{model}");
+        }
+    }
+
+    /// Every model offered in the dropdown is in the table of models that see.
+    #[test]
+    fn every_offered_claude_model_is_listed_as_seeing() {
+        use crate::model::ChatModel;
+        for model in MODELS.iter().copied().chain([DEFAULT_MODEL]) {
+            assert!(Anthropic::new(None, "sk-test".into(), model).sees_pictures().is_some_and(|s| s.sees), "{model}");
         }
     }
 
