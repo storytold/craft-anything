@@ -672,6 +672,7 @@ been run live.
       (Ollama, FastFlowLM) or LM Studio's `/api/v0/models` (`state: "loaded"`)
       — claimed: jgt87, branch bugfix/r5.4-detect-loaded-model — PR #1437
 - [ ] See why Bionic or LM Studio can't be picked (#140)
+      — claimed: YunzhouLi-hub, branch bugfix/r5.4-lm-studio-selection
 - [x] Do not select an embedding, ranking or transcription model as a chat backend when a local server has no chat models — claimed: Afloat16, branch bugfix/r5.4-nonchat-model-detection-20261103
 - [x] Recognize specialised model file paths and numeric task-name versions during local chat setup
       — claimed: Afloat16, branch bugfix/r5.4-model-task-identifiers-20261103
