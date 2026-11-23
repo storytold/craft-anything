@@ -673,6 +673,8 @@ been run live.
       — claimed: jgt87, branch bugfix/r5.4-detect-loaded-model — PR #1437
 - [ ] See why Bionic or LM Studio can't be picked (#140)
       — claimed: YunzhouLi-hub, branch bugfix/r5.4-lm-studio-selection
+- [x] Keep distinct discovered local server addresses selectable when they share a name (#140).
+      Match enabled saved servers by address and give another address an unused display name.
 - [x] Do not select an embedding, ranking or transcription model as a chat backend when a local server has no chat models — claimed: Afloat16, branch bugfix/r5.4-nonchat-model-detection-20261103
 - [x] Recognize specialised model file paths and numeric task-name versions during local chat setup
       — claimed: Afloat16, branch bugfix/r5.4-model-task-identifiers-20261103
