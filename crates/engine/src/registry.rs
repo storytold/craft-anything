@@ -61,7 +61,8 @@ pub fn custom_toolset(id: &str) -> Option<Toolset> {
 pub struct Registry {
     specs: Vec<ToolSpec>,
     index: BTreeMap<&'static str, usize>,
-    /// Input schemas of tools defined at run time.
+    /// Input schemas, built once here: a tool's type generates its schema on each call otherwise,
+    /// and every call through the engine passes its params through that schema.
     schemas: BTreeMap<&'static str, Value>,
 }
 
@@ -77,7 +78,8 @@ impl Registry {
             index.insert(s.id, kept.len());
             kept.push(s);
         }
-        Registry { specs: kept, index, schemas: BTreeMap::new() }
+        let schemas = kept.iter().map(|s| (s.id, (s.input_schema)())).collect();
+        Registry { specs: kept, index, schemas }
     }
 
     pub fn with_all_tools() -> Self {

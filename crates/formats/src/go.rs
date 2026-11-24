@@ -254,12 +254,16 @@ pub fn inspect(data: &[u8], architecture: Option<&str>) -> Result<GoReport, Form
     if let Some(reg) = &region {
         buildinfo = find_buildinfo(&mapped, reg, &mut warnings);
     }
-    if buildinfo.is_none() {
+    if !buildinfo.as_ref().is_some_and(GoBuildInfo::has_go_version) {
         // Not where expected: look through the whole file before giving up.
         let whole = SearchRegion { name: "whole file".into(), offset: 0, size: body.len() as u64, how: "whole-file fallback" };
-        buildinfo = find_buildinfo(&mapped, &whole, &mut warnings);
-        if buildinfo.is_some() {
-            warnings.push("the build information was found outside the usual region".into());
+        let found = find_buildinfo(&mapped, &whole, &mut warnings);
+        // A Go block found here lies outside the usual region, or the search there would have kept it.
+        if buildinfo.is_none() || found.as_ref().is_some_and(GoBuildInfo::has_go_version) {
+            if found.is_some() {
+                warnings.push("the build information was found outside the usual region".into());
+            }
+            buildinfo = found;
         }
     }
     let text_va = file.sections().find(|s| matches!(s.name().ok(), Some(".text" | "__text"))).map(|s| s.address());
@@ -336,25 +340,42 @@ fn search_region(file: &object::File<'_>, container: &str, warnings: &mut Vec<St
     }
 }
 
+/// The first block in `reg` with a Go version, else the first block that decodes at all: a block
+/// whose version isn't Go (another program's copy of the magic) doesn't hide a real one after it.
 fn find_buildinfo(m: &Mapped<'_>, reg: &SearchRegion, warnings: &mut Vec<String>) -> Option<GoBuildInfo> {
     let start = usize::try_from(reg.offset).ok()?;
     let len = usize::try_from(reg.size).ok()?;
     let hay = Reader::new(m.data).slice(start, len.min(m.data.len().saturating_sub(start)))?;
+    let mut first = None;
     let mut i = 0usize;
-    while let Some(p) = crate::find_bytes(hay.get(i..)?, MAGIC, usize::MAX) {
-        let at = i.checked_add(p)?;
-        let file_off = start.checked_add(at)? as u64;
+    while let Some(p) = hay.get(i..).and_then(|rest| crate::find_bytes(rest, MAGIC, usize::MAX)) {
+        let (Some(at), Some(off)) = (i.checked_add(p), start.checked_add(i + p)) else { break };
         // The block sits on a 16-byte aligned address (fall back to file offset alignment).
-        let aligned = match m.va_of(file_off) {
+        let aligned = match m.va_of(off as u64) {
             Some(va) => va.is_multiple_of(16),
-            None => file_off.is_multiple_of(16),
+            None => (off as u64).is_multiple_of(16),
         };
-        if aligned && let Some(b) = decode_buildinfo(m, start.checked_add(at)?, warnings) {
-            return Some(b);
+        if aligned && let Some(b) = decode_buildinfo(m, off, warnings) {
+            if b.has_go_version() {
+                return Some(b);
+            }
+            first.get_or_insert(b);
         }
-        i = at.checked_add(1)?;
+        i = at + 1;
     }
-    None
+    first
+}
+
+/// Whether a build-info version string looks like a Go release (`go1.22.3`, `devel go1.23-…`).
+fn looks_like_go_version(v: &str) -> bool {
+    v.starts_with("go1") || v.starts_with("devel")
+}
+
+impl GoBuildInfo {
+    /// Whether the block names a Go version, which another program's copy of the magic doesn't.
+    pub fn has_go_version(&self) -> bool {
+        self.go_version.as_deref().is_some_and(looks_like_go_version)
+    }
 }
 
 fn read_uvarint(r: &Reader<'_>, off: usize) -> Option<(u64, usize)> {
@@ -416,7 +437,7 @@ fn decode_buildinfo(m: &Mapped<'_>, off: usize, warnings: &mut Vec<String>) -> O
         (version, module)
     };
     let go_version = String::from_utf8(version).ok().filter(|v| !v.is_empty());
-    if go_version.as_deref().is_some_and(|v| !v.starts_with("go") && !v.starts_with("devel")) {
+    if go_version.as_deref().is_some_and(|v| !looks_like_go_version(v)) {
         local_warnings.push("the version string does not look like a Go release".into());
     }
     // Strip the 16-byte sentinels around the module text.

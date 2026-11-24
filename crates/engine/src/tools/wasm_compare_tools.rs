@@ -10,7 +10,7 @@ use craft_anything_formats::wasm::{self, WasmReport};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 pub fn specs() -> Vec<ToolSpec> {
     vec![spec(
@@ -60,8 +60,35 @@ pub struct CompareWasmParams {
 /// (direction, module, name) → every (kind, signature) occurrence, sorted.
 type Interface = BTreeMap<(&'static str, Option<String>, String), Vec<(String, String)>>;
 
+struct ResourceSignatures {
+    memories: HashMap<u32, String>,
+    tables: HashMap<u32, String>,
+}
+
+impl ResourceSignatures {
+    fn new(r: &WasmReport) -> Self {
+        let mut memories = HashMap::with_capacity(r.memories.len());
+        for m in &r.memories {
+            memories.entry(m.index).or_insert_with(|| {
+                format!(
+                    "{}..{}{}{}",
+                    m.initial,
+                    m.maximum.map(|x| x.to_string()).unwrap_or_default(),
+                    if m.shared { " shared" } else { "" },
+                    if m.memory64 { " memory64" } else { "" },
+                )
+            });
+        }
+        let mut tables = HashMap::with_capacity(r.tables.len());
+        for t in &r.tables {
+            tables.entry(t.index).or_insert_with(|| format!("{} {}..{}", t.element_type, t.initial, t.maximum.map(|x| x.to_string()).unwrap_or_default()));
+        }
+        Self { memories, tables }
+    }
+}
+
 /// What an exported item looks like, resolved through the module's index spaces.
-fn export_signature(r: &WasmReport, kind: &str, index: u32) -> String {
+fn export_signature(r: &WasmReport, resources: &ResourceSignatures, kind: &str, index: u32) -> String {
     let found = match kind {
         "func" => r
             .functions
@@ -69,16 +96,8 @@ fn export_signature(r: &WasmReport, kind: &str, index: u32) -> String {
             .find(|f| f.index == index)
             .map(|f| f.signature.clone())
             .or_else(|| r.imports.iter().filter(|i| i.kind == "func").nth(index as usize).map(|i| i.signature.clone())),
-        "memory" => r
-            .memories
-            .iter()
-            .find(|m| m.index == index)
-            .map(|m| format!("{}..{}{}", m.initial, m.maximum.map(|x| x.to_string()).unwrap_or_default(), if m.shared { " shared" } else { "" })),
-        "table" => r
-            .tables
-            .iter()
-            .find(|t| t.index == index)
-            .map(|t| format!("{} {}..{}", t.element_type, t.initial, t.maximum.map(|x| x.to_string()).unwrap_or_default())),
+        "memory" => resources.memories.get(&index).cloned(),
+        "table" => resources.tables.get(&index).cloned(),
         "global" => r.globals.iter().find(|g| g.index == index).map(|g| format!("{}{}", if g.mutable { "mut " } else { "" }, g.value_type)),
         "tag" => r.tags.iter().find(|t| t.index == index).map(|t| t.signature.clone()),
         _ => None,
@@ -88,14 +107,33 @@ fn export_signature(r: &WasmReport, kind: &str, index: u32) -> String {
 
 fn interface(r: &WasmReport, scope: Scope) -> Interface {
     let mut m: Interface = BTreeMap::new();
+    // Imports and exports share one formatted signature per resource index.
+    // Searching the inventory afresh for every import makes large modules quadratic.
+    let resources = ResourceSignatures::new(r);
     if scope != Scope::Exports {
+        // Memory and table imports have abbreviated display signatures. Resolve
+        // their complete types through their independent index spaces instead.
+        let (mut memory_index, mut table_index) = (0, 0);
         for i in &r.imports {
-            m.entry(("import", Some(i.module.clone()), i.name.clone())).or_default().push((i.kind.to_string(), i.signature.clone()));
+            let signature = match i.kind {
+                "memory" => {
+                    let signature = export_signature(r, &resources, i.kind, memory_index);
+                    memory_index += 1;
+                    signature
+                }
+                "table" => {
+                    let signature = export_signature(r, &resources, i.kind, table_index);
+                    table_index += 1;
+                    signature
+                }
+                _ => i.signature.clone(),
+            };
+            m.entry(("import", Some(i.module.clone()), i.name.clone())).or_default().push((i.kind.to_string(), signature));
         }
     }
     if scope != Scope::Imports {
         for e in &r.exports {
-            m.entry(("export", None, e.name.clone())).or_default().push((e.kind.to_string(), export_signature(r, e.kind, e.index)));
+            m.entry(("export", None, e.name.clone())).or_default().push((e.kind.to_string(), export_signature(r, &resources, e.kind, e.index)));
         }
     }
     for v in m.values_mut() {
@@ -294,8 +332,8 @@ mod tests {
         assert!(report.validation.valid && report.parse_error.is_none(), "{report:?}");
         assert!(report.truncated);
         assert_eq!(report.imports.len(), wasm::MAX_ITEMS);
-        assert_eq!(super::export_signature(&report, "tag", 0), "(i32) -> ()");
-        assert_eq!(super::export_signature(&report, "tag", 1), "(i64) -> ()");
+        assert_eq!(super::export_signature(&report, &super::ResourceSignatures::new(&report), "tag", 0), "(i32) -> ()");
+        assert_eq!(super::export_signature(&report, &super::ResourceSignatures::new(&report), "tag", 1), "(i64) -> ()");
     }
 
     #[test]
@@ -305,9 +343,9 @@ mod tests {
         let report = wasm::inspect(&module).unwrap();
         assert!(report.validation.valid && report.parse_error.is_none(), "{report:?}");
         assert!(report.truncated);
-        assert_eq!(super::export_signature(&report, "tag", cap - 1), "(i32) -> ()");
-        assert_eq!(super::export_signature(&report, "tag", cap), format!("unresolved tag #{cap}"));
-        assert_eq!(super::export_signature(&report, "tag", cap + 1), format!("unresolved tag #{}", cap + 1));
+        assert_eq!(super::export_signature(&report, &super::ResourceSignatures::new(&report), "tag", cap - 1), "(i32) -> ()");
+        assert_eq!(super::export_signature(&report, &super::ResourceSignatures::new(&report), "tag", cap), format!("unresolved tag #{cap}"));
+        assert_eq!(super::export_signature(&report, &super::ResourceSignatures::new(&report), "tag", cap + 1), format!("unresolved tag #{}", cap + 1));
         let path = temp_file("capped-tags.wasm", &module);
         let e = Engine::new(crate::testing::session());
         let result = call(&e, "formats_wasm_compare", json!({"left_path": path, "right_path": path, "scope": "exports"}));
@@ -325,8 +363,8 @@ mod tests {
             module.extend_from_slice(&[13, 3, 1, 0, type_index, 7, 5, 1, 1, b'e', 4, 0]);
             let report = wasm::inspect(&module).unwrap();
             assert!(!report.validation.valid);
-            assert_eq!(super::export_signature(&report, "tag", 0), expected);
-            assert_eq!(super::export_signature(&report, "tag", 99), "unresolved tag #99");
+            assert_eq!(super::export_signature(&report, &super::ResourceSignatures::new(&report), "tag", 0), expected);
+            assert_eq!(super::export_signature(&report, &super::ResourceSignatures::new(&report), "tag", 99), "unresolved tag #99");
             let path = temp_file("invalid-tag.wasm", &module);
             let e = Engine::new(crate::testing::session());
             let result = call(&e, "formats_wasm_compare", json!({"left_path": path, "right_path": path}));
@@ -396,5 +434,147 @@ mod tests {
 
         let bad = temp_file("bad.wasm", b"not wasm");
         call_err(&e, "formats_wasm_compare", json!({"left_path": l, "right_path": bad}));
+    }
+
+    // Hand-built core-module fixtures; no external module bytes are used.
+    fn resource_module(kind: u8, flags: u8, maximum: u8, imported: bool) -> Vec<u8> {
+        let mut module = b"\0asm\x01\0\0\0".to_vec();
+        let section = |id: u8, body: &[u8], bytes: &mut Vec<u8>| {
+            bytes.extend_from_slice(&[id, body.len() as u8]);
+            bytes.extend_from_slice(body);
+        };
+        let mut resource = Vec::new();
+        if kind == 1 {
+            resource.push(0x70);
+        }
+        resource.extend_from_slice(&[flags, 1, maximum]);
+        let mut body = vec![1];
+        if imported {
+            body.extend_from_slice(&[3, b'e', b'n', b'v', 1, b'r', kind]);
+        }
+        body.extend_from_slice(&resource);
+        section(
+            if imported {
+                2
+            } else if kind == 1 {
+                4
+            } else {
+                5
+            },
+            &body,
+            &mut module,
+        );
+        section(7, &[1, 1, b'r', kind, 0], &mut module);
+        module
+    }
+
+    #[test]
+    fn resource_type_changes_are_visible_in_imports_and_exports() {
+        let engine = Engine::new(crate::testing::session());
+        for (name, kind, left_flags, right_flags, left_max, right_max) in
+            [("memory maximum", 2, 1, 1, 2, 3), ("shared memory", 2, 1, 3, 2, 2), ("memory address width", 2, 1, 5, 2, 2), ("table maximum", 1, 1, 1, 2, 3)]
+        {
+            for imported in [false, true] {
+                let left = temp_file("left-resource.wasm", &resource_module(kind, left_flags, left_max, imported));
+                let right = temp_file("right-resource.wasm", &resource_module(kind, right_flags, right_max, imported));
+                for scope in if imported { &["imports", "exports"][..] } else { &["exports"][..] } {
+                    let result = call(&engine, "formats_wasm_compare", json!({"left_path": left, "right_path": right, "scope": scope}));
+                    assert_eq!(result["result"]["left"]["valid"], true, "{name}: {result}");
+                    assert_eq!(result["result"]["right"]["valid"], true, "{name}: {result}");
+                    assert_eq!(result["result"]["counts"]["changed"], 1, "{name}, imported={imported}, {scope}: {result}");
+                    let unchanged = call(&engine, "formats_wasm_compare", json!({"left_path": left, "right_path": left, "scope": scope}));
+                    assert_eq!(unchanged["result"]["counts"]["unchanged"], 1, "{name}, {scope}: {unchanged}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn resource_signature_lookup_preserves_sparse_indices() {
+        for (kind, name) in [(1, "table"), (2, "memory")] {
+            let mut report = wasm::inspect(&resource_module(kind, 1, 2, false)).unwrap();
+            let original = super::export_signature(&report, &super::ResourceSignatures::new(&report), name, 0);
+            if kind == 1 {
+                report.tables[0].index = 17;
+            } else {
+                report.memories[0].index = 17;
+            }
+            let resources = super::ResourceSignatures::new(&report);
+            assert_eq!(super::export_signature(&report, &resources, name, 17), original);
+            assert_eq!(super::export_signature(&report, &resources, name, 0), format!("unresolved {name} #0"));
+        }
+    }
+
+    fn many_table_module(last_maximum: u8) -> Vec<u8> {
+        let mut module = b"\0asm\x01\0\0\0".to_vec();
+        let section = |id: u8, body: &[u8], bytes: &mut Vec<u8>| {
+            bytes.push(id);
+            let mut size = body.len();
+            loop {
+                let byte = (size & 0x7f) as u8;
+                size >>= 7;
+                bytes.push(byte | if size == 0 { 0 } else { 0x80 });
+                if size == 0 {
+                    break;
+                }
+            }
+            bytes.extend_from_slice(body);
+        };
+        let mut imports = vec![100];
+        let mut exports = vec![100];
+        for index in 0u8..100 {
+            imports.extend_from_slice(&[0, 0, 1, 0x70, 1, 1, if index == 99 { last_maximum } else { 2 }]);
+            let name = format!("table{index}");
+            exports.push(name.len() as u8);
+            exports.extend_from_slice(name.as_bytes());
+            exports.extend_from_slice(&[1, index]);
+        }
+        section(2, &imports, &mut module);
+        section(7, &exports, &mut module);
+        module
+    }
+
+    #[test]
+    fn many_resource_imports_and_reexports_keep_their_types() {
+        let engine = Engine::new(crate::testing::session());
+        let left = temp_file("left-many-tables.wasm", &many_table_module(2));
+        let right = temp_file("right-many-tables.wasm", &many_table_module(3));
+        let result = call(&engine, "formats_wasm_compare", json!({"left_path": left, "right_path": right}));
+        assert_eq!(result["result"]["left"]["valid"], true);
+        assert_eq!(result["result"]["right"]["valid"], true);
+        assert_eq!(result["result"]["counts"], json!({"added": 0, "removed": 0, "changed": 2, "unchanged": 99}));
+        let changes = result["result"]["changes"].as_array().unwrap();
+        let import = changes.iter().find(|c| c["direction"] == "import").unwrap();
+        assert_eq!(import["left"].as_array().unwrap().len(), 100);
+        assert_eq!(import["right"].as_array().unwrap().len(), 100);
+        let export = changes.iter().find(|c| c["direction"] == "export").unwrap();
+        assert_eq!(export["name"], "table99");
+        let same = call(&engine, "formats_wasm_compare", json!({"left_path": left, "right_path": left}));
+        assert_eq!(same["result"]["counts"], json!({"added": 0, "removed": 0, "changed": 0, "unchanged": 101}));
+    }
+
+    #[test]
+    fn resource_imports_use_independent_index_spaces() {
+        let module = |maximum: u8| {
+            let mut bytes = b"\0asm\x01\0\0\0".to_vec();
+            bytes.extend_from_slice(&[1, 4, 1, 0x60, 0, 0]);
+            let mut imports = vec![4];
+            for (name, kind, ty) in [(b'f', 0, vec![0]), (b'a', 2, vec![1, 1, 2]), (b't', 1, vec![0x70, 1, 1, 2]), (b'b', 2, vec![1, 1, maximum])] {
+                imports.extend_from_slice(&[3, b'e', b'n', b'v', 1, name, kind]);
+                imports.extend_from_slice(&ty);
+            }
+            bytes.extend_from_slice(&[2, imports.len() as u8]);
+            bytes.extend_from_slice(&imports);
+            bytes
+        };
+        let engine = Engine::new(crate::testing::session());
+        let left = temp_file("left-mixed-resources.wasm", &module(2));
+        let right = temp_file("right-mixed-resources.wasm", &module(3));
+        let result = call(&engine, "formats_wasm_compare", json!({"left_path": left, "right_path": right, "scope": "imports"}));
+        assert_eq!(result["result"]["left"]["valid"], true, "{result}");
+        assert_eq!(result["result"]["right"]["valid"], true, "{result}");
+        assert_eq!(result["result"]["counts"]["changed"], 1, "{result}");
+        assert_eq!(result["result"]["counts"]["unchanged"], 3, "{result}");
+        assert_eq!(result["result"]["changes"][0]["name"], "b", "{result}");
     }
 }

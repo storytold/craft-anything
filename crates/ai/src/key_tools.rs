@@ -119,7 +119,7 @@ fn assets_key_set(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolEr
     }
     let hub = hub(ctx)?;
     let stored_in = hub.set_asset_key(to.id(), key)?;
-    crate::keys::refresh_loaded(ctx.session, &hub.keys);
+    crate::keys::refresh_loaded(ctx.session, &hub.engine, &hub.keys);
     Ok(ToolOutput::Value(json!({"provider": to.id(), "stored": true, "stored_in": stored_in})))
 }
 
@@ -128,7 +128,7 @@ fn assets_key_remove(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, Too
     let from = provider(ctx, p.provider.as_deref())?;
     let hub = hub(ctx)?;
     hub.remove_asset_key(from.id())?;
-    crate::keys::refresh_loaded(ctx.session, &hub.keys);
+    crate::keys::refresh_loaded(ctx.session, &hub.engine, &hub.keys);
     Ok(ToolOutput::Value(json!({"provider": from.id(), "stored": false})))
 }
 

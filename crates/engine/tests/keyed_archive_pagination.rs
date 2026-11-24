@@ -1,4 +1,5 @@
 use craft_anything_engine::{CallOptions, Caller, Engine};
+use craft_anything_formats::{keyed_archive, nib, plist};
 use craft_anything_testkit::apple as fx;
 use serde_json::{Value, json};
 
@@ -50,5 +51,40 @@ fn a_small_tool_page_keeps_shared_classes_counted_globally() {
     assert_eq!(output["result"]["objects"][0]["class"], class);
     assert_eq!(output["result"]["class_counts"][&class], 1024);
     assert_eq!(output["coverage"]["next_offset"], 514);
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn archive_and_nib_routes_keep_the_borrowed_binary_and_xml_results() {
+    let directory = craft_anything_engine::testing::temp_dir();
+    let engine = Engine::new(craft_anything_engine::testing::session());
+    let value = fx::keyed_archive_value();
+    for (name, bytes) in [("binary.nib", fx::to_bplist(&value)), ("xml.nib", fx::to_xml(&value).into_bytes())] {
+        let path = directory.join(name);
+        std::fs::write(&path, &bytes).unwrap();
+        let parsed = plist::parse(&bytes).unwrap();
+        let borrowed = keyed_archive::from_plist(&parsed).unwrap();
+        let root = borrowed.root(None).unwrap();
+        let archive = call(&engine, &path, 0, 20_000);
+        assert_eq!(archive["result"]["tree"], borrowed.project(root.1));
+        assert_eq!(archive["result"]["root"], root.0);
+        assert_eq!(archive["result"]["root_object"], root.1);
+        assert_eq!(archive["result"]["objects"], serde_json::to_value(borrowed.rows()).unwrap());
+
+        let expected = nib::graph(&nib::from_keyed_archive(&borrowed), 20_000, 40_000);
+        let result = engine
+            .call("apple_nib_decode", json!({"path": path, "max_objects": 20_000, "max_connections": 40_000}), CallOptions::new(Caller::Cli))
+            .unwrap()
+            .to_json();
+        assert_eq!(result["result"]["failures"], json!([]));
+        assert_eq!(result["result"]["documents_total"], 1);
+        let actual = &result["result"]["documents"][0];
+        assert_eq!(actual["objects"], json!(expected.objects));
+        assert_eq!(actual["connections"], json!(expected.connections));
+        assert_eq!(actual["hierarchy"], json!(expected.hierarchy));
+        assert_eq!(actual["class_counts"], json!(expected.class_counts));
+        assert_eq!(actual["root_objects"], json!(expected.root_objects));
+        assert_eq!(actual["coder_version"], 100_000);
+    }
     std::fs::remove_dir_all(directory).unwrap();
 }

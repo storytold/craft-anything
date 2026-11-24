@@ -41,9 +41,9 @@ fn a_function_returning_an_opaque_type_prints_some_as_its_result() {
     );
     assert_eq!(
         dm("_$s7SwiftUI4ViewP6GlutenE10edgeBorder_5edges5colorQr12CoreGraphics7CGFloatV_SayAA4EdgeOGAA5ColorVtF"),
-        "SwiftUI.View.edgeBorder(_: CoreGraphics.CGFloat, edges: [SwiftUI.Edge], color: SwiftUI.Color) -> some"
+        "(extension in Gluten):SwiftUI.View.edgeBorder(_: CoreGraphics.CGFloat, edges: [SwiftUI.Edge], color: SwiftUI.Color) -> some"
     );
-    assert_eq!(dm("_$s7SwiftUI4ViewPAAE9blendModeyQrAA05BlendE0OF"), "SwiftUI.View.blendMode(SwiftUI.BlendMode) -> some");
+    assert_eq!(dm("_$s7SwiftUI4ViewPAAE9blendModeyQrAA05BlendE0OF"), "(extension in SwiftUI):SwiftUI.View.blendMode(SwiftUI.BlendMode) -> some");
     assert_eq!(dm("_$s1a1HV1myQrSiF"), "a.H.m(Swift.Int) -> some");
     assert_eq!(dm("_$s1a1HV2smQryFZ"), "static a.H.sm() -> some");
     assert_eq!(dm("_$s1a1HVyQrSicig"), "a.H.subscript.getter : (Swift.Int) -> some");
@@ -82,7 +82,7 @@ fn an_opaque_type_inside_another_type() {
 fn a_use_of_an_opaque_type_names_its_declaration() {
     assert_eq!(
         dm("_$s7SwiftUI4ViewPAAE9focusableyQrSbFQOyAA6ButtonVyAA4TextVG_Qo_MD"),
-        "demangling cache variable for type metadata for <<opaque return type of SwiftUI.View.focusable(Swift.Bool) -> some>>.0"
+        "demangling cache variable for type metadata for <<opaque return type of (extension in SwiftUI):SwiftUI.View.focusable(Swift.Bool) -> some>>.0"
     );
     assert_eq!(
         dm("_$s17InstrumentsPlugIn12RevealButtonV11menuVersionQrvpQOy_Qo_SgMD"),
@@ -106,13 +106,13 @@ fn a_use_of_an_opaque_type_names_its_declaration() {
 fn an_opaque_type_takes_a_substitution_slot() {
     assert_eq!(
         dm("_$s7SwiftUI19_ConditionalContentVyAA4ViewPAAE4helpyQrAA18LocalizedStringKeyVFQOyAA5ImageV_Qo_AKGMD"),
-        "demangling cache variable for type metadata for SwiftUI._ConditionalContent<<<opaque return type of SwiftUI.View.help(SwiftUI.LocalizedStringKey) -> some>>.0, <<opaque return type of SwiftUI.View.help(SwiftUI.LocalizedStringKey) -> some>>.0>"
+        "demangling cache variable for type metadata for SwiftUI._ConditionalContent<<<opaque return type of (extension in SwiftUI):SwiftUI.View.help(SwiftUI.LocalizedStringKey) -> some>>.0, <<opaque return type of (extension in SwiftUI):SwiftUI.View.help(SwiftUI.LocalizedStringKey) -> some>>.0>"
     );
     assert_eq!(
         dm(
             "_$s7SwiftUI9TupleViewVyAA0D0PAAE16keyboardShortcut_9modifiersQrAA13KeyEquivalentV_AA14EventModifiersVtFQOyAA6ButtonVyAA15ModifiedContentVyAA5ImageVAA12_FrameLayoutVGG_Qo__AeAEAF_AGQrAI_AKtFQOyAOyAuA012_EnvironmentH17TransformModifierVySbGG_Qo_tGMD"
         ),
-        "demangling cache variable for type metadata for SwiftUI.TupleView<(<<opaque return type of SwiftUI.View.keyboardShortcut(_: SwiftUI.KeyEquivalent, modifiers: SwiftUI.EventModifiers) -> some>>.0, <<opaque return type of SwiftUI.View.keyboardShortcut(_: SwiftUI.KeyEquivalent, modifiers: SwiftUI.EventModifiers) -> some>>.0)>"
+        "demangling cache variable for type metadata for SwiftUI.TupleView<(<<opaque return type of (extension in SwiftUI):SwiftUI.View.keyboardShortcut(_: SwiftUI.KeyEquivalent, modifiers: SwiftUI.EventModifiers) -> some>>.0, <<opaque return type of (extension in SwiftUI):SwiftUI.View.keyboardShortcut(_: SwiftUI.KeyEquivalent, modifiers: SwiftUI.EventModifiers) -> some>>.0)>"
     );
 }
 

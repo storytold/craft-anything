@@ -53,7 +53,10 @@ fn static_subscript_accessors_follow_subscript() {
 /// demangler leaves out by design.
 #[test]
 fn accessor_in_an_extension_leaves_out_the_extension_prefix() {
-    assert_eq!(dm("_$sSo13simd_float2x3a0A0Eys5SIMD3VySfGSiciM"), "__C.simd_float2x3.subscript.modify : (Swift.Int) -> Swift.SIMD3<Swift.Float>");
+    assert_eq!(
+        dm("_$sSo13simd_float2x3a0A0Eys5SIMD3VySfGSiciM"),
+        "(extension in simd):__C.simd_float2x3.subscript.modify : (Swift.Int) -> Swift.SIMD3<Swift.Float>"
+    );
 }
 
 /// A property descriptor names the subscript without an accessor; its type still follows directly.

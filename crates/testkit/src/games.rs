@@ -538,11 +538,20 @@ pub fn unreal_texture_package(name: &str, pixel_format: &str, width: i32, height
     i32s(&mut d, &[0]); // not virtual
     fname(&mut d, "None");
 
-    // The .uasset: summary, names, one import (the class), one export.
+    unreal_package(&names, "Texture2D", name, d)
+}
+
+/// A cooked Unreal 4.27 package's `.uasset` and `.uexp`: the name table `names` (holding "None",
+/// `class`, "/Script/Engine", "Class" and `name`), one import (the class) and one export `name` whose
+/// data `d` is the `.uexp` (ending with the package tag).
+fn unreal_package(names: &[&str], class: &str, name: &str, mut d: Vec<u8>) -> (Vec<u8>, Vec<u8>) {
+    let idx = |n: &str| names.iter().position(|x| *x == n).unwrap_or(0) as i32;
+    let i32s = |v: &mut Vec<u8>, xs: &[i32]| xs.iter().for_each(|x| v.extend_from_slice(&x.to_le_bytes()));
+    let fname = |v: &mut Vec<u8>, n: &str| i32s(v, &[idx(n), 0]);
     let summary_len = 4 * 6 + 4 + (4 + 5) + 4 + 4 * 2 + 8 + 4 * 2 + 4 * 2 + 4 * 2;
     let mut name_table = Vec::new();
     for n in names {
-        fstring(&mut name_table, n);
+        name_table.extend_from_slice(&fstring(n));
         name_table.extend_from_slice(&[0; 4]);
     }
     let name_offset = summary_len as i32;
@@ -552,7 +561,7 @@ pub fn unreal_texture_package(name: &str, pixel_format: &str, width: i32, height
     let mut u = Vec::new();
     u.extend_from_slice(&0x9E2A_83C1u32.to_le_bytes());
     i32s(&mut u, &[-7, 0, 0, 0, 0, header_size]);
-    fstring(&mut u, "None");
+    u.extend_from_slice(&fstring("None"));
     u.extend_from_slice(&0x8000_0000u32.to_le_bytes());
     i32s(&mut u, &[names.len() as i32, name_offset, 0, 0, 1, export_offset, 1, import_offset, 0, 0]);
     assert_eq!(u.len(), summary_len);
@@ -560,7 +569,7 @@ pub fn unreal_texture_package(name: &str, pixel_format: &str, width: i32, height
     fname(&mut u, "/Script/Engine");
     fname(&mut u, "Class");
     i32s(&mut u, &[0]);
-    fname(&mut u, "Texture2D");
+    fname(&mut u, class);
     i32s(&mut u, &[-1, 0, 0, 0]);
     fname(&mut u, name);
     i32s(&mut u, &[0]);
@@ -570,6 +579,95 @@ pub fn unreal_texture_package(name: &str, pixel_format: &str, width: i32, height
     assert_eq!(u.len(), header_size as usize);
     d.extend_from_slice(&0x9E2A_83C1u32.to_le_bytes());
     (u, d)
+}
+
+/// A cooked Unreal 4.27 sound package (`.uasset`, `.uexp`) named `name`: one SoundWave export with
+/// tagged properties, then fields the sound reader steps over (a cooked flag, a count and the name
+/// `format`), a bulk-data record holding `sound` inline or, with `in_ubulk`, pointing at offset 0
+/// of the `.ubulk` (the caller writes `sound` there), and a guid.
+pub fn unreal_sound_package(name: &str, format: &str, sound: &[u8], in_ubulk: bool) -> (Vec<u8>, Vec<u8>) {
+    let names = ["None", "SoundWave", "/Script/Engine", "Class", "Duration", "FloatProperty", "bLooping", "BoolProperty", format, name];
+    let idx = |n: &str| names.iter().position(|x| *x == n).unwrap_or(0) as i32;
+    let i32s = |v: &mut Vec<u8>, xs: &[i32]| xs.iter().for_each(|x| v.extend_from_slice(&x.to_le_bytes()));
+    let fname = |v: &mut Vec<u8>, n: &str| i32s(v, &[idx(n), 0]);
+    let mut d = Vec::new();
+    fname(&mut d, "Duration");
+    fname(&mut d, "FloatProperty");
+    i32s(&mut d, &[4, 0]);
+    d.push(0);
+    d.extend_from_slice(&0.5f32.to_le_bytes());
+    fname(&mut d, "bLooping");
+    fname(&mut d, "BoolProperty");
+    i32s(&mut d, &[0, 0]);
+    d.extend_from_slice(&[1, 0]);
+    fname(&mut d, "None");
+    i32s(&mut d, &[0]); // no guid
+    i32s(&mut d, &[1, 1]);
+    fname(&mut d, format);
+    let len = sound.len() as i32;
+    if in_ubulk {
+        i32s(&mut d, &[0x10501, len, len]);
+        d.extend_from_slice(&0i64.to_le_bytes());
+    } else {
+        i32s(&mut d, &[0x48, len, len]);
+        d.extend_from_slice(&0i64.to_le_bytes());
+        d.extend_from_slice(sound);
+    }
+    d.extend_from_slice(&[7; 16]);
+    unreal_package(&names, "SoundWave", name, d)
+}
+
+/// A WAV file: one `fmt ` chunk (`format_tag`, `channels` at `rate` Hz, 16 bits) and `data`.
+pub fn wav_file(format_tag: u16, channels: u16, rate: u32, data: &[u8]) -> Vec<u8> {
+    let mut v = b"RIFF".to_vec();
+    v.extend_from_slice(&(4 + 8 + 16 + 8 + data.len() as u32).to_le_bytes());
+    v.extend_from_slice(b"WAVEfmt ");
+    v.extend_from_slice(&16u32.to_le_bytes());
+    v.extend_from_slice(&format_tag.to_le_bytes());
+    v.extend_from_slice(&channels.to_le_bytes());
+    v.extend_from_slice(&rate.to_le_bytes());
+    v.extend_from_slice(&(rate * u32::from(channels) * 2).to_le_bytes());
+    v.extend_from_slice(&(channels * 2).to_le_bytes());
+    v.extend_from_slice(&16u16.to_le_bytes());
+    v.extend_from_slice(b"data");
+    v.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    v.extend_from_slice(data);
+    v
+}
+
+/// An Ogg stream of `pages` pages (CRCs left zero): the first holds an identification packet
+/// starting with `magic` (`\x01vorbis` or `OpusHead`) for `channels` at `rate` Hz, the others 10
+/// bytes each, the last marked end of stream.
+pub fn ogg_file(magic: &[u8], channels: u8, rate: u32, pages: u32) -> Vec<u8> {
+    let mut id = magic.to_vec();
+    if magic == b"OpusHead" {
+        id.extend_from_slice(&[1, channels, 0, 0]);
+    } else {
+        id.extend_from_slice(&[0, 0, 0, 0, channels]);
+    }
+    id.extend_from_slice(&rate.to_le_bytes());
+    id.extend_from_slice(&[0; 4]);
+    let mut v = Vec::new();
+    for page in 0..pages {
+        let body = if page == 0 { id.clone() } else { vec![page as u8; 10] };
+        let flags = if page == 0 {
+            2
+        } else if page + 1 == pages {
+            4
+        } else {
+            0
+        };
+        v.extend_from_slice(b"OggS\0");
+        v.push(flags);
+        v.extend_from_slice(&u64::from(page).to_le_bytes());
+        v.extend_from_slice(&1u32.to_le_bytes());
+        v.extend_from_slice(&page.to_le_bytes());
+        v.extend_from_slice(&[0; 4]);
+        v.push(1);
+        v.push(body.len() as u8);
+        v.extend_from_slice(&body);
+    }
+    v
 }
 
 /// One file of a test Godot pack.

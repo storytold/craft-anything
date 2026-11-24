@@ -34,7 +34,7 @@ use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
-use std::sync::{Arc, PoisonError};
+use std::sync::{Arc, OnceLock, PoisonError};
 use std::time::Duration;
 
 /// Name our MCP server is registered under.
@@ -56,6 +56,7 @@ pub const KNOWN: &[(&str, &str, &str)] = &[
     ("aider", "aider", "Aider"),
     ("dsh", "dsh", "DeepSeek Harness"),
     ("devin", "devin", "Devin"),
+    ("kimi-code", "kimi", "Kimi Code CLI"),
 ];
 
 pub fn program_for(agent: &str) -> String {
@@ -83,15 +84,26 @@ pub fn replaced_program(options: &BackendOptions, program: &str) -> Option<Strin
 
 /// Resolve saved commands locally through the shared lookup, but leave SSH commands untouched.
 fn program_in(config: &BackendConfig, options: &BackendOptions, search: Option<std::ffi::OsString>) -> Result<String, ToolError> {
+    program_in_with_desktop(config, options, search, desktop_candidate)
+}
+
+/// [`program_in`] with an injectable off-PATH desktop CLI lookup so tests stay independent of the
+/// host machine's installed desktop apps.
+fn program_in_with_desktop(
+    config: &BackendConfig,
+    options: &BackendOptions,
+    search: Option<std::ffi::OsString>,
+    desktop: impl Fn(&str) -> Option<PathBuf>,
+) -> Result<String, ToolError> {
     let usual = program_for(&config.model);
     let local = config.ssh_host.as_deref().is_none_or(|h| h.trim().is_empty());
     let Some(chosen) = options.command.as_deref().map(str::trim).filter(|c| !c.is_empty()) else {
-        return if local { Ok(usual_program(&usual, search)?.unwrap_or(usual)) } else { Ok(usual) };
+        return if local { Ok(usual_program_with_desktop(&usual, search, desktop(&usual))?.unwrap_or(usual)) } else { Ok(usual) };
     };
     // A folder or app bundle saved before set_command refused it (#467) can't be started: the usual
     // program is used, as when none is chosen.
     if local && Path::new(chosen).is_dir() {
-        return Ok(usual_program(&usual, search)?.unwrap_or(usual));
+        return Ok(usual_program_with_desktop(&usual, search, desktop(&usual))?.unwrap_or(usual));
     }
     let path = Path::new(chosen);
     let bare = path.parent().is_none_or(|p| p.as_os_str().is_empty());
@@ -106,7 +118,7 @@ fn program_in(config: &BackendConfig, options: &BackendOptions, search: Option<s
         {
             return Ok(chosen.to_string());
         }
-        return match usual_program(&usual, search)? {
+        return match usual_program_with_desktop(&usual, search, desktop(&usual))? {
             Some(program) => Ok(program),
             None if bare => Ok(chosen.to_string()),
             None => Err(desktop_app_error(path)),
@@ -114,23 +126,30 @@ fn program_in(config: &BackendConfig, options: &BackendOptions, search: Option<s
     }
     // Saved bare names share detection's desktop-CLI fallback, whichever agent owns it.
     if local && bare {
-        return Ok(usual_program(chosen, search)?.unwrap_or_else(|| chosen.to_string()));
+        return Ok(usual_program_with_desktop(chosen, search, desktop(chosen))?.unwrap_or_else(|| chosen.to_string()));
     }
     if !local || path.exists() {
         return Ok(chosen.to_string());
     }
     // Gone, and nothing beside it: the usual program if it's really here, else the saved path, so
     // the error names it.
-    Ok(moved_program(path).or_else(|| usual_program(&usual, search).ok().flatten()).unwrap_or_else(|| chosen.to_string()))
+    Ok(moved_program(path).or_else(|| usual_program_with_desktop(&usual, search, desktop(&usual)).ok().flatten()).unwrap_or_else(|| chosen.to_string()))
+}
+
+/// Off-PATH desktop CLI lookup for a bare agent program name (normalizing `opencode.cmd`/`.exe`
+/// to `"opencode"`).
+fn desktop_candidate(program: &str) -> Option<PathBuf> {
+    if is_opencode_name(program) { local_desktop_cli("opencode") } else { local_desktop_cli(program) }
 }
 
 /// How to start the usual program: its name, or the real program's path when the name alone would
 /// start something else that comes first on the search path (the Claude desktop app's
-/// `claude.exe`). `None` when nothing has that name; an error when only the desktop app does.
-fn usual_program(usual: &str, search: Option<std::ffi::OsString>) -> Result<Option<String>, ToolError> {
+/// `claude.exe`, or an OpenCode 1.x binary before an OpenCode 2 installation). `None` when nothing
+/// has that name; an error when only the Claude desktop app does.
+fn usual_program_with_desktop(usual: &str, search: Option<std::ffi::OsString>, desktop: Option<PathBuf>) -> Result<Option<String>, ToolError> {
     let first = craft_anything_platform::which::which_in(usual, search.clone()).into_iter().next();
-    match (first, find_program_in(usual, search)) {
-        (None, _) => Ok(local_desktop_cli(usual).map(|cli| cli.display().to_string())),
+    match (first, find_program_with_desktop(usual, search, desktop, OPENCODE_PROBE_BUDGET)) {
+        (None, chosen) => Ok(chosen.map(|cli| cli.display().to_string())),
         (Some(first), Some(real)) => Ok(Some(if first == real { usual.to_string() } else { real.display().to_string() })),
         (Some(app), None) => Err(desktop_app_error(&app)),
     }
@@ -145,10 +164,17 @@ fn desktop_app_error(app: &Path) -> ToolError {
 }
 
 /// Where an agent's program is on this computer: the first match on the search path that is
-/// really it. Detection, the desktop app hint and starting a run all look through this, so what's
-/// offered is what runs.
+/// really it (skipping OpenCode 1.x when OpenCode 2 is available later on the search path or in
+/// the desktop app). Detection, the desktop app hint and starting a run all look through this, so
+/// what's offered is what runs.
 pub fn find_program(program: &str) -> Option<PathBuf> {
-    find_program_in(program, craft_anything_platform::which::search_path()).or_else(|| local_desktop_cli(program))
+    find_program_within(program, OPENCODE_PROBE_BUDGET)
+}
+
+/// [`find_program`] with a caller-supplied total budget for multi-candidate OpenCode version
+/// probes (used by [`crate::detect`] so multi-candidate probes fit inside the discovery budget).
+pub(crate) fn find_program_within(program: &str, probe_budget: Duration) -> Option<PathBuf> {
+    find_program_with_desktop(program, craft_anything_platform::which::search_path(), desktop_candidate(program), probe_budget)
 }
 
 /// Off-PATH desktop CLI locations stay here, not in backend tests or command selection.
@@ -199,8 +225,152 @@ fn desktop_cli(program: &str, local_data: Option<&Path>) -> Option<PathBuf> {
     Some(local_data?.join(inside)).filter(|cli| cli.is_file())
 }
 
+/// Default per-candidate timeout for multi-candidate OpenCode version probes.
+const OPENCODE_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
+/// Default total budget across all candidates for multi-candidate OpenCode version probes.
+const OPENCODE_PROBE_BUDGET: Duration = Duration::from_secs(4);
+/// Upper bound on cached OpenCode candidate probe entries.
+const OPENCODE_PROBE_CACHE_CAP: usize = 64;
+
+/// Whether `program` is a bare command name for OpenCode (`opencode`, `opencode.exe`,
+/// `opencode.cmd`, `opencode.bat`, `opencode.com`). Explicit paths and unrelated extensions
+/// return `false` so callers passing a concrete file path keep exact path lookup semantics.
+fn is_opencode_name(program: &str) -> bool {
+    let path = Path::new(program);
+    let bare = path.parent().is_none_or(|p| p.as_os_str().is_empty());
+    let stem_matches = path.file_stem().is_some_and(|s| s.eq_ignore_ascii_case("opencode"));
+    let ext_ok = path.extension().is_none_or(|ext| {
+        ext.eq_ignore_ascii_case("exe") || ext.eq_ignore_ascii_case("cmd") || ext.eq_ignore_ascii_case("bat") || ext.eq_ignore_ascii_case("com")
+    });
+    bare && stem_matches && ext_ok
+}
+
+/// Normalized identity key for deduplicating candidate paths and keying the probe cache:
+/// resolves symlinks/junctions when possible and folds ASCII case on Windows.
+fn candidate_key(path: &Path) -> PathBuf {
+    let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    #[cfg(windows)]
+    {
+        PathBuf::from(resolved.to_string_lossy().to_ascii_lowercase())
+    }
+    #[cfg(not(windows))]
+    {
+        resolved
+    }
+}
+
+/// Search `path` for `program` without consulting off-PATH desktop app folders.
+#[cfg(test)]
 fn find_program_in(program: &str, path: Option<std::ffi::OsString>) -> Option<PathBuf> {
-    craft_anything_platform::which::which_in(program, path).into_iter().find(|p| program != "claude" || !leads_to_claude_desktop(p))
+    find_program_with_desktop(program, path, None, OPENCODE_PROBE_BUDGET)
+}
+
+/// Collect deduplicated OpenCode candidates across `path` (expanding `PATHEXT` via `"opencode"`
+/// even when the caller saved an extensioned bare name like `opencode.cmd`) plus any off-PATH
+/// desktop CLI.
+fn opencode_candidates(program: &str, path: Option<std::ffi::OsString>, desktop: Option<PathBuf>) -> Vec<PathBuf> {
+    let mut matches = craft_anything_platform::which::which_in(program, path.clone());
+    if Path::new(program).extension().is_some() {
+        matches.extend(craft_anything_platform::which::which_in("opencode", path));
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut candidates = Vec::new();
+    for candidate in matches.into_iter().chain(desktop) {
+        if seen.insert(candidate_key(&candidate)) {
+            candidates.push(candidate);
+        }
+    }
+    candidates
+}
+
+/// Search `path` and an optional off-PATH `desktop` CLI for `program`, filtering out the Claude
+/// desktop app and preferring an OpenCode 2 installation over OpenCode 1.x (#1111).
+fn find_program_with_desktop(program: &str, path: Option<std::ffi::OsString>, desktop: Option<PathBuf>, probe_budget: Duration) -> Option<PathBuf> {
+    let bare = Path::new(program).parent().is_none_or(|p| p.as_os_str().is_empty());
+    let desktop = bare.then_some(desktop).flatten();
+    if is_opencode_name(program) {
+        let candidates = opencode_candidates(program, path, desktop);
+        return pick_opencode_candidate(candidates, probe_budget);
+    }
+    let matches = craft_anything_platform::which::which_in(program, path);
+    matches.into_iter().find(|p| program != "claude" || !leads_to_claude_desktop(p)).or(desktop)
+}
+
+/// Cached OpenCode 2 probe result for one normalized path, invalidated when its file metadata
+/// changes.
+struct OpenCodeProbe {
+    mtime: std::time::SystemTime,
+    len: u64,
+    is_v2: bool,
+}
+
+/// Cached probe results for OpenCode candidates, keyed by [`candidate_key`].
+/// Only conclusive results (`Some(true)` / `Some(false)`) with a readable modification time are
+/// cached so transient failures retry next time and in-place upgrades invalidate the entry.
+static OPENCODE_PROBE_CACHE: OnceLock<Mutex<HashMap<PathBuf, OpenCodeProbe>>> = OnceLock::new();
+
+/// Probe whether `candidate` is OpenCode 2 (`run --help` lists `--format` and `--standalone`),
+/// reusing the cached result while the file's modification time and size are unchanged (#1111).
+fn probe_opencode_v2(candidate: &Path, timeout: Duration) -> Option<bool> {
+    let key = candidate_key(candidate);
+    let stamp = std::fs::metadata(candidate).ok().and_then(|m| Some((m.modified().ok()?, m.len())));
+    let cache = OPENCODE_PROBE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some((mtime, len)) = stamp {
+        let guard = cache.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(entry) = guard.get(&key)
+            && entry.mtime == mtime
+            && entry.len == len
+        {
+            return Some(entry.is_v2);
+        }
+    }
+    let (help, needed) = adapters::OpenCode.required_flags();
+    let result = verify_flags_within(&candidate.to_string_lossy(), help, needed, timeout);
+    if let (Some((mtime, len)), Some(is_v2)) = (stamp, result) {
+        let mut guard = cache.lock().unwrap_or_else(PoisonError::into_inner);
+        if guard.len() >= OPENCODE_PROBE_CACHE_CAP && !guard.contains_key(&key) {
+            guard.clear();
+        }
+        guard.insert(key, OpenCodeProbe { mtime, len, is_v2 });
+    }
+    result
+}
+
+/// Choose an OpenCode 2 binary from `candidates` when more than one distinct installation exists,
+/// bounded by `total_budget` across the entire loop (#1111).
+///
+/// With a single candidate, return it directly without spawning a probe: the turn's own
+/// `required_flags` check will run it or report the OpenCode 1.x refusal. With multiple candidates,
+/// pick the first whose `run --help` lists `--format` and `--standalone` before `total_budget`
+/// expires; if none confirm 2.x (or the budget runs out), keep the first candidate in search order
+/// so a leading 1.x still triggers the dedicated 1.x refusal and a leading broken launcher still
+/// reports its own failure.
+fn pick_opencode_candidate(candidates: Vec<PathBuf>, total_budget: Duration) -> Option<PathBuf> {
+    pick_opencode_candidate_with(candidates, total_budget, std::time::Instant::now, probe_opencode_v2)
+}
+
+fn pick_opencode_candidate_with(
+    candidates: Vec<PathBuf>,
+    total_budget: Duration,
+    mut now: impl FnMut() -> std::time::Instant,
+    mut probe: impl FnMut(&Path, Duration) -> Option<bool>,
+) -> Option<PathBuf> {
+    if candidates.len() <= 1 {
+        return candidates.into_iter().next();
+    }
+    let deadline = now() + total_budget;
+    for candidate in &candidates {
+        let Some(remaining) = deadline.checked_duration_since(now()) else {
+            break;
+        };
+        if remaining.is_zero() {
+            break;
+        }
+        if probe(candidate, remaining.min(OPENCODE_PROBE_TIMEOUT)) == Some(true) {
+            return Some(candidate.clone());
+        }
+    }
+    candidates.into_iter().next()
 }
 
 /// [`is_claude_desktop`] for the file itself or, when it's a link, the file it leads to.
@@ -423,10 +593,15 @@ fn access_for(builder: bool, deep: bool, question: bool) -> Access {
 /// Whether `program`'s help mentions every required flag (10 s limit, stdin closed); `None` when
 /// the help couldn't be read (the program is missing, or too slow).
 pub fn verify_flags(program: &str, help_args: &[&str], needed: &[&str]) -> Option<bool> {
+    verify_flags_within(program, help_args, needed, Duration::from_secs(10))
+}
+
+/// [`verify_flags`] with a caller-chosen timeout.
+fn verify_flags_within(program: &str, help_args: &[&str], needed: &[&str], timeout: Duration) -> Option<bool> {
     if needed.is_empty() {
         return Some(true);
     }
-    match Process::new(program).args(help_args).timeout(Duration::from_secs(10)).stdout_cap(256 * 1024).run() {
+    match Process::new(program).args(help_args).timeout(timeout).stdout_cap(256 * 1024).run() {
         Ok(out) => {
             let text = format!("{}{}", out.stdout_text(), out.stderr_text());
             if needed.iter().all(|f| text.contains(f)) {
@@ -1630,6 +1805,248 @@ mod tests {
         #[cfg(unix)]
         std::fs::set_permissions(&other, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
         assert_eq!(find_program_in("codex", path(&[app_dir])), Some(other));
+    }
+
+    /// #1111: when an OpenCode 1.x binary comes first on PATH and an OpenCode 2.x binary is later
+    /// on PATH (or in the desktop app's CLI folder), skip 1.x and pick the 2.x program; when only
+    /// 1.x is present, keep returning it so the run shows the clear 1.x refusal instead of
+    /// claiming Claude desktop app.
+    #[test]
+    fn opencode_lookup_skips_v1_to_find_v2_later_on_path_or_in_desktop_folder() {
+        let d = tempfile::tempdir().unwrap();
+        let write_fake = |dir: &Path, name: &str, help_line: &str, exit_code: i32| {
+            std::fs::create_dir_all(dir).unwrap();
+            let file = if cfg!(windows) { format!("{name}.cmd") } else { name.to_string() };
+            let path = dir.join(file);
+            let script = if cfg!(windows) {
+                format!("@echo off\r\necho {help_line}\r\nexit /b {exit_code}\r\n")
+            } else {
+                format!("#!/bin/sh\nprintf '%s\\n' '{help_line}'\nexit {exit_code}\n")
+            };
+            std::fs::write(&path, script).unwrap();
+            #[cfg(unix)]
+            std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+            path
+        };
+
+        let v1_dir = d.path().join("v1");
+        let v2_dir = d.path().join("v2");
+        let broken_dir = d.path().join("broken");
+        let v1 = write_fake(&v1_dir, "opencode", "Usage: opencode run --format --title --auto", 0);
+        let v2 = write_fake(&v2_dir, "opencode", "Usage: opencode run --format --standalone --auto", 0);
+        let broken = write_fake(&broken_dir, "opencode", "node: command not found", 1);
+
+        let path = |dirs: &[&Path]| std::env::join_paths(dirs).ok();
+        let no_desktop = |_: &str| None;
+        let opencode = BackendConfig {
+            name: "OpenCode".into(),
+            kind: crate::BackendKind::AgentCli,
+            model: "opencode".into(),
+            base_url: None,
+            ssh_host: None,
+            enabled: true,
+        };
+        let none = BackendOptions::default();
+
+        // `is_opencode_name` matches bare OpenCode names only, never explicit paths or unrelated extensions.
+        assert!(is_opencode_name("opencode") && is_opencode_name("OPENCODE") && is_opencode_name("opencode.cmd") && is_opencode_name("opencode.exe"));
+        assert!(!is_opencode_name("opencode.bak"));
+        assert!(!is_opencode_name(&v1.display().to_string()));
+        let missing_explicit = d.path().join("missing").join(if cfg!(windows) { "opencode.exe" } else { "opencode" });
+        assert_eq!(
+            find_program_with_desktop(&missing_explicit.display().to_string(), path(&[&v2_dir]), Some(v2.clone()), OPENCODE_PROBE_TIMEOUT),
+            None,
+            "an explicit missing path must never fall back to the desktop CLI"
+        );
+        assert_eq!(
+            find_program_with_desktop(&v1.display().to_string(), path(&[&v2_dir]), Some(v2.clone()), OPENCODE_PROBE_TIMEOUT),
+            Some(v1.clone()),
+            "an explicit existing v1 path must not be replaced with v2"
+        );
+
+        // PATH has 1.x before 2.x: discovery and execution both pick 2.x.
+        assert_eq!(find_program_in("opencode", path(&[&v1_dir, &v2_dir])), Some(v2.clone()), "detection skips v1 for v2");
+        assert_eq!(
+            program_in_with_desktop(&opencode, &none, path(&[&v1_dir, &v2_dir]), no_desktop).unwrap(),
+            v2.display().to_string(),
+            "run skips v1 on PATH and returns full path to v2"
+        );
+        // Saved bare names ("opencode", "OPENCODE", and on Windows "opencode.cmd") skip v1 too.
+        let bare = BackendOptions { command: Some("opencode".into()), ..Default::default() };
+        assert_eq!(program_in_with_desktop(&opencode, &bare, path(&[&v1_dir, &v2_dir]), no_desktop).unwrap(), v2.display().to_string());
+        if cfg!(windows) {
+            let bare_cmd = BackendOptions { command: Some("opencode.cmd".into()), ..Default::default() };
+            assert_eq!(program_in_with_desktop(&opencode, &bare_cmd, path(&[&v1_dir, &v2_dir]), no_desktop).unwrap(), v2.display().to_string());
+        }
+
+        // A missing saved path with no sibling falls back through `usual_program` to v2 on PATH.
+        let gone_v1 = BackendOptions { command: Some(d.path().join("gone-ver").join("v1").join("opencode.exe").display().to_string()), ..Default::default() };
+        assert_eq!(program_in_with_desktop(&opencode, &gone_v1, path(&[&v1_dir, &v2_dir]), no_desktop).unwrap(), v2.display().to_string());
+
+        // PATH already has 2.x first: keep the bare command name.
+        assert_eq!(find_program_in("opencode", path(&[&v2_dir, &v1_dir])), Some(v2.clone()));
+        assert_eq!(program_in_with_desktop(&opencode, &none, path(&[&v2_dir, &v1_dir]), no_desktop).unwrap(), "opencode");
+
+        // Broken launcher before 2.x picks 2.x; without 2.x, search order is preserved so
+        // `[v1, broken]` keeps v1 (triggers 1.x refusal) and `[broken, v1]` keeps broken.
+        assert_eq!(find_program_in("opencode", path(&[&broken_dir, &v2_dir])), Some(v2.clone()));
+        assert_eq!(program_in_with_desktop(&opencode, &none, path(&[&broken_dir, &v2_dir]), no_desktop).unwrap(), v2.display().to_string());
+        assert_eq!(find_program_in("opencode", path(&[&v1_dir, &broken_dir])), Some(v1.clone()));
+        assert_eq!(program_in_with_desktop(&opencode, &none, path(&[&v1_dir, &broken_dir]), no_desktop).unwrap(), "opencode");
+        assert_eq!(find_program_in("opencode", path(&[&broken_dir, &v1_dir])), Some(broken.clone()));
+
+        // Only 1.x on PATH: do not fail with Claude's desktop-app error; keep v1 so the run's
+        // required_flags check gives the dedicated OpenCode 1.x refusal.
+        assert_eq!(find_program_in("opencode", path(&[&v1_dir])), Some(v1.clone()));
+        assert_eq!(program_in_with_desktop(&opencode, &none, path(&[&v1_dir]), no_desktop).unwrap(), "opencode");
+
+        // An explicitly chosen full path to 1.x stays untouched.
+        let explicit_v1 = BackendOptions { command: Some(v1.display().to_string()), ..Default::default() };
+        assert_eq!(program_in_with_desktop(&opencode, &explicit_v1, path(&[&v1_dir, &v2_dir]), no_desktop).unwrap(), v1.display().to_string());
+
+        // PATH has only 1.x, while the desktop app's off-PATH CLI is 2.x: pick the desktop 2.x CLI.
+        let desktop_dir = d.path().join("desktop");
+        let desktop_v2 = write_fake(&desktop_dir, "opencode-cli", "Usage: opencode run --format --standalone --auto", 0);
+        assert_eq!(find_program_with_desktop("opencode", path(&[&v1_dir]), Some(desktop_v2.clone()), OPENCODE_PROBE_TIMEOUT), Some(desktop_v2.clone()));
+        assert_eq!(usual_program_with_desktop("opencode", path(&[&v1_dir]), Some(desktop_v2.clone())).unwrap(), Some(desktop_v2.display().to_string()));
+
+        // PATH has 1.x and the desktop CLI is also 1.x: keep the first PATH entry so the dedicated
+        // 1.x refusal still fires rather than throwing a Claude desktop error.
+        let desktop_v1 = write_fake(&d.path().join("desktop-v1"), "opencode-cli", "Usage: opencode run --format --title --auto", 0);
+        assert_eq!(find_program_with_desktop("opencode", path(&[&v1_dir]), Some(desktop_v1.clone()), OPENCODE_PROBE_TIMEOUT), Some(v1.clone()));
+        assert_eq!(usual_program_with_desktop("opencode", path(&[&v1_dir]), Some(desktop_v1)).unwrap(), Some("opencode".to_string()));
+
+        // Deduplication: when the desktop path (or a duplicate PATH entry with different case on
+        // Windows) resolves to the same single file, no probe runs at all.
+        let single_dir = d.path().join("single-counted");
+        let single_log = d.path().join("single-runs.log");
+        let write_counted = |dir: &Path, log: &Path, help_line: &str, exit_code: i32| {
+            std::fs::create_dir_all(dir).unwrap();
+            let file = if cfg!(windows) { "opencode.cmd" } else { "opencode" };
+            let path = dir.join(file);
+            let script = if cfg!(windows) {
+                format!("@echo off\r\necho x>>\"{}\"\r\necho {help_line}\r\nexit /b {exit_code}\r\n", log.display())
+            } else {
+                format!("#!/bin/sh\necho x >> '{}'\nprintf '%s\\n' '{help_line}'\nexit {exit_code}\n", log.display())
+            };
+            std::fs::write(&path, script).unwrap();
+            #[cfg(unix)]
+            std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+            path
+        };
+        let single = write_counted(&single_dir, &single_log, "Usage: opencode run --format --title --auto", 0);
+        let alt_single = if cfg!(windows) { PathBuf::from(single.to_string_lossy().to_ascii_uppercase()) } else { single.clone() };
+        assert_eq!(find_program_with_desktop("opencode", path(&[&single_dir, &single_dir]), Some(alt_single), OPENCODE_PROBE_TIMEOUT), Some(single));
+        assert!(!single_log.exists(), "a single deduplicated candidate must not spawn a probe");
+
+        // Caching & invalidation: repeated multi-candidate lookups reuse cached results, while an
+        // in-place upgrade (changing size/mtime) invalidates the cache and picks the upgraded file.
+        let c1_dir = d.path().join("cached-1");
+        let c2_dir = d.path().join("cached-2");
+        let c1_log = d.path().join("c1-runs.log");
+        let c2_log = d.path().join("c2-runs.log");
+        let _c1 = write_counted(&c1_dir, &c1_log, "Usage: opencode run --format --title", 0);
+        let c2 = write_counted(&c2_dir, &c2_log, "Usage: opencode run --format --standalone", 0);
+        assert_eq!(find_program_in("opencode", path(&[&c1_dir, &c2_dir])), Some(c2.clone()));
+        assert_eq!(find_program_in("opencode", path(&[&c1_dir, &c2_dir])), Some(c2));
+        let c1_runs = std::fs::read_to_string(&c1_log).unwrap_or_default().lines().count();
+        let c2_runs = std::fs::read_to_string(&c2_log).unwrap_or_default().lines().count();
+        assert_eq!((c1_runs, c2_runs), (1, 1), "second lookup must hit cache instead of respawning probes");
+
+        // Upgrade c1 in place to 2.x (longer help text changes file size): cache invalidates.
+        let c1 = write_counted(&c1_dir, &c1_log, "Usage: opencode run --format --standalone --auto --extra", 0);
+        assert_eq!(find_program_in("opencode", path(&[&c1_dir, &c2_dir])), Some(c1));
+        assert_eq!(std::fs::read_to_string(&c1_log).unwrap_or_default().lines().count(), 2, "upgraded candidate is re-probed once");
+
+        // Inconclusive probes (`None`, such as a broken launcher) are never cached.
+        let inc_dir = d.path().join("inconclusive");
+        let inc_log = d.path().join("inc-runs.log");
+        let inc = write_counted(&inc_dir, &inc_log, "node: command not found", 1);
+        assert_eq!(find_program_in("opencode", path(&[&inc_dir, &v1_dir])), Some(inc.clone()));
+        assert_eq!(find_program_in("opencode", path(&[&inc_dir, &v1_dir])), Some(inc));
+        assert_eq!(std::fs::read_to_string(&inc_log).unwrap_or_default().lines().count(), 2, "inconclusive probes must not be cached");
+
+        // Extensioned bare OpenCode names (e.g. saved `opencode.cmd` on Windows) still expand
+        // across PATHEXT so a later `opencode.exe` or `opencode.bat` v2 installation is found.
+        if cfg!(windows) {
+            let cmd_v1_dir = d.path().join("ext-cmd-v1");
+            let bat_v2_dir = d.path().join("ext-bat-v2");
+            let exe_v2_dir = d.path().join("ext-exe-v2");
+            std::fs::create_dir_all(&cmd_v1_dir).unwrap();
+            std::fs::create_dir_all(&bat_v2_dir).unwrap();
+            std::fs::create_dir_all(&exe_v2_dir).unwrap();
+            let cmd_v1 = cmd_v1_dir.join("opencode.cmd");
+            let bat_v2 = bat_v2_dir.join("opencode.bat");
+            let exe_v2 = exe_v2_dir.join("opencode.exe");
+            std::fs::write(&cmd_v1, "@echo off\r\necho Usage: opencode run --format --title\r\nexit /b 0\r\n").unwrap();
+            std::fs::write(&bat_v2, "@echo off\r\necho Usage: opencode run --format --standalone\r\nexit /b 0\r\n").unwrap();
+            std::fs::write(&exe_v2, b"").unwrap();
+            let saved_cmd = BackendOptions { command: Some("opencode.cmd".into()), ..Default::default() };
+            assert_eq!(
+                program_in_with_desktop(&opencode, &saved_cmd, path(&[&cmd_v1_dir, &bat_v2_dir]), no_desktop).unwrap(),
+                bat_v2.display().to_string(),
+                "saved opencode.cmd expands PATHEXT to find v2 under another extension"
+            );
+            let collected = opencode_candidates("opencode.cmd", path(&[&cmd_v1_dir, &exe_v2_dir]), None);
+            assert_eq!(collected, vec![cmd_v1.clone(), exe_v2.clone()], "saved opencode.cmd collects later opencode.exe");
+            let picked = pick_opencode_candidate_with(collected, OPENCODE_PROBE_BUDGET, std::time::Instant::now, |p, _| Some(p == exe_v2));
+            assert_eq!(picked, Some(exe_v2), "saved opencode.cmd picks v2 opencode.exe");
+        }
+    }
+
+    /// #1111: multi-candidate OpenCode probing enforces a shared total budget across candidates
+    /// (passing only the remaining time to each probe) so discovery stays inside `detect_all`'s
+    /// 1.5 s window and falls back to the first candidate in search order when the budget runs out.
+    #[test]
+    fn opencode_candidate_probing_enforces_shared_total_budget() {
+        use std::cell::Cell;
+        let t0 = std::time::Instant::now();
+        let clock = Cell::new(t0);
+        let c1 = PathBuf::from("v1/opencode");
+        let c2 = PathBuf::from("v2-slow/opencode");
+        let c3 = PathBuf::from("v2-unreached/opencode");
+
+        // Budget 900 ms: c1 spends 800 ms (v1), c2 gets only 100 ms remaining and times out, c3
+        // is never probed, and selection falls back to c1 (search order).
+        let mut seen_timeouts = Vec::new();
+        let picked = pick_opencode_candidate_with(
+            vec![c1.clone(), c2.clone(), c3.clone()],
+            Duration::from_millis(900),
+            || clock.get(),
+            |cand, timeout| {
+                seen_timeouts.push((cand.to_path_buf(), timeout));
+                if cand == c1 {
+                    clock.set(clock.get() + Duration::from_millis(800));
+                    Some(false)
+                } else {
+                    clock.set(clock.get() + timeout);
+                    None
+                }
+            },
+        );
+        assert_eq!(picked, Some(c1.clone()), "exhausted budget falls back to first candidate");
+        assert_eq!(seen_timeouts, vec![(c1.clone(), Duration::from_millis(900)), (c2.clone(), Duration::from_millis(100))]);
+
+        // Within budget: c1 spends 400 ms (v1), c2 gets 500 ms remaining and confirms v2.
+        clock.set(t0);
+        let mut seen_within = Vec::new();
+        let picked = pick_opencode_candidate_with(
+            vec![c1.clone(), c2.clone()],
+            Duration::from_millis(900),
+            || clock.get(),
+            |cand, timeout| {
+                seen_within.push((cand.to_path_buf(), timeout));
+                if cand == c1 {
+                    clock.set(clock.get() + Duration::from_millis(400));
+                    Some(false)
+                } else {
+                    clock.set(clock.get() + Duration::from_millis(100));
+                    Some(true)
+                }
+            },
+        );
+        assert_eq!(picked, Some(c2.clone()), "v2 confirmed within shared budget wins");
+        assert_eq!(seen_within, vec![(c1, Duration::from_millis(900)), (c2, Duration::from_millis(500))]);
     }
 
     #[test]
@@ -3611,7 +4028,7 @@ echo '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
         reg.register(Arc::new(EchoAgent));
         assert_eq!(
             format!("{reg:?}"),
-            r#"["claude-code", "codex", "gemini-cli", "opencode", "antigravity", "hermes", "maki", "aider", "copilot", "grok", "dsh", "devin", "echo-agent"]"#
+            r#"["claude-code", "codex", "gemini-cli", "opencode", "antigravity", "hermes", "maki", "aider", "copilot", "grok", "dsh", "devin", "kimi-code", "echo-agent"]"#
         );
     }
 

@@ -9,10 +9,11 @@ use crate::state::{FeedItem, MakeDraft, Modal, PlanStatus, PlanStep, Screen, Use
 use crate::theme::{self, Tokens};
 use crate::{CraftApp, Done, chat, icons, prompt_box, widgets};
 use craft_anything_ai::AgentEvent;
-use craft_anything_ai::rebuild::activity::{Action, ActivityNow, LineKind};
+use craft_anything_ai::rebuild::activity::{Action, ActivityNow};
 use craft_anything_ai::rebuild::feed::{self, apply};
 use craft_anything_ai::rebuild::{self, AppKind, KindRegistry, KindWords, Note, RebuildRun, RunEvent, RunOptions, Started, Step, Stopped, TargetKind};
 use craft_anything_engine::inbox::{Answer, Inbox, Request, RequestKind};
+use craft_anything_engine::outputs::CargoEnv;
 use craft_anything_engine::workspace::{CheckResult, Status, TargetRef, Workspace, suggest_name};
 use egui::{Color32, RichText, Ui, Vec2};
 use std::path::{Path, PathBuf};
@@ -184,6 +185,11 @@ impl CraftApp {
     /// Start a run, or queue it when as many as Settings allows are already building.
     fn launch(&mut self, ws: Workspace, opts: RunOptions) -> Result<Started, craft_anything_engine::evidence::ToolError> {
         self.runs.set_limit(self.settings.build.parallel);
+        // Cleared even when the start fails, so an error card never shows an earlier run's use,
+        // but not for a second start of a project already building, which is turned down.
+        if !self.runs.is_running(&ws.root) && self.runs.position(&ws.root).is_none() {
+            self.last_run.remove(&ws.root);
+        }
         self.runs.start(&self.hub, ws, opts)
     }
 
@@ -209,6 +215,13 @@ impl CraftApp {
     /// Show a project: a building one's conversation comes from its run, any other's from what
     /// was saved. Other projects keep building meanwhile.
     pub fn open_workspace(&mut self, ws: Workspace) {
+        self.open_workspace_mode(ws, true);
+    }
+
+    /// Open a workspace, optionally remembering its folder in `settings.project_folders`.
+    /// Startup restoration passes `remember = false` so `last_project` never silently re-adds an
+    /// unlisted folder (#2340).
+    pub(crate) fn open_workspace_mode(&mut self, ws: Workspace, remember: bool) {
         let root = ws.root.clone();
         let same = self.workspace.as_ref().is_some_and(|w| w.root == ws.root);
         if !same {
@@ -230,10 +243,14 @@ impl CraftApp {
             self.load_asked(&ws);
         }
         self.workspace = Some(ws.clone());
-        if !self.projects.iter().any(|p| p.root == ws.root) {
+        if remember {
+            if !self.projects.iter().any(|p| p.root == ws.root) {
+                self.projects.insert(0, ws);
+            }
+            self.remember_project(&root);
+        } else if self.settings.lists_project(&root) && !self.projects.iter().any(|p| p.root == ws.root) {
             self.projects.insert(0, ws);
         }
-        self.remember_project(&root);
         self.refresh_side_panel();
         self.state.screen = Screen::Project;
         // A Send pressed before its picture checks finished, on a project they left: send now.
@@ -336,6 +353,7 @@ impl CraftApp {
                     clock.saved_again(root, true);
                     self.session_usage.tokens_incomplete |= *tokens_unknown;
                     self.session_usage.add_turn(*input_tokens, *output_tokens, *cost_usd, *cost_is_estimate);
+                    self.last_run.entry(root.clone()).or_default().add_turn(*input_tokens, *output_tokens, *tokens_unknown, *cost_usd, *cost_is_estimate);
                 }
                 // A run's first event is its first step: the clock starts there.
                 _ if !clock.working() => clock.saved_again(root, true),
@@ -772,13 +790,13 @@ pub struct Facts {
 }
 
 impl Facts {
-    pub fn read(ws: &Workspace, godot: Option<&Path>) -> Facts {
+    pub fn read(ws: &Workspace, godot: Option<&Path>, cargo: &CargoEnv) -> Facts {
         let dir = ws.app_dir();
         let a = ws.assets();
         Facts {
             root: ws.root.clone(),
             site: rebuild::site_dir(&dir).is_some(),
-            program: rebuild::launch(&dir, godot).is_some(),
+            program: craft_anything_engine::outputs::launch_in(&dir, godot, cargo).is_some(),
             references: ws.references().len(),
             // Summed from +0.0: an empty f64 `sum()` is -0.0, shown as "$-0.00".
             assets: (a.len(), a.iter().fold(0.0, |s, x| s + x.cost_usd)),
@@ -811,9 +829,10 @@ impl CraftApp {
             return;
         }
         let godot = self.game_engines.as_ref().and_then(|i| i.best(craft_anything_engines::game::Builder::Godot)).map(|i| i.program.clone());
+        let cargo = self.cargo_env.clone();
         r.wanted = false;
         r.at = Some(std::time::Instant::now());
-        r.job = Some(self.jobs.spawn("Read the project", false, move |_| Ok(Done::Facts(Facts::read(&ws, godot.as_deref())))));
+        r.job = Some(self.jobs.spawn("Read the project", false, move |_| Ok(Done::Facts(Facts::read(&ws, godot.as_deref(), &cargo)))));
     }
 
     pub(crate) fn facts_read(&mut self, job: u64, facts: Option<Facts>) {
@@ -1324,10 +1343,10 @@ fn now_words(app: &CraftApp, now: &ActivityNow) -> Option<String> {
 /// whole log to open. Inside the feed's scroll area, so it can never push the prompt box away.
 /// `status_row`: the row above already says what it's on.
 fn run_details(app: &mut CraftApp, ui: &mut Ui, status_row: bool) {
-    const LINE: f32 = 18.0;
-    const MOST_SHOWN: f32 = 260.0;
     let t = Tokens::get(ui.ctx());
     let running = app.running();
+    let Some(ws) = app.workspace.as_ref() else { return };
+    let (root, name) = (ws.root.clone(), ws.manifest.name.clone());
     let Some(run) = app.open_run() else { return };
     let count = run.activity_len();
     if count == 0 {
@@ -1342,38 +1361,12 @@ fn run_details(app: &mut CraftApp, ui: &mut Ui, status_row: bool) {
     };
     let log = run.activity_log();
     let mut open_log = false;
+    let mut pop_out = false;
     egui::CollapsingHeader::new(RichText::new(title).color(t.text_dim).size(theme::CAPTION)).id_salt("run_details").icon(widgets::disclosure_icon).show(
         ui,
         |ui| {
-            widgets::card(&t).inner_margin(theme::pad::TIGHT).show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                // The rows are exactly this tall, or the scroll area miscounts them.
-                ui.spacing_mut().item_spacing.y = 0.0;
-                ui.spacing_mut().interact_size.y = LINE;
-                egui::ScrollArea::vertical().id_salt("run_details_lines").max_height(MOST_SHOWN).auto_shrink([false, true]).stick_to_bottom(true).show_rows(
-                    ui,
-                    LINE,
-                    count,
-                    |ui, range| {
-                        for line in run.activity_lines(range) {
-                            let (colour, words) = match line.kind {
-                                LineKind::Failed | LineKind::Problem => (t.warning, t.text),
-                                LineKind::Done => (t.success, t.text_dim),
-                                LineKind::Stage => (t.accent_ink, t.text),
-                                LineKind::Started | LineKind::Said => (t.text_dim, t.text),
-                                LineKind::Note | LineKind::Output => (t.text_faint, t.text_dim),
-                            };
-                            ui.horizontal(|ui| {
-                                ui.set_height(LINE);
-                                ui.label(RichText::new(crate::usage::duration_words(line.at)).font(theme::mono(theme::CAPTION)).color(t.text_faint));
-                                ui.label(RichText::new(line.kind.tag()).font(theme::mono(theme::CAPTION)).color(colour));
-                                ui.add(egui::Label::new(RichText::new(&line.text).font(theme::mono(theme::CAPTION)).color(words)).truncate())
-                                    .on_hover_text(&line.text);
-                            });
-                        }
-                    },
-                );
-            });
+            // Each project's box keeps its own height and wrapping.
+            pop_out = crate::activity_box::inline(ui, run, egui::Id::new(("run_details", &root)));
             ui.horizontal(|ui| {
                 ui.label(RichText::new(tr("A command's output shows here when it finishes.")).color(t.text_faint).size(theme::CAPTION));
                 open_log = widgets::open_log_button(ui, &log);
@@ -1385,6 +1378,9 @@ fn run_details(app: &mut CraftApp, ui: &mut Ui, status_row: bool) {
     }
     if open_log {
         app.open_log(&log);
+    }
+    if pop_out {
+        crate::activity_box::pop_out(app, root, name);
     }
 }
 
@@ -1469,6 +1465,9 @@ fn draw_items(
                                     ui.ctx().copy_text(cmd.to_string());
                                 }
                             });
+                            if let Some(words) = app.last_run.get(&ws.root).and_then(crate::usage::RunTally::words) {
+                                ui.add(egui::Label::new(RichText::new(words).color(t.text_dim).size(theme::SMALL)).wrap());
+                            }
                         }
                     });
             }
@@ -1830,6 +1829,20 @@ fn composer(app: &mut CraftApp, ui: &mut Ui, width: f32, t: &Tokens, last_waitin
                 trf("Waiting for other builds to finish: {n} in line.", &[("n", &n.to_string())])
             };
             ui.label(RichText::new(line).color(t.text_dim).size(theme::SMALL));
+        });
+        ui.add_space(theme::space::XS);
+    }
+    // Ghidra's analysis goes on after Pause, so nothing is lost: this is the way to stop it (#948).
+    if let Some(root) = app.workspace.as_ref().map(|w| w.root.clone()).filter(|r| craft_anything_engine::tools::deep::analysing_for(r)) {
+        ui.horizontal_wrapped(|ui| {
+            icons::show(ui, "activity", theme::icon::MD, t.accent_ink);
+            ui.label(RichText::new(tr("Ghidra is analysing the original. Pausing doesn't stop it, so nothing is lost.")).color(t.text_dim).size(theme::SMALL));
+            if widgets::link(ui, "Stop the analysis")
+                .on_hover_text(tr("Ghidra stays off for this project until your next request, which starts it again from the beginning. Until then, decompiling uses the built-in engine."))
+                .clicked()
+            {
+                app.act("engines_analysis_stop", serde_json::json!({"project": root}), tr("Stop the analysis"));
+            }
         });
         ui.add_space(theme::space::XS);
     }

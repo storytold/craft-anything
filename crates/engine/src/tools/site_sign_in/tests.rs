@@ -497,7 +497,8 @@ fn opening_a_site_with_a_saved_sign_in_starts_from_a_copy() {
     for p in [json!({"url": "https://example.com/", "signed_in": false, "timeout_secs": 30}), json!({"url": "https://www.example.com/", "timeout_secs": 30})] {
         let (args, listing, _) = open(p.clone());
         assert!(!listing.contains("Cookies"), "{p}: {listing}");
-        assert!(!args.contains("--password-store"), "the private path keeps its flags: {args}");
+        assert!(!args.contains("--profile-directory") && !args.contains("--restore-last-session"), "the private path keeps its flags: {args}");
+        assert_eq!(args.contains("--password-store=basic"), cfg!(target_os = "linux"), "no keyring prompt outside a desktop session (#2264): {args}");
     }
 }
 

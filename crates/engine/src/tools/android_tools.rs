@@ -1136,7 +1136,10 @@ fn android_resources_read(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput
     let (slice, mut cov) = page(&filtered, p.offset, p.limit);
     let present: BTreeSet<&str> = table.entries.iter().map(|e| e.locale.as_str()).collect();
     let locales: Vec<String> = present.iter().map(|l| named(l)).collect();
-    let not_found: Vec<String> = wanted.difference(&present).map(|l| named(l)).collect();
+    let missing: Vec<String> = wanted.difference(&present).map(|l| named(l)).collect();
+    // A locale missing from a partial table may be in the part that was skipped, so it is
+    // unconfirmed rather than absent.
+    let (not_found, unconfirmed): (Vec<String>, Vec<String>) = if table.truncated { (Vec::new(), missing) } else { (missing, Vec::new()) };
     let mut capped = Vec::new();
     let strings = if p.with_strings {
         let mut m = serde_json::Map::new();
@@ -1159,6 +1162,15 @@ fn android_resources_read(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput
         lims.push(Limitation::new(
             "strings_capped",
             format!("Only the first {MAX_LOCALE_STRINGS} strings of {} are listed; the rest are in entries (type_name string).", capped.join(", ")),
+        ));
+    }
+    if !unconfirmed.is_empty() {
+        lims.push(Limitation::new(
+            "locales_unconfirmed",
+            format!(
+                "No resources for {} were found in the part of the resource table that could be read; they may be in the part that could not.",
+                unconfirmed.join(", ")
+            ),
         ));
     }
     if !not_found.is_empty() {
@@ -1203,7 +1215,7 @@ fn android_resources_read(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput
         json!({"path": p.path, "with_strings": p.with_strings, "locale": p.locale, "only_locales": p.only_locales, "type_name": p.type_name, "xml_files": p.xml_files, "offset": p.offset, "limit": p.limit}),
     )
     .result(json!({
-            "packages": table.packages, "global_strings": table.global_strings, "locales": locales, "locales_not_found": not_found,
+            "packages": table.packages, "global_strings": table.global_strings, "locales": locales, "locales_not_found": not_found, "locales_unconfirmed": unconfirmed,
             "entries_total": table.entries.len(), "entries_matching": filtered.len(), "entries": slice,
             "strings": strings, "xml": xml,
         }))
@@ -1610,6 +1622,23 @@ mod tests {
         let arsc = craft_anything_testkit::temp_file("resources.arsc", &fx::resources_arsc());
         let a = call(&e, "android_resources_read", json!({"path": arsc, "type_name": "style"}));
         assert_eq!(a["result"]["entries"][0]["bag"][0]["value"], "#ff336699");
+    }
+
+    #[test]
+    fn a_locale_missing_from_a_partial_table_is_not_reported_absent() {
+        let e = Engine::new(crate::testing::session());
+        // The French type chunk declares a configuration larger than its header holds, so the
+        // reader skips it and marks the table partial.
+        let mut cfg = [0u8; 64];
+        cfg[0] = 68;
+        cfg[8..10].copy_from_slice(b"fr");
+        let arsc = craft_anything_testkit::temp_file("resources.arsc", &fx::resources_arsc_with_config(&cfg));
+        let r = call(&e, "android_resources_read", json!({"path": arsc, "locale": "fr"}));
+        let codes: Vec<&str> = r["limitations"].as_array().unwrap().iter().filter_map(|l| l["code"].as_str()).collect();
+        assert!(codes.contains(&"locales_unconfirmed"), "{codes:?}");
+        assert!(!codes.contains(&"locales_not_found"), "{codes:?}");
+        assert_eq!(r["result"]["locales_not_found"], json!([]));
+        assert_eq!(r["result"]["locales_unconfirmed"], json!(["fr"]));
     }
 
     #[test]

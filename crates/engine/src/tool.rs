@@ -319,6 +319,222 @@ pub fn parse_params<T: DeserializeOwned>(v: Value) -> Result<T, ToolError> {
     })
 }
 
+/// Tool params with a number or a boolean the caller wrote as text (`"limit": "200"`, a model's
+/// usual slip) read as what the tool's schema says they are. Only where the schema types a value
+/// as an integer, a number or a boolean is its text rewritten: a string parameter keeps its text,
+/// even when that text is `"200"`. Nested objects follow `properties`, arrays follow `items`, and
+/// nothing the schema doesn't describe is touched (#1825). A nested type is usually a `$ref` into
+/// the schema's own `$defs` or `definitions`, which is read through by the reference's own path.
+pub fn params_as_schema(schema: &Value, params: Value) -> Value {
+    let mut walk = Walk::new();
+    typed_as_schema(schema, schema, &params, MAX_PARAM_DEPTH, &mut walk)
+}
+
+/// Params are trees the schema bounds, but a self-referencing schema would not end: past this
+/// depth a value is taken as written.
+const MAX_PARAM_DEPTH: usize = 64;
+/// A schema can repeat a branch through references without repeating it in the file. This bounds
+/// the whole walk, so nested alternatives cannot expand exponentially under the session lock.
+const MAX_SCHEMA_STEPS: usize = 10_000;
+
+/// The work one call may spend walking a schema. When it runs out, the walk stops converting.
+struct Walk {
+    left: usize,
+}
+
+impl Walk {
+    fn new() -> Self {
+        Walk { left: MAX_SCHEMA_STEPS }
+    }
+
+    fn step(&mut self) -> bool {
+        if self.left == 0 {
+            return false;
+        }
+        self.left -= 1;
+        true
+    }
+}
+
+fn typed_as_schema(schema: &Value, root: &Value, params: &Value, depth: usize, walk: &mut Walk) -> Value {
+    if depth == 0 || !walk.step() {
+        return params.clone();
+    }
+    if let Some(next) = resolve_ref(schema, root) {
+        return typed_as_schema(next, root, params, depth - 1, walk);
+    }
+    typed_from_schemas(&[schema], root, params, depth, walk)
+}
+
+/// A value described by every matching schema: the object's properties, the array's items, or all
+/// the kinds a leaf allows. Collecting every alternative before converting each leaf keeps the
+/// original text when any alternative allows it, whatever order the alternatives are in.
+fn typed_from_schemas(schemas: &[&Value], root: &Value, params: &Value, depth: usize, walk: &mut Walk) -> Value {
+    if depth == 0 || schemas.is_empty() || !walk.step() {
+        return params.clone();
+    }
+    match params {
+        Value::String(text) => {
+            if schemas.iter().any(|schema| allows_string(schema, root, 0, walk)) {
+                return params.clone();
+            }
+            written_as_schema(schemas, root, text, params, walk)
+        }
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .map(|(key, value)| {
+                    let mut child = Vec::new();
+                    for schema in schemas {
+                        property_schemas(root, schema, key, &mut child, 0, walk);
+                    }
+                    (key.clone(), typed_from_schemas(&child, root, value, depth - 1, walk))
+                })
+                .collect(),
+        ),
+        Value::Array(items) => {
+            let mut child = Vec::new();
+            for schema in schemas {
+                item_schemas(root, schema, &mut child, 0, walk);
+            }
+            Value::Array(items.iter().map(|item| typed_from_schemas(&child, root, item, depth - 1, walk)).collect())
+        }
+        _ => params.clone(),
+    }
+}
+
+/// The schemas that describe `key` in `schema`: its own `properties`, then object alternatives in
+/// `anyOf`/`oneOf`, following local references. This is how an `Option<Struct>` field's schema
+/// (`anyOf: [$ref, null]`) keeps the numbers inside the struct.
+fn property_schemas<'a>(root: &'a Value, schema: &'a Value, key: &str, out: &mut Vec<&'a Value>, depth: usize, walk: &mut Walk) {
+    if depth >= MAX_PARAM_DEPTH || !walk.step() {
+        return;
+    }
+    let schema = resolve_ref(schema, root).unwrap_or(schema);
+    if let Some(sub) = schema.get("properties").and_then(Value::as_object).and_then(|p| p.get(key)) {
+        out.push(sub);
+    }
+    for alternatives in ["anyOf", "oneOf"] {
+        if let Some(branches) = schema.get(alternatives).and_then(Value::as_array) {
+            for branch in branches {
+                property_schemas(root, branch, key, out, depth + 1, walk);
+            }
+        }
+    }
+}
+
+/// The item schemas of `schema`: its own `items`, then array alternatives in `anyOf`/`oneOf`,
+/// following local references.
+fn item_schemas<'a>(root: &'a Value, schema: &'a Value, out: &mut Vec<&'a Value>, depth: usize, walk: &mut Walk) {
+    if depth >= MAX_PARAM_DEPTH || !walk.step() {
+        return;
+    }
+    let schema = resolve_ref(schema, root).unwrap_or(schema);
+    if let Some(items) = schema.get("items") {
+        out.push(items);
+    }
+    for alternatives in ["anyOf", "oneOf"] {
+        if let Some(branches) = schema.get(alternatives).and_then(Value::as_array) {
+            for branch in branches {
+                item_schemas(root, branch, out, depth + 1, walk);
+            }
+        }
+    }
+}
+
+/// A `$ref` into the schema itself (`#/$defs/Name`, `#/definitions/Name`), read at the path the
+/// reference names, so a schema that keeps both dictionaries has each reference obey its own.
+fn resolve_ref<'a>(schema: &'a Value, root: &'a Value) -> Option<&'a Value> {
+    let reference = schema.get("$ref")?.as_str()?;
+    let pointer = reference.strip_prefix('#')?;
+    if !pointer.starts_with('/') {
+        return None;
+    }
+    root.pointer(pointer)
+}
+
+/// A string the caller wrote. Where the schema allows text, text stays text: a number field that
+/// also allows a string keeps `"200"` as written. Where it doesn't, the schema's own kinds decide:
+/// an integer, number or boolean the text spells exactly is read as one. Text that reads as a
+/// float for an integer field, or is too large for the type, stays as written, so the normal
+/// refusal still describes what the caller sent.
+fn written_as_schema(schemas: &[&Value], root: &Value, text: &str, params: &Value, walk: &mut Walk) -> Value {
+    let mut kinds = Vec::new();
+    for schema in schemas {
+        schema_kinds(schema, root, 0, &mut kinds, walk);
+    }
+    if kinds.contains(&"string") {
+        return params.clone();
+    }
+    let numeric = kinds.iter().any(|kind| matches!(*kind, "integer" | "number"));
+    if numeric
+        && text.trim() == text
+        && !text.is_empty()
+        && let Ok(Value::Number(number)) = serde_json::from_str::<Value>(text)
+    {
+        // A number field takes a float; an integer field takes only an integer that fits the type.
+        let fits = kinds.contains(&"number") || number.is_i64() || number.is_u64();
+        if fits {
+            return Value::Number(number);
+        }
+    }
+    if kinds.contains(&"boolean") {
+        match text {
+            "true" => return Value::Bool(true),
+            "false" => return Value::Bool(false),
+            _ => {}
+        }
+    }
+    params.clone()
+}
+
+/// Every type a schema allows, whether written as one word or a list, through local references
+/// and `anyOf`/`oneOf` alternatives.
+fn schema_kinds<'a>(schema: &'a Value, root: &'a Value, depth: usize, out: &mut Vec<&'a str>, walk: &mut Walk) {
+    if depth >= MAX_PARAM_DEPTH || !walk.step() {
+        return;
+    }
+    let schema = resolve_ref(schema, root).unwrap_or(schema);
+    match schema.get("type") {
+        Some(Value::String(kind)) => out.push(kind.as_str()),
+        Some(Value::Array(kinds)) => out.extend(kinds.iter().filter_map(Value::as_str)),
+        _ => {}
+    }
+    for alternatives in ["anyOf", "oneOf"] {
+        if let Some(branches) = schema.get(alternatives).and_then(Value::as_array) {
+            for branch in branches {
+                schema_kinds(branch, root, depth + 1, out, walk);
+            }
+        }
+    }
+}
+
+/// Whether a schema allows text anywhere, through local references and alternatives. Text a
+/// schema allows is never rewritten, even when it also allows a number. A schema with no `type`
+/// and no alternatives accepts any value, text included.
+fn allows_string(schema: &Value, root: &Value, depth: usize, walk: &mut Walk) -> bool {
+    if depth >= MAX_PARAM_DEPTH || !walk.step() {
+        return true;
+    }
+    let schema = resolve_ref(schema, root).unwrap_or(schema);
+    let typed = schema.get("type");
+    let own = match typed {
+        Some(Value::String(kind)) => kind == "string",
+        Some(Value::Array(kinds)) => kinds.iter().any(|kind| kind.as_str() == Some("string")),
+        _ => false,
+    };
+    if own {
+        return true;
+    }
+    let alternatives = ["anyOf", "oneOf"];
+    if alternatives.iter().any(|key| {
+        schema.get(*key).and_then(Value::as_array).is_some_and(|branches| branches.iter().any(|branch| allows_string(branch, root, depth + 1, walk)))
+    }) {
+        return true;
+    }
+    // No `type`: the schema permits any JSON value, including text.
+    typed.is_none()
+}
+
 /// A JSON Pointer to the rejected value, without guessing when Serde cannot locate it.
 fn parameter_pointer(path: &serde_path_to_error::Path) -> Option<String> {
     const LIMIT: usize = 1024;
@@ -366,6 +582,147 @@ mod parameter_tests {
         }
         let valid = parse_params::<Question>(json!({"question": "Where?", "probes": ["inspect"]})).unwrap();
         assert_eq!(valid, Question { question: "Where?".into(), probes: vec!["inspect".into()] });
+    }
+
+    /// #1825: params follow the schema: a number or a boolean written as text is read as one,
+    /// a string stays text even when it reads as a number, and undescribed values are untouched.
+    #[test]
+    fn a_number_the_schema_types_is_read_as_one_and_text_stays_text() {
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "offset": {"type": "integer"},
+                "ratio": {"type": ["number", "null"]},
+                "deep": {"type": "boolean"},
+                "note": {"type": "string"},
+                "pages": {"type": "array", "items": {"type": "integer"}}
+            }
+        });
+        let typed = params_as_schema(&schema, json!({"offset": "592", "ratio": "1.5", "deep": "true", "note": "200", "pages": ["1", 2], "other": "3"}));
+        assert_eq!(typed, json!({"offset": 592, "ratio": 1.5, "deep": true, "note": "200", "pages": [1, 2], "other": "3"}));
+        // Text that isn't the value the schema wants stays as written, so the error still says
+        // what is wrong where.
+        let typed = params_as_schema(&schema, json!({"deep": "yes", "note": "1"}));
+        assert_eq!(typed, json!({"deep": "yes", "note": "1"}));
+        assert!(parse_params::<Question>(params_as_schema(&json!({"type": "object"}), json!({"question": "Where?"}))).is_ok());
+
+        // A nested type is a `$ref` into the schema's own `$defs`.
+        let nested = json!({
+            "type": "object",
+            "properties": {"range": {"$ref": "#/$defs/ByteRange"}},
+            "$defs": {"ByteRange": {"type": "object", "properties": {"offset": {"type": "integer"}, "length": {"type": "integer"}}}}
+        });
+        let typed = params_as_schema(&nested, json!({"range": {"offset": "592", "length": "1024"}}));
+        assert_eq!(typed, json!({"range": {"offset": 592, "length": 1024}}));
+
+        // A schema that keeps both dictionaries is read by each reference's own path: the one into
+        // `definitions` wants text, the one into `$defs` a number.
+        let both = json!({
+            "type": "object",
+            "properties": {"a": {"$ref": "#/definitions/Value"}, "b": {"$ref": "#/$defs/Value"}},
+            "definitions": {"Value": {"type": "string"}},
+            "$defs": {"Value": {"type": "integer"}}
+        });
+        let typed = params_as_schema(&both, json!({"a": "200", "b": "200"}));
+        assert_eq!(typed, json!({"a": "200", "b": 200}));
+
+        // A list of types is read as a set: the order never decides, and a value the schema also
+        // allows as text keeps its text.
+        let either = json!({"type": "object", "properties": {"maybe": {"type": ["null", "integer"]}, "or_text": {"type": ["integer", "string"]}}});
+        let typed = params_as_schema(&either, json!({"maybe": "200", "or_text": "200"}));
+        assert_eq!(typed, json!({"maybe": 200, "or_text": "200"}));
+    }
+
+    #[test]
+    fn integer_fields_take_only_text_that_is_an_integer_that_fits() {
+        let schema = json!({"type": "object", "properties": {
+            "offset": {"type": "integer"},
+            "ratio": {"type": "number"},
+            "either": {"type": ["integer", "number"]}
+        }});
+        let typed = params_as_schema(
+            &schema,
+            json!({
+                "offset": "-12",
+                "ratio": "1.5",
+                "either": "1e3",
+            }),
+        );
+        assert_eq!(typed, json!({"offset": -12, "ratio": 1.5, "either": 1000.0}));
+        // A float, exponent form or a value too large for the field stays as written, so the
+        // refusal names the text the caller actually sent.
+        let typed = params_as_schema(
+            &schema,
+            json!({
+                "offset": "18446744073709551616",
+                "ratio": "1e3",
+                "either": "1e3",
+            }),
+        );
+        assert_eq!(typed, json!({"offset": "18446744073709551616", "ratio": 1000.0, "either": 1000.0}));
+    }
+
+    #[test]
+    fn optional_object_and_nested_alternatives_keep_their_numbers() {
+        // The real `Option<ByteRange>` schema from `firmware_regions_list`.
+        let registry = crate::Registry::with_all_tools();
+        let spec = registry.get("firmware_regions_list").unwrap();
+        let schema = registry.input_schema(spec);
+        let typed = params_as_schema(&schema, json!({"path": "image.bin", "range": {"offset": "0", "length": "4096"}, "limit": "5"}));
+        assert_eq!(typed, json!({"path": "image.bin", "range": {"offset": 0, "length": 4096}, "limit": 5}));
+
+        // An object inside `oneOf`, an array inside `anyOf`, and a string field in an alternative
+        // all keep their own behaviour.
+        let schema = json!({"type": "object", "properties": {
+            "range": {"oneOf": [{"type": "object", "properties": {"offset": {"type": "integer"}}}, {"type": "null"}]},
+            "windows": {"anyOf": [{"type": "array", "items": {"type": "object", "properties": {"start": {"type": "integer"}}}}, {"type": "null"}]},
+            "label": {"anyOf": [{"type": "object", "properties": {"text": {"type": "string"}}}, {"type": "null"}]}
+        }});
+        let typed = params_as_schema(&schema, json!({"range": {"offset": "0"}, "windows": [{"start": "8"}], "label": {"text": "200"}}));
+        assert_eq!(typed, json!({"range": {"offset": 0}, "windows": [{"start": 8}], "label": {"text": "200"}}));
+    }
+
+    #[test]
+    fn alternatives_are_collected_before_each_leaf_is_converted() {
+        // The same field in two object alternatives: a string in either one keeps the text,
+        // whatever order the alternatives are in.
+        for branches in [
+            json!([
+                {"type": "object", "properties": {"payload": {"type": "object", "properties": {"value": {"type": "integer"}}}}},
+                {"type": "object", "properties": {"payload": {"type": "object", "properties": {"value": {"type": "string"}}}}}
+            ]),
+            json!([
+                {"type": "object", "properties": {"payload": {"type": "object", "properties": {"value": {"type": "string"}}}}},
+                {"type": "object", "properties": {"payload": {"type": "object", "properties": {"value": {"type": "integer"}}}}}
+            ]),
+        ] {
+            let schema = json!({"anyOf": branches});
+            assert_eq!(params_as_schema(&schema, json!({"payload": {"value": "200"}})), json!({"payload": {"value": "200"}}));
+        }
+
+        // A string alternative does not stop an object value from having its own fields read.
+        let schema = json!({"anyOf": [
+            {"type": "string"},
+            {"type": "object", "properties": {"count": {"type": "integer"}}}
+        ]});
+        assert_eq!(params_as_schema(&schema, json!({"count": "5"})), json!({"count": 5}));
+
+        // An alternative without a type accepts any value, text included.
+        let schema = json!({"anyOf": [{"type": "integer"}, {}]});
+        assert_eq!(params_as_schema(&schema, json!("200")), json!("200"));
+    }
+
+    #[test]
+    fn repeated_schema_branches_stop_at_the_work_limit() {
+        let mut defs = serde_json::Map::new();
+        defs.insert("N0".into(), json!({"type": "integer"}));
+        for level in 1..=30 {
+            let previous = format!("#/$defs/N{}", level - 1);
+            defs.insert(format!("N{level}"), json!({"anyOf": [{"$ref": previous.clone()}, {"$ref": previous}]}));
+        }
+        let schema = json!({"type": "object", "properties": {"n": {"$ref": "#/$defs/N30"}}, "$defs": defs});
+        // Without the walk bound this takes about 2^30 steps. With it, the text is left as sent.
+        assert_eq!(params_as_schema(&schema, json!({"n": "200"})), json!({"n": "200"}));
     }
 
     #[test]

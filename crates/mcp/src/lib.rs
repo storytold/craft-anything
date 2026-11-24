@@ -386,7 +386,8 @@ impl Server {
 
     /// In restricted mode, `args` for `name` with saved sign-ins kept out: network access
     /// (`--allow-web`) is not access to the person's accounts, so `web_site_open` always starts a
-    /// fresh browser here (`signed_in` becomes false) and asking for a saved sign-in is refused.
+    /// fresh browser here (`signed_in` becomes false) and asking for a saved sign-in is refused, as
+    /// is opening the page in the person's own browser (`cdp_endpoint`), which holds their sign-ins.
     fn restricted_args(&self, name: &str, mut args: Value) -> Result<Value, ToolError> {
         let registry = self.engine.registry();
         if !self.opts.restricted || registry.canonical(name).unwrap_or(name) != SAVED_SIGN_IN_READER {
@@ -399,6 +400,14 @@ impl Server {
             )
             .with_remediation("Open the site with signed_in: false, or start the MCP server without --restricted to use saved sign-ins.")
             .with_details(json!({"reason": "restricted_mode", "tool": SAVED_SIGN_IN_READER, "param": "signed_in"})));
+        }
+        if args.get("cdp_endpoint").is_some_and(|v| !v.is_null()) {
+            return Err(ToolError::new(
+                craft_anything_evidence::ErrorCode::FeatureMissing,
+                format!("{SAVED_SIGN_IN_READER} can't open pages in your own browser in restricted mode."),
+            )
+            .with_remediation("Leave out cdp_endpoint, or start the MCP server without --restricted to use your own browser.")
+            .with_details(json!({"reason": "restricted_mode", "tool": SAVED_SIGN_IN_READER, "param": "cdp_endpoint"})));
         }
         if let Value::Object(m) = &mut args {
             m.insert("signed_in".into(), json!(false));

@@ -915,7 +915,7 @@ fn apple_archive_decode(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, 
     }
     let inp = static_input::load(ctx, p.path.as_deref(), 256 << 20)?;
     let v = plist::parse(&inp.bytes).map_err(|e| format_err(e, "a property list"))?;
-    let a = keyed_archive::from_plist(&v).map_err(|e| format_err(e, "a keyed archive"))?;
+    let a = keyed_archive::from_owned_plist(v).map_err(|e| format_err(e, "a keyed archive"))?;
     let (root_name, root) = a.root(p.root.as_deref()).ok_or_else(|| {
         ToolError::invalid(format!(
             "no $top entry {:?}; entries are {}",

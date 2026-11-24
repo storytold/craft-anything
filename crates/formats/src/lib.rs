@@ -63,6 +63,7 @@ pub mod unity_serialized;
 pub mod unity_texture;
 pub mod unreal_iostore;
 pub mod unreal_pak;
+pub mod unreal_sound;
 pub mod unreal_texture;
 pub mod verify;
 pub mod wasm;

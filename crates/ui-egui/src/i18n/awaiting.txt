@@ -2,6 +2,13 @@
 # One per line, written as in a catalog's first column (\n for a line break).
 # `cargo xtask i18n-coverage` lets these be missing from the catalogs, and fails once a string
 # here is translated in every catalog or no longer shown: the translation PR takes it out.
+Open in its own window
+Copy these lines
+Wrap long lines
+Drag to change the height
+{name}: build activity
+{name} is turned off. Turn it on or choose another AI.
+Choose another AI
 Requests per minute
 Set request rate
 Set to 0 for no limit.
@@ -24,6 +31,27 @@ Your sign-in was saved, but opening the site again to check it didn't work.
 The sign-in window was open too long, so it was closed. What it had saved is kept.
 Stopped waiting for the sign-in window. What it had saved is kept.
 Stopped the sign-in.
+From your request:
+A sign-in is saved for this site, and studies of it use it.
+The window opens with the saved sign-in; what you leave when you close it replaces it. To use another account, sign out on the site there first.
+Forget the saved sign-in
+Studies of this site start signed out again.
+Forgot the saved sign-in. Studies of this site start signed out again.
+No sign-in was saved, so there was nothing to forget.
+Couldn't forget the sign-in.
 Wait until the new project is made.
 This project's usage record couldn't be read, so what its builds spent isn't known.
 Arguments in square brackets must be a list of quoted words, like ["--port", "8080"]. Or leave out the brackets and separate them with spaces.
+Search project files
+Test
+Starts it and reads its tools, without adding it.
+Test a plugin
+It answered, with no tools.
+It answered with {n} tools: {names}.
+The plugin's test failed.
+This run used {tokens}, {cost}.
+This run used {tokens}. Its cost isn't known: not every turn reported its own.
+This run's builder didn't report how many tokens it used.
+Take a sound out of an Unreal game
+Hold to the floor
+Add with key

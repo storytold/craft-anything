@@ -155,10 +155,21 @@ pub fn probe_local(label: &str, base: &str) -> Option<Detected> {
 
 /// Agent CLIs on PATH.
 pub fn agent_clis() -> Vec<Detected> {
+    detect_agent_clis(|_| true, None)
+}
+
+/// Detect agent CLIs matching `include`; an optional `probe_timeout` bounds multi-candidate
+/// OpenCode version probes during discovery so one slow probe fits inside [`TOTAL`].
+fn detect_agent_clis(include: impl Fn(&str) -> bool, probe_timeout: Option<Duration>) -> Vec<Detected> {
     crate::cli_agents::KNOWN
         .iter()
+        .filter(|(id, _, _)| include(id))
         .filter_map(|(id, prog, display)| {
-            crate::cli_agents::find_program(prog).map(|p| Detected {
+            let found = match probe_timeout {
+                Some(limit) => crate::cli_agents::find_program_within(prog, limit),
+                None => crate::cli_agents::find_program(prog),
+            };
+            found.map(|p| Detected {
                 suggestion: cfg(display, BackendKind::AgentCli, id),
                 reason: format!("Found {display} at {}", p.display()),
                 needs_key: false,
@@ -351,7 +362,21 @@ pub fn detect_all() -> Vec<Detected> {
         if std::thread::Builder::new()
             .name("ai-detect".into())
             .spawn(move || {
-                let _ = tx.send((5, agent_clis()));
+                // Keep pure filesystem CLI lookups separate from OpenCode's version probe (#1111)
+                // so a slow OpenCode probe can never starve the rest of the CLI list.
+                let _ = tx.send((5, detect_agent_clis(|id| id != "opencode", None)));
+            })
+            .is_ok()
+        {
+            jobs += 1;
+        }
+    }
+    {
+        let tx = tx.clone();
+        if std::thread::Builder::new()
+            .name("ai-detect-opencode".into())
+            .spawn(move || {
+                let _ = tx.send((6, detect_agent_clis(|id| id == "opencode", Some(Duration::from_millis(900)))));
             })
             .is_ok()
         {

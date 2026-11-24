@@ -159,11 +159,24 @@ pub struct BuildSettings {
     pub picture_good_enough: Option<f64>,
     /// Projects that may build at the same time; more wait their turn (at least 1).
     pub parallel: usize,
+    /// Hold every page of a website build to an accessibility floor of its own: controls without
+    /// a name, pictures with no `alt` attribute and a missing page language fail a claim even
+    /// when the original has them too. Off by default: then only what the build makes worse
+    /// than the original is flagged.
+    pub a11y_floor: bool,
 }
 
 impl Default for BuildSettings {
     fn default() -> Self {
-        BuildSettings { good_enough: 90.0, max_rounds: 6, web_widths: vec![1440, 768, 390], max_pages: 4, picture_good_enough: None, parallel: 2 }
+        BuildSettings {
+            good_enough: 90.0,
+            max_rounds: 6,
+            web_widths: vec![1440, 768, 390],
+            max_pages: 4,
+            picture_good_enough: None,
+            parallel: 2,
+            a11y_floor: false,
+        }
     }
 }
 
@@ -360,10 +373,18 @@ impl Settings {
         v
     }
 
+    /// Whether `root` is already listed by the projects folder or one of `project_folders`
+    /// (either listed directly, or sitting directly inside one of them), using normalized paths.
+    pub fn lists_project(&self, root: &Path) -> bool {
+        let root = crate::workspace::normalized(root);
+        let parent = root.parent();
+        self.project_locations().into_iter().map(|l| crate::workspace::normalized(&l)).any(|l| l == root || parent == Some(l.as_path()))
+    }
+
     /// Keep a project started in a picked folder in the list. Returns whether the list changed:
     /// false when one of the locations already shows it (it is one, or sits directly in one).
     pub fn remember_project(&mut self, root: &Path) -> bool {
-        let shown = self.project_locations().iter().any(|l| l == root || root.parent() == Some(l.as_path()));
+        let shown = self.lists_project(root);
         if !shown {
             self.project_folders.push(root.to_path_buf());
         }
@@ -1176,13 +1197,21 @@ default = "Claude Code"
 
     #[test]
     fn projects_are_listed_from_more_folders_and_a_picked_one_is_remembered() {
-        let mut s = Settings { projects_dir: Some(PathBuf::from("/p")), ..Settings::default() };
-        assert_eq!(s.project_locations(), [PathBuf::from("/p")]);
+        let mut s = Settings { projects_dir: Some(PathBuf::from("/p/.")), ..Settings::default() };
+        assert_eq!(s.project_locations(), [PathBuf::from("/p/.")]);
         assert!(!s.remember_project(Path::new("/p/notes")), "already listed: it's in the projects folder");
         assert!(s.remember_project(Path::new("/work/mine")));
         assert!(!s.remember_project(Path::new("/work/mine")), "once");
-        s.project_folders.push(PathBuf::from("/p"));
-        assert_eq!(s.project_locations(), [PathBuf::from("/p"), PathBuf::from("/work/mine")], "each place once");
+        assert!(!s.remember_project(Path::new("/work/./mine/")), "normalized duplicate is not added again");
+        assert!(s.lists_project(Path::new("/p/notes")));
+        assert!(s.lists_project(Path::new("/work/mine")));
+        assert!(s.lists_project(Path::new("/work/./mine/")));
+        assert!(!s.lists_project(Path::new("/other/app")));
+        s.project_folders.push(PathBuf::from("/extra/./folder/"));
+        assert!(s.lists_project(Path::new("/extra/folder/demo")), "normalized stored project_folder matches child");
+        s.project_folders.pop();
+        s.project_folders.push(PathBuf::from("/p/."));
+        assert_eq!(s.project_locations(), [PathBuf::from("/p/."), PathBuf::from("/work/mine")], "each place once");
         // Saved and read back, with the answer about a picked folder's files.
         s.existing_files = Some(crate::workspace::ExistingFiles::StartFrom);
         let back = read_settings(&toml::to_string(&s).unwrap()).unwrap();

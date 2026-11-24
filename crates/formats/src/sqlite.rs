@@ -267,18 +267,12 @@ struct BtreePage<'a> {
     header: usize,
     kind: u8,
     cells: usize,
-    pointers: usize,
-    pointers_end: usize,
+    btree: craft_sqlite::BtreePageHeader,
 }
 
 impl BtreePage<'_> {
     fn cell_offset(&self, index: usize) -> Option<usize> {
-        if index >= self.cells {
-            return None;
-        }
-        let pointer = self.pointers.checked_add(index.checked_mul(2)?)?;
-        let offset = usize::from(read_u16_be(self.data, pointer)?);
-        (offset >= self.pointers_end && offset < self.data.len()).then_some(offset)
+        craft_sqlite::btree_cell_offset(self.data, &self.btree, index).ok()
     }
 }
 
@@ -323,17 +317,17 @@ impl<'a> SqliteDb<'a> {
             return Err(FormatError::Truncated("the 100-byte header does not fit".into()));
         }
         let raw_ps = read_u16_be(data, 16).unwrap_or(0);
-        let page_size: u32 = if raw_ps == 1 { 65_536 } else { u32::from(raw_ps) };
-        if page_size < 512 || !page_size.is_power_of_two() {
-            return Err(FormatError::Malformed(format!("page size {page_size} is not a power of two in 512..=65536")));
-        }
+        let page_size = craft_sqlite::page_size_from_raw(raw_ps).map_err(|err| match err {
+            craft_sqlite::Error::InvalidPageSize(size) => FormatError::Malformed(format!("page size {size} is not a power of two in 512..=65536")),
+            _ => FormatError::Malformed("invalid SQLite page size".into()),
+        })?;
         let write_version = *data.get(18).unwrap_or(&0);
         let read_version = *data.get(19).unwrap_or(&0);
         let reserved_space = *data.get(20).unwrap_or(&0);
-        let usable = (page_size as usize).saturating_sub(reserved_space as usize);
-        if usable < 480 {
-            return Err(FormatError::Malformed(format!("usable page size {usable} is too small")));
-        }
+        let usable = craft_sqlite::usable_page_size(page_size, reserved_space).map_err(|err| match err {
+            craft_sqlite::Error::UsablePageSizeTooSmall(usable) => FormatError::Malformed(format!("usable page size {usable} is too small")),
+            _ => FormatError::Malformed("invalid usable page size".into()),
+        })? as usize;
         let text_encoding = match read_u32_be(data, 56).unwrap_or(0) {
             1 => "utf-8",
             2 => "utf-16le",
@@ -396,18 +390,8 @@ impl<'a> SqliteDb<'a> {
         let base = self.page_base(pageno)?;
         let end = base.checked_add(self.usable)?.min(self.data.len());
         let data = self.data.get(base..end)?;
-        let header: usize = if pageno == 1 { 100 } else { 0 };
-        let kind = *data.get(header)?;
-        let header_size = match kind {
-            0x05 | 0x02 => 12,
-            0x0d | 0x0a => 8,
-            _ => return None,
-        };
-        let cells = usize::from(read_u16_be(data, header.checked_add(3)?)?);
-        let pointers = header.checked_add(header_size)?;
-        let pointers_end = pointers.checked_add(cells.checked_mul(2)?)?;
-        data.get(header..pointers_end)?;
-        Some(BtreePage { data, header, kind, cells, pointers, pointers_end })
+        let btree = craft_sqlite::parse_btree_page_header(data, pageno == 1).ok()?;
+        Some(BtreePage { data, header: btree.header_offset, kind: btree.kind, cells: btree.cells, btree })
     }
 
     /// Build the whole-database overview, including the schema.
@@ -780,17 +764,8 @@ impl<'a> SqliteDb<'a> {
     /// Assemble a cell payload: the local part plus any overflow-page chain, capped.
     fn assemble_payload(&self, page: &[u8], local_off: usize, payload_len: usize, is_table_leaf: bool, notes: &mut Vec<String>) -> Option<Vec<u8>> {
         let usable = self.usable;
-        // Maximum bytes stored on the page before spilling to overflow.
-        let x = if is_table_leaf { usable.saturating_sub(35) } else { ((usable.saturating_sub(12)) * 64 / 255).saturating_sub(23) };
-        let local = if payload_len <= x {
-            payload_len
-        } else {
-            let m = ((usable.saturating_sub(12)) * 32 / 255).saturating_sub(23);
-            let surplus = payload_len.saturating_sub(m);
-            let denom = usable.saturating_sub(4).max(1);
-            let k = m.saturating_add(surplus % denom);
-            if k <= x { k } else { m }
-        };
+        let kind = if is_table_leaf { craft_sqlite::PayloadKind::TableLeaf } else { craft_sqlite::PayloadKind::Index };
+        let local = craft_sqlite::local_payload_len(u32::try_from(usable).ok()?, payload_len as u64, kind)? as usize;
         let mut out = Vec::new();
         let first = page.get(local_off..local_off.checked_add(local)?)?;
         out.extend_from_slice(first);
@@ -830,32 +805,18 @@ impl<'a> SqliteDb<'a> {
 
 /// Decode a SQLite record (the "payload") into column values, cutting text at `text_cap` bytes.
 fn parse_record(payload: &[u8], text_encoding: &str, text_cap: usize) -> Vec<CellValue> {
+    let Ok((header, body)) = craft_sqlite::split_record(payload) else {
+        return Vec::new();
+    };
     let mut out = Vec::new();
-    let Some((hdr_len, n)) = varint(payload, 0) else { return out };
-    let hdr_len = hdr_len as usize;
-    if hdr_len > payload.len() || hdr_len < n {
-        return out;
-    }
-    // First read the serial types from the header region.
-    let mut types = Vec::new();
-    let mut p = n;
-    while p < hdr_len {
-        let Some((st, used)) = varint(payload, p) else { break };
-        types.push(st);
-        p = match p.checked_add(used) {
-            Some(v) => v,
-            None => break,
-        };
-        if types.len() >= MAX_COLUMNS {
-            break;
-        }
-    }
-    // Then read each value from the body region.
-    let mut body = hdr_len;
-    for st in types {
-        let (val, size) = decode_serial(st, payload, body, text_encoding, text_cap);
+    let mut header_offset = 0;
+    let mut body_offset = 0;
+    while out.len() < MAX_COLUMNS {
+        let Some((serial, used)) = varint(header, header_offset) else { break };
+        let (val, size) = decode_serial(serial, body, body_offset, text_encoding, text_cap);
         out.push(val);
-        body = body.saturating_add(size);
+        header_offset += used;
+        body_offset = body_offset.saturating_add(size);
     }
     out
 }
@@ -910,11 +871,7 @@ fn decode_serial(serial: u64, data: &[u8], off: usize, text_encoding: &str, text
 
 fn int_be(data: &[u8], off: usize, len: usize) -> CellValue {
     let Some(slice) = data.get(off..off.saturating_add(len)) else { return CellValue::Null };
-    let mut v: i64 = if slice.first().is_some_and(|b| b & 0x80 != 0) { -1 } else { 0 };
-    for &b in slice {
-        v = (v << 8) | i64::from(b);
-    }
-    CellValue::Int(v)
+    craft_sqlite::decode_signed_be_int(slice).map(CellValue::Int).unwrap_or(CellValue::Null)
 }
 
 fn text_value(slice: &[u8]) -> CellValue {
@@ -1953,6 +1910,17 @@ fn starts_column_constraint(token: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_serial_type_cannot_continue_into_the_record_body() {
+        let complete = [3, 1, 9, 9];
+        assert_eq!(parse_record(&complete, "utf-8", MAX_TEXT), [CellValue::Int(9), CellValue::Int(1)]);
+
+        // The first body's integer would complete the unfinished second serial
+        // type as 9 if the parser read past the declared header.
+        let truncated = [3, 1, 0x80, 9];
+        assert_eq!(parse_record(&truncated, "utf-8", MAX_TEXT), [CellValue::Int(9)]);
+    }
 
     /// A TEXT value cut inside a character drops the incomplete character, not a U+FFFD that
     /// wasn't in the database.

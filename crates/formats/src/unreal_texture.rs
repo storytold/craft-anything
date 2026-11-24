@@ -87,13 +87,13 @@ pub struct Texture {
 }
 
 /// A bounds-checked little-endian cursor.
-struct Cur<'a> {
-    data: &'a [u8],
-    pos: usize,
+pub(crate) struct Cur<'a> {
+    pub(crate) data: &'a [u8],
+    pub(crate) pos: usize,
 }
 
 impl<'a> Cur<'a> {
-    fn take(&mut self, n: usize, what: &str) -> Result<&'a [u8], FormatError> {
+    pub(crate) fn take(&mut self, n: usize, what: &str) -> Result<&'a [u8], FormatError> {
         let end = self.pos.checked_add(n).filter(|e| *e <= self.data.len()).ok_or_else(|| FormatError::Truncated(what.to_string()))?;
         let s = self.data.get(self.pos..end).ok_or_else(|| FormatError::Truncated(what.to_string()))?;
         self.pos = end;
@@ -107,7 +107,7 @@ impl<'a> Cur<'a> {
     fn u8(&mut self, what: &str) -> Result<u8, FormatError> {
         Ok(self.arr::<1>(what)?[0])
     }
-    fn i32(&mut self, what: &str) -> Result<i32, FormatError> {
+    pub(crate) fn i32(&mut self, what: &str) -> Result<i32, FormatError> {
         Ok(i32::from_le_bytes(self.arr(what)?))
     }
     fn u32(&mut self, what: &str) -> Result<u32, FormatError> {
@@ -141,7 +141,7 @@ impl<'a> Cur<'a> {
 }
 
 /// A name-table entry by index (the name's number is ignored).
-fn name<'n>(names: &'n [String], c: &mut Cur, what: &str) -> Result<&'n str, FormatError> {
+pub(crate) fn name<'n>(names: &'n [String], c: &mut Cur, what: &str) -> Result<&'n str, FormatError> {
     let i = c.i32(what)?;
     c.i32(what)?;
     usize::try_from(i).ok().and_then(|i| names.get(i)).map(String::as_str).ok_or_else(|| FormatError::Malformed(format!("{what} names entry {i}")))
@@ -212,7 +212,7 @@ pub fn package(uasset: &[u8]) -> Result<Package, FormatError> {
 }
 
 /// Skip the tagged properties up to `None`.
-fn skip_properties(c: &mut Cur, names: &[String]) -> Result<(), FormatError> {
+pub(crate) fn skip_properties(c: &mut Cur, names: &[String]) -> Result<(), FormatError> {
     for _ in 0..10_000 {
         let property = name(names, c, "property name")?;
         if property == "None" {

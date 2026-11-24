@@ -27,7 +27,7 @@ serde_json = { workspace = true }
 log = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-craft-update = { git = "https://github.com/storytold/craft-libs", rev = "6ac2a6a34ae83fc0f0bfb25a569ba6388b72266a" }
+craft-update = { workspace = true }
 
 # Native open/save dialogs, always shown from a worker thread (never blocks a frame).
 rfd = { workspace = true }

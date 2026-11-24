@@ -15,6 +15,10 @@
 # the others in this order, so "Builder's choice" takes any project whose dependencies name no
 # stack here: the builder keeps to what's there.
 #
+# `toolchains` names the toolchains.toml entries its build can be checked with, the first whose
+# files are there (Java's Maven, then Gradle), so a project moved to another language is checked
+# in the new one while the old manifest is still there.
+#
 # `site` marks a stack whose build is a website, so a project built with it and with nothing to
 # recreate is one, whatever its request says.
 #
@@ -23,17 +27,19 @@
 #
 [[stack]]
 name = "Builder's choice"
-found_by = ["package.json", "Cargo.toml", "go.mod", "pom.xml", "build.gradle", "build.gradle.kts", "*.sln", "*.csproj", "Gemfile", "composer.json", "CMakeLists.txt", "Makefile"]
+found_by = ["package.json", "Cargo.toml", "Gemfile", "composer.json", "CMakeLists.txt", "Makefile"]
 steps = "Use what their request names; otherwise choose the stack yourself: the one that best fits the request and the original. If the request names none and the capture shows what the original is built with (the script and stylesheet addresses in capture.json and page.html, for example /_next/ for Next.js or /_nuxt/ for Nuxt), use the same. For a website, create the project in app/ with a \"build\" script in package.json, then run `npm install` and `npm run build` from app/ until it succeeds: the output must be static files in app/dist, app/out or app/build (index.html at its top and each other page at its own path) that work when served as static files."
 
 [[stack]]
 name = "Phaser"
+toolchains = ["Node.js"]
 asked_by = [" in phaser ", " with phaser ", " using phaser ", " use phaser "]
 uses = ["phaser"]
 steps = "Use Phaser for the game. Create its browser project in app/ with Phaser in package.json and a build script that produces a playable static site."
 
 [[stack]]
 name = "Bevy"
+toolchains = ["Rust"]
 program = "cargo"
 program_from = "Install Rust from https://rustup.rs"
 asked_by = [" in bevy ", " with bevy ", " using bevy ", " use bevy "]
@@ -42,12 +48,14 @@ steps = "Use Bevy for the game. Put Cargo.toml and src/main.rs directly in app/,
 
 [[stack]]
 name = "Electron"
+toolchains = ["Node.js"]
 asked_by = [" electron "]
 uses = ["electron"]
 steps = "Use Electron, with TypeScript or JavaScript (a bundler such as Vite is fine). Create the project in app/: package.json with electron as a devDependency, \"main\" set to the main-process file and a \"build\" script that compiles or bundles everything and exits without opening a window (for plain JavaScript, `node --check` on the main file is enough). Keep contextIsolation on and nodeIntegration off, and give the page what it needs through a preload script and IPC. For --screenshot, set backgroundThrottling to false, wait for the page to finish loading and about two seconds rather than counting requestAnimationFrame frames (a window that opens behind others may get none), then save win.webContents.capturePage(). Craft Anything starts the app with the Electron that `npm install` puts in node_modules, with app/ as its argument, so run `npm install` and `npm run build` from app/ until both succeed."
 
 [[stack]]
 name = "Next.js + TypeScript"
+toolchains = ["Node.js"]
 site = true
 asked_by = [" nextjs ", " next js ", " use next ", " using next ", " in next "]
 uses = ["next"]
@@ -55,11 +63,40 @@ steps = "Use Next.js (App Router) + React + TypeScript, exported as a static sit
 
 [[stack]]
 name = "Python"
+toolchains = ["Python"]
 asked_by = [" in python", " with python"]
 found_by = ["pyproject.toml", "requirements.txt", "setup.py"]
 
+# " in go " alone would also match "sign in, go to…", and "python to go" "use Python to go
+# through…": a request for Go says "it", "rewrite" or "written" with it, or is a port ("from
+# Python to Go", "port this to Go").
+[[stack]]
+name = "Go"
+toolchains = ["Go"]
+found_by = ["go.mod"]
+asked_by = [" in golang ", " with golang ", " using golang ", " in go lang ", " it in go ", " this in go ", " rewrite in go ", " written in go ", " port it to go ", " port this to go ", " to golang ", " from rust to go ", " from python to go ", " from java to go ", " from javascript to go ", " from typescript to go ", " from node to go ", " from csharp to go ", " from dotnet to go "]
+steps = "Use Go: put go.mod directly in app/ (not in a folder inside it), and run `go build ./...` from app/ until it succeeds."
+
+# "C#" reads "csharp" and ".NET" "dotnet" (`words`), so neither is taken for C or for "net
+# revenue".
+[[stack]]
+name = "C# (.NET)"
+toolchains = [".NET"]
+found_by = ["*.sln", "*.csproj"]
+asked_by = [" csharp ", " c sharp ", " dotnet ", " net core "]
+steps = "Use C# on .NET: put the .csproj (or the .sln) directly in app/ (not in a folder inside it), and run `dotnet build` from app/ until it succeeds."
+
+# The trailing space keeps " in javascript" out.
+[[stack]]
+name = "Java"
+toolchains = ["Maven", "Gradle"]
+found_by = ["pom.xml", "build.gradle", "build.gradle.kts"]
+asked_by = [" in java ", " with java ", " using java ", " port it to java ", " port this to java ", " from rust to java ", " from python to java ", " from go to java ", " from golang to java ", " from javascript to java ", " from typescript to java ", " from node to java ", " from csharp to java ", " from dotnet to java "]
+steps = "Use Java with Maven or Gradle: put pom.xml (or build.gradle / build.gradle.kts) directly in app/ (not in a folder inside it), and build from app/ (`mvn package`, or `gradle assemble`) until it succeeds."
+
 [[stack]]
 name = "React + TypeScript (Vite)"
+toolchains = ["Node.js"]
 site = true
 asked_by = [" in typescript", " in react", " with react", " in javascript", " vite "]
 uses = ["vite"]
@@ -75,6 +112,7 @@ steps = "Use plain HTML, CSS and a little JavaScript only if the page needs it: 
 
 [[stack]]
 name = "Rust (console)"
+toolchains = ["Rust"]
 program = "cargo"
 program_from = "Install Rust from https://rustup.rs"
 uses = []
@@ -82,6 +120,7 @@ steps = "Use Rust for a console program: create a cargo project in app/ itself (
 
 [[stack]]
 name = "Rust + macroquad"
+toolchains = ["Rust"]
 program = "cargo"
 program_from = "Install Rust from https://rustup.rs"
 engine = "rust"
@@ -90,6 +129,7 @@ steps = "Use Rust with macroquad (a small game library). Create a cargo project 
 
 [[stack]]
 name = "Rust + egui (eframe)"
+toolchains = ["Rust"]
 program = "cargo"
 program_from = "Install Rust from https://rustup.rs"
 uses = ["eframe", "egui"]

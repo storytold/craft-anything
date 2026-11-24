@@ -415,16 +415,21 @@ fn choose_target(app: &mut CraftApp, ui: &mut Ui) {
         }
     }
     let m = &app.state.make;
-    let url = (website && !m.url.trim().is_empty() && url_problem(&m.url).is_none()).then(|| normalize_url(&m.url));
+    // Nothing typed or picked: Start studies the address in the request (`resolve_target`), so
+    // that one can be signed in to as well.
+    let from_request = m.url.trim().is_empty() && m.target == TargetRef::None;
+    let url = if from_request { find_url(&m.request) } else { website.then(|| normalize_url(&m.url)) };
+    let url = url.filter(|u| url_problem(u).is_none());
     // A window already open stays in view (with its way out) whatever is picked meanwhile.
     if url.is_some() || app.signing_in.is_some() {
-        sign_in(app, ui, url.as_deref());
+        sign_in(app, ui, url.as_deref(), from_request);
     }
 }
 
 /// A site that shows more to someone signed in: the person signs in to it in a browser window
-/// of its own, and studies of the site then see what they see (`web_site_sign_in`).
-fn sign_in(app: &mut CraftApp, ui: &mut Ui, url: Option<&str>) {
+/// of its own, and studies of the site then see what they see (`web_site_sign_in`). One saved
+/// already is said, with a way to forget it (`web_site_sign_out`).
+fn sign_in(app: &mut CraftApp, ui: &mut Ui, url: Option<&str>, from_request: bool) {
     let t = Tokens::get(ui.ctx());
     ui.add_space(theme::space::SM);
     ui.horizontal_wrapped(|ui| {
@@ -435,13 +440,32 @@ fn sign_in(app: &mut CraftApp, ui: &mut Ui, url: Option<&str>) {
                 app.jobs.cancel(job);
             }
         } else if let Some(url) = url {
-            ui.label(RichText::new(tr("Does the site show more once you're signed in?")).size(theme::SMALL).color(t.text_dim));
-            let hint = tr("A browser window opens: sign in there yourself, then close it. Craft Anything never sees your password. The sign-in is kept on this computer and used when this site is studied.");
+            // The address isn't in view up here: name the site it's for.
+            if from_request {
+                let (from, site) = (tr("From your request:"), site_name(&serde_json::json!({ "url": url })));
+                ui.label(RichText::new(format!("{from} {site}")).size(theme::SMALL).color(t.text));
+            }
+            let saved = app.sign_in_saved(url);
+            let question = tr(if saved { "A sign-in is saved for this site, and studies of it use it." } else { "Does the site show more once you're signed in?" });
+            ui.label(RichText::new(question).size(theme::SMALL).color(t.text_dim));
+            let hint = tr(if saved {
+                "The window opens with the saved sign-in; what you leave when you close it replaces it. To use another account, sign out on the site there first."
+            } else {
+                "A browser window opens: sign in there yourself, then close it. Craft Anything never sees your password. The sign-in is kept on this computer and used when this site is studied."
+            });
             let free = app.creating.is_none();
+            let busy = tr("Wait until the new project is made.");
             let button = ui.add(widgets::Button::new(widgets::ButtonKind::Secondary, "Sign in to this site").enabled(free));
-            let button = if free { button.on_hover_text(hint) } else { button.on_disabled_hover_text(tr("Wait until the new project is made.")) };
+            let button = if free { button.on_hover_text(hint) } else { button.on_disabled_hover_text(busy.as_str()) };
             if button.clicked() && free {
                 app.sign_in_to_site(url);
+            }
+            if saved {
+                let forget = ui.add(widgets::Button::new(widgets::ButtonKind::Secondary, "Forget the saved sign-in").enabled(free));
+                let forget = if free { forget.on_hover_text(tr("Studies of this site start signed out again.")) } else { forget.on_disabled_hover_text(busy.as_str()) };
+                if forget.clicked() && free {
+                    app.forget_site_sign_in(url);
+                }
             }
         }
     });

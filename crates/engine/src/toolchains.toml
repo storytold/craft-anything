@@ -5,12 +5,14 @@
 [[toolchain]]
 name = "Rust"
 found_by = ["Cargo.toml"]
+sources = ["src/*.rs"]
 build = ["cargo", "build", "--quiet"]
 test = ["cargo", "test", "--quiet"]
 
 [[toolchain]]
 name = "Node.js"
 found_by = ["package.json"]
+sources = ["*.js", "*.ts", "src/*.js", "src/*.ts", "src/*.jsx", "src/*.tsx"]
 build = ["npm", "run", "build", "--if-present"]
 test = ["npm", "test"]
 test_script = "test"
@@ -20,6 +22,7 @@ windows_program = "npm.cmd"
 [[toolchain]]
 name = "Python"
 found_by = ["pyproject.toml", "requirements.txt", "setup.py"]
+sources = ["*.py"]
 standalone_entrypoints = true
 python_console_script = true
 build = ["python3", "-m", "compileall", "-q", "-f", "-x", '[\\/](\.?venv|node_modules|\.git)[\\/]', "."]
@@ -37,6 +40,7 @@ launch = [
 [[toolchain]]
 name = "Go"
 found_by = ["go.mod"]
+sources = ["*.go"]
 build = ["go", "build", "./..."]
 test = ["go", "test", "./..."]
 launch = [
@@ -47,6 +51,7 @@ launch = [
 [[toolchain]]
 name = ".NET"
 found_by = ["*.sln", "*.csproj"]
+sources = ["*.cs"]
 build = ["dotnet", "build", "--nologo", "-v", "q"]
 test = ["dotnet", "test", "--nologo", "-v", "q"]
 launch = [{ file = "*.csproj", command = ["dotnet", "run", "--no-build", "--project", "{file}", "--"] }]
@@ -54,6 +59,8 @@ launch = [{ file = "*.csproj", command = ["dotnet", "run", "--no-build", "--proj
 [[toolchain]]
 name = "Maven"
 found_by = ["pom.xml"]
+# Only classes directly in src/main/java: a package folder below it isn't read.
+sources = ["src/main/java/*.java"]
 # `package` rather than `compile`, so Play starts the jar of this build and not an older one.
 build = ["mvn", "-q", "-B", "package", "-DskipTests"]
 test = ["mvn", "-q", "-B", "test"]
@@ -63,6 +70,7 @@ launch = [{ file = "target/*.jar", command = ["java", "-jar", "{file}"], runnabl
 [[toolchain]]
 name = "Gradle"
 found_by = ["build.gradle", "build.gradle.kts"]
+sources = ["src/main/java/*.java", "src/main/kotlin/*.kt"]
 build = ["gradle", "-q", "assemble"]
 test = ["gradle", "-q", "test"]
 local_programs = ["gradlew", "gradlew.bat"]
