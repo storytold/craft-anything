@@ -14,7 +14,7 @@ fn sq_names_the_equatable_protocol() {
     // `swift-demangle` also prints `(extension in PodcastsFoundation):`, which this demangler leaves out.
     assert_eq!(
         dm("_$sSo14NSUserDefaultsC18PodcastsFoundationE14queryPublishery7Combine03AnyF0Vyxs5NeverOGxycSQRzlF"),
-        "__C.NSUserDefaults.queryPublisher<A where A: Swift.Equatable>(() -> A) -> Combine.AnyPublisher<A, Swift.Never>"
+        "(extension in PodcastsFoundation):__C.NSUserDefaults.queryPublisher<A where A: Swift.Equatable>(() -> A) -> Combine.AnyPublisher<A, Swift.Never>"
     );
 }
 

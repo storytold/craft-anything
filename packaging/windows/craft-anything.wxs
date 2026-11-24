@@ -100,6 +100,8 @@
 <?if $(var.HasCli) = 1 ?>
       <Component Id="CraftAnythingCli">
         <File Id="CraftAnythingCliExe" Source="$(var.BinDir)\craft-anything-cli.exe" KeyPath="yes" />
+        <!-- Win+R "craft-anything-cli" and process-search by App Paths. -->
+        <RegistryValue Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\App Paths\craft-anything-cli.exe" Value="[#CraftAnythingCliExe]" Type="string" />
       </Component>
 <?endif?>
     </ComponentGroup>

@@ -104,25 +104,37 @@ fn parse_pattern(s: &str) -> Result<Pat, ToolError> {
     Ok(out)
 }
 
-/// Start offsets of every (overlapping) match of `pat` in `data`, up to `cap`. `None` when the
-/// cap stopped the scan. Anchors on the first concrete byte so the inner loop is a byte search.
+/// Start offsets of every (overlapping) match of `pat` in `data`, up to `cap`. The flag is true
+/// when the cap or cancellation stopped the scan. Anchors on the first concrete byte.
 fn find_all(data: &[u8], pat: &Pat, cap: usize, cancelled: &dyn Fn() -> bool) -> (Vec<usize>, bool) {
+    const CHECK_WORK: usize = 8 << 20;
     let mut hits = Vec::new();
     let Some((anchor, Some(first))) = pat.iter().enumerate().find(|(_, b)| b.is_some()).map(|(i, b)| (i, *b)) else {
         return (hits, false);
     };
     let mut i = anchor;
-    let mut scanned_since_check = 0usize;
-    while let Some(p) = data.get(i..).and_then(|h| h.iter().position(|&b| b == first)) {
-        scanned_since_check += p + 1;
-        if scanned_since_check > (8 << 20) {
-            scanned_since_check = 0;
+    let mut work_until_check = 0usize;
+    while i < data.len() {
+        if work_until_check == 0 {
             if cancelled() {
                 return (hits, true);
             }
+            work_until_check = CHECK_WORK;
         }
+        // Bound anchor scans too: position() may otherwise traverse the rest
+        // of the file without finding a byte and reaching a cancellation check.
+        let end = i + (data.len() - i).min(work_until_check);
+        let Some(p) = data[i..end].iter().position(|&b| b == first) else {
+            work_until_check -= end - i;
+            i = end;
+            continue;
+        };
+        work_until_check -= p + 1;
         let at = i + p;
         let start = at - anchor;
+        // Each candidate costs up to pat.len() comparisons. Counting only
+        // anchor positions delays cancellation for long, repeated near matches.
+        work_until_check = work_until_check.saturating_sub(pat.len());
         let ok = data.get(start..start + pat.len()).is_some_and(|w| w.iter().zip(pat).all(|(b, m)| m.is_none_or(|m| m == *b)));
         if ok {
             if hits.len() >= cap {
@@ -269,6 +281,53 @@ mod tests {
     use crate::Engine;
     use craft_anything_testkit as tk;
     use serde_json::json;
+    use std::cell::Cell;
+
+    #[test]
+    fn cancellation_is_checked_when_no_anchor_matches() {
+        let data = vec![0; 16 << 20];
+        for stop_at in [1, 2] {
+            let checks = Cell::new(0);
+            let (hits, stopped) = find_all(&data, &vec![Some(1)], 100, &|| {
+                checks.set(checks.get() + 1);
+                checks.get() >= stop_at
+            });
+            assert!(stopped, "a cancelled search scanned the whole input without an anchor");
+            assert!(hits.is_empty());
+            assert_eq!(checks.get(), stop_at);
+        }
+    }
+
+    #[test]
+    fn cancellation_counts_near_match_comparisons() {
+        let data = vec![0; 32 << 10];
+        let mut pattern = vec![Some(0); 1024];
+        pattern[1023] = Some(1);
+        let checks = Cell::new(0);
+        let (hits, stopped) = find_all(&data, &pattern, 100, &|| {
+            checks.set(checks.get() + 1);
+            checks.get() >= 2
+        });
+        assert!(stopped, "long near matches completed without a cancellation check");
+        assert!(hits.is_empty());
+        assert_eq!(checks.get(), 2);
+    }
+
+    #[test]
+    fn scan_boundaries_preserve_wildcards_and_overlaps() {
+        let boundary = 8 << 20;
+        let mut data = vec![0; boundary + 8];
+        data[boundary - 1..boundary + 2].fill(0xaa);
+        let (hits, stopped) = find_all(&data, &parse_pattern("?? aa aa ??").unwrap(), 100, &|| false);
+        assert_eq!(hits, vec![boundary - 2, boundary - 1]);
+        assert!(!stopped);
+
+        data.fill(0);
+        data[boundary + 1..boundary + 3].fill(0xaa);
+        let (hits, stopped) = find_all(&data, &parse_pattern("?? aa aa ??").unwrap(), 100, &|| false);
+        assert_eq!(hits, vec![boundary]);
+        assert!(!stopped);
+    }
 
     #[test]
     fn pattern_parsing() {

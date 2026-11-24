@@ -179,7 +179,14 @@ impl Project {
     pub fn load_unknowns(&self) -> Result<Vec<Unknown>, ToolError> {
         let mut out = Vec::new();
         let dir = self.root.join("unknowns");
-        let Ok(entries) = std::fs::read_dir(&dir) else { return Ok(out) };
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            // A project without its unknowns folder has none. Any other failure (no permission, a
+            // file in its place) must not read as "no open questions": an open that would clear the
+            // previous project has to fail instead.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(out),
+            Err(e) => return Err(ToolError::io(dir.display(), e)),
+        };
         for e in entries.flatten() {
             if let Ok(bytes) = std::fs::read(e.path()) {
                 match serde_json::from_slice::<Unknown>(&bytes) {

@@ -64,7 +64,7 @@ fn a_case_of_a_nested_enum_decodes() {
 fn a_case_of_an_imported_type_extension_leaves_out_the_extension_prefix() {
     assert_eq!(
         dm("_$sSo17OS_dispatch_queueC8DispatchE20AutoreleaseFrequencyO8workItemyA2EmFWC"),
-        "enum case for __C.OS_dispatch_queue.AutoreleaseFrequency.workItem(__C.OS_dispatch_queue.AutoreleaseFrequency.Type) -> __C.OS_dispatch_queue.AutoreleaseFrequency"
+        "enum case for (extension in Dispatch):__C.OS_dispatch_queue.AutoreleaseFrequency.workItem((extension in Dispatch):__C.OS_dispatch_queue.AutoreleaseFrequency.Type) -> (extension in Dispatch):__C.OS_dispatch_queue.AutoreleaseFrequency"
     );
 }
 

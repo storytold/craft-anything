@@ -99,7 +99,7 @@ impl BackendKind {
             BackendKind::Gemini => openai::GEMINI_MODELS,
             BackendKind::OpenaiCompatible => &[],
             BackendKind::AgentCli => {
-                &["claude-code", "codex", "copilot", "grok", "gemini-cli", "opencode", "antigravity", "hermes", "maki", "aider", "dsh", "devin"]
+                &["claude-code", "codex", "copilot", "grok", "gemini-cli", "opencode", "antigravity", "hermes", "maki", "aider", "dsh", "devin", "kimi-code"]
             }
         }
     }
@@ -492,6 +492,19 @@ impl AiHub {
     /// A hub with explicit settings file and key store (tests, portable installs).
     pub fn with_stores(engine: Arc<Engine>, settings_path: PathBuf, keys: KeyStore) -> Self {
         AiHub { engine, settings_path: Some(settings_path), keys, backend_edits: Mutex::new(()) }
+    }
+
+    /// This hub with an engine of its own for one run (see [`Engine::for_a_run`]). While the
+    /// session is busy it starts from the saved settings. It stays in `deep` (Deep mode or Clean
+    /// room) whatever the app changes to meanwhile.
+    pub(crate) fn for_a_run(&self, deep: bool) -> Self {
+        let busy = || {
+            let config_dir = self.settings_path.as_deref().and_then(std::path::Path::parent).map(std::path::Path::to_path_buf);
+            craft_anything_engine::Session::for_a_run_from(Settings::load_from(&self.settings_path()), config_dir, Some(deep))
+        };
+        let engine = self.engine.for_a_run(busy);
+        engine.session().deep_for_run = Some(deep);
+        AiHub { engine, settings_path: self.settings_path.clone(), keys: self.keys.clone(), backend_edits: Mutex::new(()) }
     }
 
     fn settings_path(&self) -> PathBuf {
@@ -1000,7 +1013,7 @@ impl AiHub {
     /// See [`keys::refresh_loaded`]: for callers that don't hold the session. It can wait for a
     /// running tool, so never call it from the UI thread or a tool.
     pub fn refresh_loaded_asset_keys(&self) {
-        keys::refresh_loaded(&mut self.engine.session(), &self.keys);
+        keys::refresh_loaded(&mut self.engine.session(), &self.engine, &self.keys);
     }
 
     /// The provider's key is stored or in its environment variable.

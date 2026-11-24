@@ -263,7 +263,9 @@ fn web_pages_list(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolEr
     let dl = deadline(ctx, p.timeout_secs)?;
     let browser = resolve_browser(ctx, p.cdp_endpoint.as_deref(), p.launch, p.headless, p.no_sandbox, &dl)?;
     let targets = cdp::json_list(&browser.endpoint, &dl)?;
-    let rows: Vec<Value> = targets.iter().take(2000).map(target_row).collect();
+    // In the person's own browser only the study tab is listed, not their other tabs.
+    let ours = |t: &&Value| browser.tab.as_deref().is_none_or(|id| t.get("id").and_then(Value::as_str) == Some(id));
+    let rows: Vec<Value> = targets.iter().filter(ours).take(2000).map(target_row).collect();
     let pages = rows.iter().filter(|r| r["type"] == "page").count();
     let summary = format!("{} target(s) at {} ({} page(s)); {} {}.", rows.len(), browser.endpoint.origin, pages, browser.product, browser.version);
     let ev = EvidenceBuilder::new(
@@ -906,7 +908,7 @@ fn web_page_show(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolErr
     let dl = deadline(ctx, p.timeout_secs)?;
     let browser = resolve_browser(ctx, p.cdp_endpoint.as_deref(), p.launch, p.headless, p.no_sandbox, &dl)?;
     let targets = cdp::json_list(&browser.endpoint, &dl)?;
-    let target = web_common::pick_target(&targets, p.target_id.as_deref(), Some("page"))?;
+    let target = browser.page_target(&targets, p.target_id.as_deref())?;
     let page_url = web_common::sanitize_url(target.get("url").and_then(Value::as_str).unwrap_or_default());
     let mut client = web_common::connect_target_answering_dialogs(&browser, target, PAGE_MAX_MESSAGE, &dl)?;
     let flags = CaptureFlags {
@@ -1034,7 +1036,7 @@ fn web_page_js_analyze(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, T
     let dl = deadline(ctx, p.timeout_secs)?;
     let browser = resolve_browser(ctx, p.cdp_endpoint.as_deref(), p.launch, p.headless, p.no_sandbox, &dl)?;
     let targets = cdp::json_list(&browser.endpoint, &dl)?;
-    let target = web_common::pick_target(&targets, p.target_id.as_deref(), Some("page"))?;
+    let target = browser.page_target(&targets, p.target_id.as_deref())?;
     let page_url = web_common::sanitize_url(target.get("url").and_then(Value::as_str).unwrap_or_default());
     let mut client = web_common::connect_target_answering_dialogs(&browser, target, PAGE_MAX_MESSAGE, &dl)?;
     let flags = CaptureFlags { script_sources: true, network: false, console: false, ..CaptureFlags::default() };
@@ -1233,7 +1235,7 @@ fn web_page_watch(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolEr
     let dl = deadline(ctx, p.timeout_secs)?;
     let browser = resolve_browser(ctx, p.cdp_endpoint.as_deref(), p.launch, p.headless, p.no_sandbox, &dl)?;
     let targets = cdp::json_list(&browser.endpoint, &dl)?;
-    let target = web_common::pick_target(&targets, p.target_id.as_deref(), Some("page"))?;
+    let target = browser.page_target(&targets, p.target_id.as_deref())?;
     let page_url = web_common::sanitize_url(target.get("url").and_then(Value::as_str).unwrap_or_default());
     let mut client = web_common::connect_target_answering_dialogs(&browser, target, PAGE_MAX_MESSAGE, &dl)?;
     let flags = CaptureFlags { network: true, console: true, websocket_outlines: p.with_websocket_outlines, ..CaptureFlags::default() };
@@ -1293,7 +1295,7 @@ fn web_mcp_tools_list(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, To
     let dl = deadline(ctx, p.timeout_secs)?;
     let browser = resolve_browser(ctx, p.cdp_endpoint.as_deref(), p.launch, p.headless, p.no_sandbox, &dl)?;
     let targets = cdp::json_list(&browser.endpoint, &dl)?;
-    let target = web_common::pick_target(&targets, p.target_id.as_deref(), Some("page"))?;
+    let target = browser.page_target(&targets, p.target_id.as_deref())?;
     let page_url = web_common::sanitize_url(target.get("url").and_then(Value::as_str).unwrap_or_default());
     let mut client = web_common::connect_target_answering_dialogs(&browser, target, PAGE_MAX_MESSAGE, &dl)?;
     let mut dialogs = Vec::new();
@@ -1372,7 +1374,7 @@ fn web_page_screenshot_take(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutp
     let dl = deadline(ctx, p.timeout_secs)?;
     let browser = resolve_browser(ctx, p.cdp_endpoint.as_deref(), p.launch, p.headless, p.no_sandbox, &dl)?;
     let targets = cdp::json_list(&browser.endpoint, &dl)?;
-    let target = web_common::pick_target(&targets, p.target_id.as_deref(), Some("page"))?;
+    let target = browser.page_target(&targets, p.target_id.as_deref())?;
     let page_url = web_common::sanitize_url(target.get("url").and_then(Value::as_str).unwrap_or_default());
     let mut client = web_common::connect_target_answering_dialogs(&browser, target, PAGE_MAX_MESSAGE, &dl)?;
     let shot = client.call("Page.captureScreenshot", json!({"format": "png"}), None, &dl);
@@ -2315,8 +2317,14 @@ fn web_walkthrough_record(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput
     // Default to launching when no endpoint is given.
     let launch = p.launch || p.cdp_endpoint.is_none();
     let browser = resolve_browser(ctx, p.cdp_endpoint.as_deref(), launch, p.headless, p.no_sandbox, &dl)?;
+    // Blocking downloads applies to the whole browser and outlasts the run: in the person's own
+    // browser it would block their other tabs' downloads too.
+    if browser.tab.is_some() && p.capture.events.contains(&EventFamily::Downloads) {
+        return Err(ToolError::invalid("downloads can't be recorded in your own browser: blocking them there would block your other tabs' downloads too")
+            .with_remediation("Leave downloads out of capture.events, or study the site in a private browser (web_site_open without cdp_endpoint)."));
+    }
     let targets = cdp::json_list(&browser.endpoint, &dl)?;
-    let target = web_common::pick_target(&targets, p.target_id.as_deref(), Some("page"))?;
+    let target = browser.page_target(&targets, p.target_id.as_deref())?;
     let start_url = web_common::sanitize_url(target.get("url").and_then(Value::as_str).unwrap_or_default());
     let mut client = web_common::connect_target_answering_dialogs(&browser, target, PAGE_MAX_MESSAGE, &dl)?;
     let declared: Vec<String> = p.hidden_values.iter().chain(p.storage.values()).cloned().collect();

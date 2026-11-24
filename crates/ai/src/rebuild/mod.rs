@@ -152,6 +152,9 @@ pub struct RunOptions {
     /// A free session is read first; this is the fallback while it is held; the saved settings
     /// are the last fallback.
     pub clean_room: Option<bool>,
+    /// When the person made the request: a stop of Ghidra after it holds even if the run starts
+    /// later (it waited in the queue, or for a key store). Set when the options are made.
+    pub asked: std::time::SystemTime,
 }
 
 impl Default for RunOptions {
@@ -169,6 +172,7 @@ impl Default for RunOptions {
             adapters: Default::default(),
             wake: Wake::default(),
             clean_room: None,
+            asked: std::time::SystemTime::now(),
         }
     }
 }
@@ -188,6 +192,8 @@ pub struct Note {
     /// they're marked told when the builder reads the note or when the after-turn path sends it.
     /// The raw note text stays in [`text`](Self::text), so a later run filters them by its mode.
     pub questions: Vec<AskedQuestion>,
+    /// When the person added it: a note from before they stopped Ghidra doesn't start it again.
+    pub added: std::time::SystemTime,
 }
 
 /// The note text with the latest Just-ask answers this mode may show. `skip` holds answers an
@@ -199,6 +205,24 @@ fn note_with_just_asked(text: String, ws: &Workspace, clean_room: bool, skip: &[
         return (text, asked);
     }
     (format!("{}{text}", just_asked(&asked)), asked)
+}
+
+/// A note is a new request, so Ghidra may be used again if the person stopped it before adding
+/// the newest of `notes` (#948). A failed removal leaves it off, which the built-in engine
+/// covers, so it's only logged.
+fn resume_ghidra<'a>(ws: &Workspace, notes: impl IntoIterator<Item = &'a Note>) {
+    let Some(asked) = notes.into_iter().filter(|n| !n.text.trim().is_empty()).map(|n| n.added).max() else { return };
+    let_ghidra_run_again(&ws.root, asked);
+}
+
+/// A request made at `asked` (a message or a note): Ghidra may be used again for `project` if the
+/// person stopped it before then (#948). Neither kind of request fails when that can't be done (the
+/// stop's lock is busy, a file can't be removed): Ghidra stays off, the built-in engine covers it,
+/// and it's logged.
+fn let_ghidra_run_again(project: &std::path::Path, asked: std::time::SystemTime) {
+    if let Err(e) = craft_anything_engine::tools::deep::resume_for(project, asked) {
+        log::warn!("couldn't let Ghidra be used again for this project: {e}");
+    }
 }
 
 fn same_question(a: &AskedQuestion, b: &AskedQuestion) -> bool {
@@ -286,6 +310,14 @@ impl RebuildRun {
             in_mode: saved_in_mode || transcript_in_mode,
             elsewhere: (ws.manifest.agent_session.is_some() && !saved_in_mode) || (ws.transcript_path().is_file() && !transcript_in_mode),
         };
+        // From the same read of the settings as the builder, so a change between two reads can't
+        // pair one entry's name with another's settings.
+        let extractor_entry = cfg.roles.get(crate::config::role_key(Role::Extractor)).and_then(|n| cfg.get(n)).filter(|b| b.config.enabled).cloned();
+        // Every run works in an engine of its own, in the mode it starts in. The app's session points
+        // at one project at a time, so a run working in it beside another would send its files,
+        // journal and asset spending to the other's project.
+        let run_hub = hub.for_a_run(run_deep);
+        let hub = &run_hub;
         // An API backend builds with our own agent loop and the Build tools; its conversation is
         // kept in the project and continued by follow-ups (a fresh build starts a new one).
         let api = match entry.config.kind {
@@ -304,7 +336,7 @@ impl RebuildRun {
         // A chosen extractor (an API backend, e.g. Kimi K3) takes a game's files out after a fresh
         // study; the run only uses it in Deep mode on a game (see Worker::extract).
         let fresh = opts.message.is_none() || !capture_in_mode(&ws, run_deep);
-        let extractor = match hub.chosen(Role::Extractor).and_then(|n| hub.config().get(&n).cloned()) {
+        let extractor = match extractor_entry {
             Some(e) if fresh && e.config.kind != BackendKind::AgentCli && !clean_room => {
                 let _ = std::fs::remove_file(ws.root.join(EXTRACT_TRANSCRIPT));
                 Some((e.config.name.clone(), hub.start_extractor(&e, opts.beginner, Some(ws.root.join(EXTRACT_TRANSCRIPT)))?))
@@ -345,6 +377,7 @@ impl RebuildRun {
             usage: Some(UsageClock { root: root.clone(), since: Instant::now() }),
             self_check: None,
             reset_progress_after_notes: false,
+            taken_in_turn: Vec::new(),
             keys: hub.keys.clone(),
             kept_checks: Mutex::default(),
         };
@@ -373,12 +406,18 @@ impl RebuildRun {
             .map_err(|e| ToolError::internal(e.to_string()))?;
         let activity = feed.lock().unwrap_or_else(PoisonError::into_inner).activity();
         let run = RebuildRun { rx, stop, inbox, running, preview, notes, clean_room, feed, root, started: Instant::now(), activity };
-        // Waiting again with files of their own: the builder takes them at its next step or after
-        // its turn, and a run that ends first hands them to the next one, as with any note.
-        for n in left {
-            run.add_note(n.text, n.shown, n.pictures);
-        }
+        run.restore_left(left);
         Ok(run)
+    }
+
+    /// Notes an earlier run left, waiting again with files of their own: the builder takes them at
+    /// its next step or after its turn, and a run that ends first hands them to the next one, as
+    /// with any note. Each keeps the time it was added, so one from before a stop doesn't undo it.
+    fn restore_left(&self, left: Vec<notes::Left>) {
+        for n in left {
+            let added = n.added.unwrap_or_else(std::time::SystemTime::now);
+            self.add_note_at(n.text, n.shown, n.pictures, added);
+        }
     }
 
     /// Add something while it works; the agent reads it at its next step, and only then does it
@@ -390,6 +429,11 @@ impl RebuildRun {
     /// The in-memory text stays raw, and the answers are marked told only when the note is read or
     /// sent.
     pub fn add_note(&self, text: String, shown: String, pictures: Vec<PathBuf>) -> u64 {
+        self.add_note_at(text, shown, pictures, std::time::SystemTime::now())
+    }
+
+    /// [`Self::add_note`] for a note the person added at `added` (one an earlier run left).
+    fn add_note_at(&self, text: String, shown: String, pictures: Vec<PathBuf>, added: std::time::SystemTime) -> u64 {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         let id = NEXT.fetch_add(1, Ordering::Relaxed);
         let mut file_text = text.clone();
@@ -407,11 +451,11 @@ impl RebuildRun {
         // Also left for an agent that takes notes at its next step; without it, after the turn.
         // The in-memory note keeps the raw text: if a later run takes it, that run filters the
         // answers by its own mode instead of inheriting this run's.
-        let left = notes::Left { text: text.clone(), shown: shown.clone(), pictures: pictures.clone() };
+        let left = notes::Left { text: text.clone(), shown: shown.clone(), pictures: pictures.clone(), added: Some(added) };
         if let Err(e) = notes::hand_over(&notes::notes_dir(self.inbox.dir()), id, &file_text, Some(&left)) {
             log::warn!("A note waits for the builder's turn to end: {}", e.message);
         }
-        self.notes.lock().unwrap_or_else(PoisonError::into_inner).push(Note { id, text, shown, pictures, questions });
+        self.notes.lock().unwrap_or_else(PoisonError::into_inner).push(Note { id, text, shown, pictures, questions, added });
         id
     }
 
@@ -553,6 +597,9 @@ struct Worker {
     self_check: Option<(Arc<dyn kinds::TargetKind>, f64)>,
     /// A hook consumed a new request; persist its reset only after the builder finishes.
     reset_progress_after_notes: bool,
+    /// Notes the builder's hook took during the turn under way. If that turn ends with its
+    /// conversation lost or too long, they go to the new one (review of #2043).
+    taken_in_turn: Vec<Note>,
     /// The backends' stored keys, for an agent CLI that asks the host to authenticate (Devin).
     keys: crate::keys::KeyStore,
     /// The last check round in which everything worked, kept while nothing it looks at changes.
@@ -567,6 +614,9 @@ struct UsageClock {
 
 /// How often a long agent turn saves the time worked so far, so a crash loses little of it.
 const USAGE_FLUSH: Duration = Duration::from_secs(60);
+
+/// How long a turn that ends early waits for the session to show what its finished tools wrote.
+const LEAVING_REFRESH_WAIT: Duration = Duration::from_secs(2);
 
 /// Record `e` in the feed, send it and wake the window, under one lock.
 fn emit_event(feed: &Mutex<feed::FeedLog>, tx: &Sender<RunEvent>, wake: &Wake, e: RunEvent) {
@@ -671,23 +721,34 @@ impl Worker {
 
     /// An API backend's builder runs its tools in this session, not in a tool server that loads the
     /// keys itself (#923). Read on the worker because the keychain can block, and for each run so a
-    /// key saved outside the app since the last one counts. The session stays held through the
-    /// read, so a key removed meanwhile can't be put back by keys read before it went. What the
+    /// key saved outside the app since the last one counts. They're shared with the app's engine
+    /// and the runs beside it, so a key saved or removed in any of them updates all
+    /// ([`Engine::load_asset_keys`]), and keys read before a change can't land after it. What the
     /// brief says about assets comes from the same read, so the two agree.
     fn load_asset_keys(&mut self, store: &crate::KeyStore) {
         let mut session = self.engine.session();
         session.label("Load the asset keys");
         let providers = session.ext.get::<craft_anything_engines::assets::AssetProviders>().map(|p| p.as_ref().clone()).unwrap_or_default();
-        let keys = crate::keys::asset_keys(store, &providers);
+        let keys = self.engine.load_asset_keys(&mut session, || crate::keys::asset_keys(store, &providers));
         // The brief offers the built-in models, so a key for another provider doesn't count.
         self.assets = craft_anything_engines::assets::AssetProviders::built_in().ids().into_iter().any(|id| keys.get(id).is_some());
-        session.ext.insert(Arc::new(keys));
     }
 
-    /// Point the engine at this workspace: its investigation project and inbox.
+    /// The engine whose session the app shows: the app's, beside a run with an engine of its own.
+    fn shown(&self) -> Arc<Engine> {
+        self.engine.app().unwrap_or_else(|| self.engine.clone())
+    }
+
+    /// Point the engine at this workspace: its investigation project and inbox. A run with an
+    /// engine of its own opens the project in the app's session too, for what the app shows, as
+    /// a run in that session does. Not its inbox: none of this run's tools ask there, and a run
+    /// working in the app's session beside it would post its questions to this project (#943).
     fn attach(&self, ws: &Workspace) -> Result<(), ToolError> {
         let dir = ws.investigation_dir();
         let project = Project::open(&dir).or_else(|_| Project::create(&dir, &ws.manifest.name, Purpose::default()))?;
+        if let Some(app) = self.engine.app() {
+            app.session().open_project(project.clone())?;
+        }
         let mut s = self.engine.session();
         s.open_project(project)?;
         s.ext.insert(Arc::new(InboxDir(ws.inbox_dir())));
@@ -710,6 +771,7 @@ impl Worker {
         if notes.is_empty() {
             return None;
         }
+        resume_ghidra(ws, &notes);
         for n in &notes {
             self.emit(RunEvent::Note { shown: n.shown.clone(), pictures: n.pictures.clone() });
         }
@@ -815,6 +877,8 @@ impl Worker {
         if opts.message.as_deref().is_some_and(|m| !m.trim().is_empty()) {
             progress.reset();
             progress.save(&ws.root)?;
+            // Ghidra, if the person stopped it for this project, may be used again (#948).
+            let_ghidra_run_again(&ws.root, opts.asked);
         }
         // Fail before any work when the agent's tools are missing or it can't sign in.
         let remote_host = entry.config.ssh_host.as_deref().map(str::trim).filter(|h| !h.is_empty());
@@ -978,6 +1042,7 @@ impl Worker {
                 };
                 self.step(ws, Step::Build, Status::Building, doing)?;
                 ws.manifest.awaiting_check = false;
+                let language_files = stacks::language_files(&ws.app_dir());
                 let reply = self.turn(ws, agent.as_mut(), &prompt, deep, fresh.take());
                 // Kept even when the turn failed: the conversation is still worth carrying.
                 if let Some(a) = &keeper {
@@ -1014,11 +1079,18 @@ impl Worker {
                 }
                 // The stack is recorded as the one the build uses, once it shows: left to the builder,
                 // or another than the default because the request asked for it. A game engine stays
-                // (it says the project is a game, and its editor is found for it).
-                if game::Builder::from_stack(&ws.manifest.stack).is_none()
+                // (it says the project is a game, and its editor is found for it), unless a follow-up
+                // asked for a stack in another language and the build moved to it (#1837).
+                let moved = opts.message.as_deref().and_then(|m| opts.kinds.named(m, &ws.manifest.target));
+                if let Some((s, tool)) = moved.and_then(|s| stacks::moved_to(&ws.manifest.stack, s, &ws.app_dir(), &language_files)) {
+                    ws.manifest.stack = s.to_string();
+                    ws.manifest.toolchain = Some(tool.to_string());
+                } else if game::Builder::from_stack(&ws.manifest.stack).is_none()
+                    && !stacks::holds_its_language(&ws.manifest.stack, &ws.app_dir())
                     && let Some(s) = stacks::used_in(&ws.app_dir())
                 {
                     ws.manifest.stack = s.name.clone();
+                    ws.manifest.toolchain = None;
                 }
                 ws.manifest.awaiting_check = true;
                 ws.save()?;
@@ -1122,6 +1194,11 @@ impl Worker {
         }
         ws.set_status(Status::Ready, summary.clone())?;
         self.emit(RunEvent::Step { step: Step::Done, text: summary.clone() });
+        if matches!(ws.manifest.target, TargetRef::Website { .. })
+            && let Some(list) = kinds::carry_over::carry_over(&kinds::carry_over::pages(ws))
+        {
+            self.emit(RunEvent::Step { step: Step::Done, text: list });
+        }
         Ok(summary)
     }
 
@@ -1199,7 +1276,9 @@ impl Worker {
 
     fn checks_with_a_retry_now(&self, ws: &Workspace, kind: &dyn kinds::TargetKind, round: u32) -> Result<Vec<CheckResult>, ToolError> {
         let e = match self.run_checks(ws, kind, round) {
-            Err(e) if e.code != ErrorCode::Cancelled => e,
+            Err(e) if e.code == ErrorCode::Cancelled => return Err(e),
+            Err(e) if check::is_unavailable_tool_error(&e) => return Err(unchecked_build_error(e)),
+            Err(e) => e,
             done => return done,
         };
         self.emit(RunEvent::Agent(AgentEvent::Status { text: format!("The check couldn't finish ({}). Trying it once more…", e.message) }));
@@ -1207,8 +1286,7 @@ impl Worker {
             if e.code == ErrorCode::Cancelled {
                 return e;
             }
-            ToolError::new(e.code, format!("The build is finished, but it couldn't be checked: {}", e.message))
-                .with_remediation("Press Try again to check it again. Nothing needs building again.")
+            unchecked_build_error(e)
         })
     }
 
@@ -1276,12 +1354,15 @@ impl Worker {
         let mut prompt = prompt.to_string();
         let mut tries = 0u64;
         let mut retry = false;
+        // Kept across retries and the fresh start: whichever conversation is lost, every note
+        // taken in this turn so far is one the feed already shows as delivered.
+        self.taken_in_turn.clear();
         loop {
             let result = self.converse_turn(ws, agent, &prompt, retry);
             let lost = result.is_err() && agent.session_lost();
             if lost {
                 // The id is for a session this computer doesn't have: never ask for it again.
-                Self::remember_session(ws, None, deep)?;
+                Self::remember_session(ws, None, deep).map_err(|e| self.give_back_taken(ws, e))?;
             } else if let Some(id) = agent.session_id() {
                 Self::remember_session(ws, Some(id), deep)?;
             }
@@ -1292,10 +1373,13 @@ impl Worker {
                         Step::Build,
                         Status::Building,
                         "The builder's earlier conversation isn't on this computer, or has grown too long to continue. Starting a new one from what the project already has…",
-                    )?;
-                    prompt = f;
+                    )
+                    .map_err(|e| self.give_back_taken(ws, e))?;
+                    prompt = f + &taken_prompt(&self.taken_in_turn);
                     retry = false;
                 }
+                // Nothing to start a new conversation from: the run ends, and the next one sends them.
+                Err(e) if lost => return Err(self.give_back_taken(ws, e)),
                 // A missing session can only start fresh above, never resume. Only backend
                 // Error events become ProgramFailed here; a simultaneous backend failure must
                 // not make an inbox or workspace write failure retryable.
@@ -1351,7 +1435,7 @@ impl Worker {
             for e in agent.poll() {
                 refresh |= matches!(e, AgentEvent::ToolFinished { .. });
                 if matches!(e, AgentEvent::TurnDone { .. }) {
-                    refresh_investigation(&mut self.engine.session(), ws);
+                    refresh_investigation(&mut self.shown().session(), ws);
                     refresh = false;
                 }
                 match &e {
@@ -1398,7 +1482,7 @@ impl Worker {
                     return Ok(reply);
                 }
             }
-            if refresh && let Some(mut session) = self.engine.try_session() {
+            if refresh && let Some(mut session) = self.shown().try_session() {
                 refresh_investigation(&mut session, ws);
                 refresh = false;
             }
@@ -1407,12 +1491,44 @@ impl Worker {
             for line in newly_said(&ws.inbox_dir(), &mut said) {
                 self.emit(RunEvent::Step { step: Step::Build, text: line });
             }
-            self.answer_self_checks(ws)?;
+            if let Err(error) = self.answer_self_checks(ws) {
+                // Leaving before `TurnDone`: what the finished tools wrote still reaches the view,
+                // but a stop never waits long on a tool that holds the session (#1746 review).
+                if refresh {
+                    let until = Instant::now() + LEAVING_REFRESH_WAIT;
+                    loop {
+                        if let Some(mut session) = self.shown().try_session() {
+                            refresh_investigation(&mut session, ws);
+                            break;
+                        }
+                        if Instant::now() >= until {
+                            log::warn!("Left without refreshing the investigation: another tool still holds the session.");
+                            break;
+                        }
+                        std::thread::sleep(Duration::from_millis(20));
+                    }
+                }
+                return Err(error);
+            }
             if self.usage.as_ref().is_some_and(|c| c.since.elapsed() >= USAGE_FLUSH) {
                 self.record_usage(None);
             }
             std::thread::sleep(Duration::from_millis(120));
         }
+    }
+
+    /// A turn whose conversation was lost ends with `e`: the notes it took wait for the next run.
+    /// That run is sent their text alone, so the Just-ask answers they carried are untold again.
+    fn give_back_taken(&mut self, ws: &Workspace, e: ToolError) -> ToolError {
+        let taken = std::mem::take(&mut self.taken_in_turn);
+        let questions: Vec<AskedQuestion> = taken.iter().flat_map(|n| n.questions.iter().cloned()).collect();
+        if !questions.is_empty()
+            && let Err(e) = craft_anything_engine::questions::mark_untold(ws, &questions)
+        {
+            log::warn!("couldn't record that the builder's lost conversation was told questions: {}", e.message);
+        }
+        self.notes.lock().unwrap_or_else(PoisonError::into_inner).splice(0..0, taken);
+        e
     }
 
     /// Notes the builder took at a step of this turn (its hook claimed them): they join the feed
@@ -1426,6 +1542,8 @@ impl Worker {
             read
         };
         let new_request = read.iter().any(|n| !n.text.trim().is_empty());
+        resume_ghidra(ws, &read);
+        self.taken_in_turn.extend(read.iter().cloned());
         for n in read {
             // The agent's hook took the note, so the Just-ask answers in its text were told.
             if !n.questions.is_empty()
@@ -1446,6 +1564,17 @@ impl Worker {
             }
         }
     }
+}
+
+/// What a new conversation is sent, after its start, for the notes the lost one took; nothing
+/// when they asked for nothing.
+fn taken_prompt(taken: &[Note]) -> String {
+    let texts: Vec<String> = taken.iter().map(|n| n.text.clone()).filter(|t| !t.trim().is_empty()).collect();
+    if texts.is_empty() {
+        return String::new();
+    }
+    let questions: Vec<AskedQuestion> = taken.iter().flat_map(|n| n.questions.iter().cloned()).collect();
+    format!("\n\n{}{}", just_asked(&questions), added_prompt(&texts))
 }
 
 /// Notes an earlier run left are a request the person made, as a message is: they start the counts
@@ -1529,6 +1658,27 @@ For a plugin's tool, the plugin's `consent` setting in the person's config.toml 
 /// across runs, so a build that never came up was checked 40 and 49 times (#736).
 pub const NOT_WORKING_CHECK_LIMIT: u32 = 10;
 
+/// Wrap a check error that prevented verifying the finished build, preserving tool-setup
+/// remediation alongside the "Try again" guidance (#2178).
+fn unchecked_build_error(e: ToolError) -> ToolError {
+    const TRY_AGAIN: &str = "Press Try again to check it again. Nothing needs building again.";
+    let remediation = match e.remediation.as_deref().map(str::trim) {
+        Some(fix) if check::is_unavailable_tool_error(&e) && !fix.is_empty() => {
+            if fix.ends_with(['.', '!', '?', ':']) {
+                format!("{fix} {TRY_AGAIN}")
+            } else {
+                format!("{fix}. {TRY_AGAIN}")
+            }
+        }
+        _ => TRY_AGAIN.to_string(),
+    };
+    let mut out = ToolError::new(e.code, format!("The build is finished, but it couldn't be checked: {}", e.message)).with_remediation(remediation);
+    if let Some(details) = e.details {
+        out = out.with_details(details);
+    }
+    out
+}
+
 fn not_working(ws: &Workspace) -> ToolError {
     ToolError::new(ErrorCode::OverLimit, format!("The build still isn't working after {} checks in a row, so it stopped.", ws.manifest.not_working_checks))
         .with_remediation("Send a new request with a concrete correction to start again. The last check's note in the feed says what it found.")
@@ -1594,7 +1744,7 @@ fn kept_session(ws: &Workspace) -> Option<String> {
 }
 
 /// What an API-backend builder is told first: its tools differ from an agent app's.
-const API_BUILDER: &str = "Your tools: build_files_list, build_file_read, build_file_write and build_file_edit for the project's files (paths relative to the project folder, e.g. app/src/main.rs), and build_command_run for commands, which run in app/ (never start dev servers or watchers). Where the steps below mention Read, Write, Edit or Bash, use these. For the checklist step use build_checklist (the same shape as TodoWrite: todos with content, activeForm and status) and call it again as you go. Ask the person with core_person_ask only when a choice really changes the result. Other Craft Anything tools are available too; enable a toolset with enable_toolset when you need it. rebuild_check isn't available in this loop: Craft Anything checks your build after each turn instead.";
+const API_BUILDER: &str = "Your tools: build_files_list, build_files_search, build_file_read, build_file_write and build_file_edit for the project's files (paths relative to the project folder, e.g. app/src/main.rs), and build_command_run for commands, which run in app/ (never start dev servers or watchers). Where the steps below mention Read, Write, Edit or Bash, use these. For the checklist step use build_checklist (the same shape as TodoWrite: todos with content, activeForm and status) and call it again as you go. Ask the person with core_person_ask only when a choice really changes the result. Other Craft Anything tools are available too; enable a toolset with enable_toolset when you need it. rebuild_check isn't available in this loop: Craft Anything checks your build after each turn instead.";
 
 /// Added to the API loop's note for a builder that can't look at pictures.
 const BLIND_BUILDER: &str = " You can't look at pictures: use capture/README.md, capture/capture.json and the evidence instead.";

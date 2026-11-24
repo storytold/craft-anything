@@ -66,11 +66,21 @@ fn save(ws: &Workspace, items: Vec<AskedQuestion>) -> Result<(), ToolError> {
 /// Remember that the builder was told these. Nothing is written when none of them is there, so a
 /// file that couldn't be read isn't replaced.
 pub fn mark_told(ws: &Workspace, told: &[AskedQuestion]) -> Result<(), ToolError> {
+    set_told(ws, told, true)
+}
+
+/// Forget that the builder was told these: the conversation that was told them is gone, so the
+/// next run tells them again.
+pub fn mark_untold(ws: &Workspace, these: &[AskedQuestion]) -> Result<(), ToolError> {
+    set_told(ws, these, false)
+}
+
+fn set_told(ws: &Workspace, these: &[AskedQuestion], told: bool) -> Result<(), ToolError> {
     let _alone = WRITING.lock().unwrap_or_else(PoisonError::into_inner);
     let mut items = load(ws);
     let mut changed = false;
-    for item in items.iter_mut().filter(|q| told.iter().any(|t| t.at_ms == q.at_ms && t.question == q.question)) {
-        item.told = true;
+    for item in items.iter_mut().filter(|q| these.iter().any(|t| t.at_ms == q.at_ms && t.question == q.question)) {
+        item.told = told;
         changed = true;
     }
     if changed { save(ws, items) } else { Ok(()) }

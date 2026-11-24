@@ -172,13 +172,13 @@ impl CraftApp {
         }
     }
 
-    /// Turn an AI on or off in Settings → AI (it keeps its key).
-    pub fn set_backend_enabled(&mut self, name: &str, on: bool) {
+    /// Turn an AI on or off (it keeps its key), returning the background job id.
+    pub fn set_backend_enabled(&mut self, name: &str, on: bool) -> u64 {
         let (hub, name) = (self.hub.clone(), name.to_string());
         self.jobs.spawn(if on { tr("Turn on an AI") } else { tr("Turn off an AI") }, false, move |_| {
             hub.set_enabled(&name, on).map_err(|e| e.message)?;
             Ok(crate::backends(&hub))
-        });
+        })
     }
 
     /// Ask an AI which models it can use, for Settings → AI's model picker.
@@ -248,12 +248,12 @@ impl CraftApp {
             state.saving = true;
         }
         let (hub, name, model) = (self.hub.clone(), name.to_string(), model.to_string());
-        self.jobs.spawn(tr("Change an AI's model"), false, move |_| {
-            let result = hub.set_model(&name, &model).and_then(|_| {
-                hub.options().get(&name).cloned().ok_or_else(|| craft_anything_engine::evidence::ToolError::invalid("The AI backend was removed."))
-            });
-            Ok(crate::Done::ModelChanged { name, model, result })
+        let backend = name.clone();
+        let job = self.jobs.spawn(tr("Change an AI's model"), false, move |_| {
+            let result = hub.set_model(&name, &model).map(|_| crate::read_backends(&hub));
+            Ok(crate::Done::ModelChanged { name, result })
         });
+        self.model_save_jobs.insert(backend, job);
     }
 
     /// Populate the persistent model controls on a worker, once for each backend/model pair.
@@ -282,10 +282,12 @@ impl CraftApp {
             state.saving = true;
         }
         let hub = self.hub.clone();
-        self.jobs.spawn(tr("Set model options"), false, move |_| {
-            let result = hub.set_model_options(&params);
-            Ok(crate::Done::ModelOptionsSaved { params, result })
+        let backend = params.backend.clone();
+        let job = self.jobs.spawn(tr("Set model options"), false, move |_| {
+            let result = hub.set_model_options(&params).map(|_| crate::read_backends(&hub));
+            Ok(crate::Done::ModelOptionsSaved { result })
         });
+        self.model_save_jobs.insert(backend, job);
     }
 
     /// How hard an AI thinks from now on (`None`: its usual level).

@@ -151,7 +151,10 @@ pub(crate) fn query_process(config: &BackendConfig, options: &BackendOptions, di
 
 /// Query the selected installation, propagating cancellation, process failures and invalid catalogue errors.
 pub(crate) fn discover(config: &BackendConfig, options: &BackendOptions, directory: Option<&Path>, stop: &Stop) -> Result<Vec<AgentModel>, ToolError> {
-    let query = || query_once(config, options, directory, stop);
+    if let Some(models) = from_private_server(config, options, directory, stop)? {
+        return Ok(models);
+    }
+    let query = || query_once(config, options, directory, stop, None);
     let out = match query() {
         // A private server can answer before its plugins have started (#1859): ask once more.
         Err(e) if still_starting(&e) => {
@@ -166,13 +169,102 @@ pub(crate) fn discover(config: &BackendConfig, options: &BackendOptions, directo
 /// How long to give OpenCode's plugins before asking again (#1859).
 const STARTING_PAUSE: Duration = Duration::from_secs(2);
 
+/// How long a private server gets to say where it listens, and then to load its models (#2372).
+const SERVER_START: Duration = Duration::from_secs(10);
+const CATALOGUE_WAIT: Duration = Duration::from_secs(10);
+
+/// OpenCode 2.4 answers a new private server's first model list before its models have loaded, so a
+/// one-shot `--standalone` list is always empty (#2372). Locally, with no server the person chose,
+/// one private server (`serve` on 127.0.0.1, its own password) is asked until its list arrives, then
+/// stopped. `None` when it doesn't start, as with an OpenCode without `serve`: the one-shot query is used.
+fn from_private_server(config: &BackendConfig, options: &BackendOptions, directory: Option<&Path>, stop: &Stop) -> Result<Option<Vec<AgentModel>>, ToolError> {
+    // shortcut: over SSH the one-shot query stays, so an OpenCode 2.4 there still lists nothing; upgrade with a remote serve.
+    if config.ssh_host.as_deref().is_some_and(|h| !h.trim().is_empty()) || connection_args(options)? != ["--standalone"] {
+        return Ok(None);
+    }
+    let program = super::program_of(config, options)?;
+    let (tx, rx) = std::sync::mpsc::channel();
+    let mut serve = Process::new(&program)
+        .args(["serve", "--hostname", "127.0.0.1", "--port", "0"])
+        // Without one set, OpenCode makes a password and prints it.
+        .env_remove("OPENCODE_SERVER_PASSWORD")
+        .on_stdout_line(move |l| {
+            let _ = tx.send(l.to_string());
+        })
+        .timeout(SERVER_START + CATALOGUE_WAIT + Duration::from_secs(30))
+        .stdout_cap(64 * 1024)
+        .stderr_cap(64 * 1024);
+    if let Some(dir) = directory {
+        serve = serve.cwd(dir);
+    }
+    let Ok(mut server) = serve.spawn() else { return Ok(None) };
+    let found = ask_private_server(&mut server, &rx, config, options, directory, stop);
+    // Dropping only flags the kill; a CLI that exits next would leave the server running.
+    server.kill_and_wait(Duration::from_secs(5));
+    found
+}
+
+/// Read where the started server listens and its password, then ask it until its models arrive.
+/// A successful empty list is the answer once [`CATALOGUE_WAIT`] is up; with no successful answer
+/// by then, the last "still starting" or timed-out request's error is.
+fn ask_private_server(
+    server: &mut craft_anything_platform::RunningProcess,
+    rx: &std::sync::mpsc::Receiver<String>,
+    config: &BackendConfig,
+    options: &BackendOptions,
+    directory: Option<&Path>,
+    stop: &Stop,
+) -> Result<Option<Vec<AgentModel>>, ToolError> {
+    let (mut url, mut password) = (None, None);
+    let started = std::time::Instant::now();
+    while url.is_none() || password.is_none() {
+        stop.check()?;
+        if started.elapsed() > SERVER_START || server.is_finished() {
+            return Ok(None);
+        }
+        if let Ok(line) = rx.recv_timeout(Duration::from_millis(100)) {
+            if let Some(u) = line.strip_prefix("server listening on ") {
+                url = Some(u.trim().to_string());
+            } else if let Some(p) = line.strip_prefix("server password ") {
+                password = Some(p.trim().to_string());
+            }
+        }
+    }
+    let (Some(url), Some(password)) = (url, password) else { return Ok(None) };
+    let at_server = BackendOptions { args: vec!["--server".into(), url], ..options.clone() };
+    let until = std::time::Instant::now() + CATALOGUE_WAIT;
+    loop {
+        let left = until.saturating_duration_since(std::time::Instant::now()).max(Duration::from_secs(1));
+        let answer = match query_once(config, &at_server, directory, stop, Some((&password, left))) {
+            Ok(out) => Ok(parse_models(&out.stdout)?),
+            Err(e) if still_starting(&e) || e.code == ErrorCode::TimedOut => Err(e),
+            Err(e) => return Err(e),
+        };
+        if answer.as_ref().is_ok_and(|m| !m.is_empty()) || std::time::Instant::now() >= until {
+            return answer.map(Some);
+        }
+        pause(stop, Duration::from_millis(250))?;
+    }
+}
+
 /// Ask for the model list once. OpenCode prints its typed error (`{"_tag":…,"message":…}`) on
 /// stdout but only `HTTP 503 Service Unavailable` on stderr, and a failed run's error keeps only
 /// stderr (#1859), so the typed answer is read here, named in the message and kept in the details.
-fn query_once(config: &BackendConfig, options: &BackendOptions, directory: Option<&Path>, stop: &Stop) -> Result<Output, ToolError> {
+/// `private`: the password and time limit for a private server's request (#2372).
+fn query_once(
+    config: &BackendConfig,
+    options: &BackendOptions,
+    directory: Option<&Path>,
+    stop: &Stop,
+    private: Option<(&str, Duration)>,
+) -> Result<Output, ToolError> {
     let (program, args) = query_command(config, options, directory)?;
     let stop = stop.clone();
-    let out = query_process(config, options, directory)?
+    let mut process = query_process(config, options, directory)?;
+    if let Some((password, limit)) = private {
+        process = process.env("OPENCODE_SERVER_PASSWORD", password).timeout(limit).idle_timeout(limit);
+    }
+    let out = process
         .cancel_when(move || stop.is_stopped())
         .remediation("Check OpenCode V2 and its provider setup on the selected computer, then reload the models.")
         .run()?;
@@ -430,7 +522,7 @@ mod tests {
         let program = dir.path().join("opencode");
         let busy = r#"{"_tag":"ServiceUnavailableError","message":"Location plugins did not finish activating","service":"plugin"}"#;
         let script = format!(
-            "#!/bin/sh\nprintf x >> tries\nif [ ! -f started ]; then touch started; echo '{busy}'; echo 'HTTP 503 Service Unavailable' >&2; exit 1; fi\ncat models.json\n"
+            "#!/bin/sh\n[ \"$1\" = serve ] && exit 1\nprintf x >> tries\nif [ ! -f started ]; then touch started; echo '{busy}'; echo 'HTTP 503 Service Unavailable' >&2; exit 1; fi\ncat models.json\n"
         );
         std::fs::write(&program, script).unwrap();
         std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -440,12 +532,34 @@ mod tests {
         assert_eq!(std::fs::read_to_string(dir.path().join("tries")).unwrap(), "xx", "asked twice");
         // Still starting the second time: that answer is the error, and it isn't asked a third time.
         std::fs::write(dir.path().join("tries"), "").unwrap();
-        std::fs::write(&program, format!("#!/bin/sh\nprintf x >> tries\necho '{busy}'\necho 'HTTP 503 Service Unavailable' >&2\nexit 1\n")).unwrap();
+        std::fs::write(
+            &program,
+            format!("#!/bin/sh\n[ \"$1\" = serve ] && exit 1\nprintf x >> tries\necho '{busy}'\necho 'HTTP 503 Service Unavailable' >&2\nexit 1\n"),
+        )
+        .unwrap();
         let err = discover(&config(), &options, Some(dir.path()), &Stop::default()).unwrap_err();
         assert!(still_starting(&err), "{err:?}");
         assert!(err.message.ends_with(": Location plugins did not finish activating"), "OpenCode's reason, not the HTTP status: {}", err.message);
         assert!(err.remediation.as_deref().unwrap_or_default().starts_with("OpenCode's plugins hadn't finished starting."), "{err:?}");
         assert_eq!(std::fs::read_to_string(dir.path().join("tries")).unwrap(), "xx");
+    }
+
+    /// #2372: a private server's first list is empty until its models load; it is asked until they arrive.
+    #[cfg(unix)]
+    #[test]
+    fn a_private_server_is_asked_until_its_models_have_loaded() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let program = dir.path().join("opencode");
+        let script = "#!/bin/sh\ncase \"$1\" in\nserve) echo 'server listening on http://127.0.0.1:9'; echo 'server password pw'; exec sleep 30;;\n\
+            api) [ \"$3\" = --server ] && [ \"$OPENCODE_SERVER_PASSWORD\" = pw ] || exit 9; printf x >> tries\n\
+            if [ \"$(cat tries)\" = x ]; then echo '{\"data\":[]}'; else cat models.json; fi;;\nesac\n";
+        std::fs::write(&program, script).unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let options = BackendOptions { command: Some(program.display().to_string()), ..Default::default() };
+        std::fs::write(dir.path().join("models.json"), json!({"data":[model("m",true,"chat", &[])]}).to_string()).unwrap();
+        assert_eq!(discover(&config(), &options, Some(dir.path()), &Stop::default()).unwrap()[0].id, "test/m");
+        assert_eq!(std::fs::read_to_string(dir.path().join("tries")).unwrap(), "xx", "the empty first answer isn't the list");
     }
 
     /// Only OpenCode's typed "still starting" answer is asked again, not any failure.

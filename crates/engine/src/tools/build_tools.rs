@@ -27,6 +27,12 @@ const MAX_WRITE: usize = 8 * 1024 * 1024;
 const MAX_ENTRIES: usize = 2_000;
 /// Output kept from a command (its tail, where errors are).
 const OUTPUT_TAIL: usize = 24 * 1024;
+/// Folders of build output and dependencies that listings and searches don't go into.
+const SKIP: [&str; 9] = ["node_modules", "target", "vendor", "dist", "build", ".git", "Library", "Temp", "Intermediate"];
+/// Most folder entries one search reads (skipped and failed ones too).
+const MAX_SEARCHED: usize = 20_000;
+/// Longest piece of a matching line a search returns.
+const MATCH_LINE: usize = 300;
 
 pub fn specs() -> Vec<ToolSpec> {
     let spec = |id, title, summary, beginner, effects, schema, run| ToolSpec {
@@ -58,6 +64,15 @@ pub fn specs() -> Vec<ToolSpec> {
             Effects::READ_ONLY,
             schema_of::<ReadParams>,
             build_file_read,
+        ),
+        spec(
+            "build_files_search",
+            "Search project files",
+            "Find text in the project's files (app/ by default, or a folder or file you name): each match's path, its line as build_file_read's offset, and the line itself. Exact, case-sensitive text; build output and dependencies are skipped.",
+            "Finds text in the files being built.",
+            Effects::READ_ONLY,
+            schema_of::<SearchParams>,
+            build_files_search,
         ),
         spec(
             "build_file_write",
@@ -119,6 +134,20 @@ pub struct ReadParams {
     #[serde(default)]
     pub offset: Option<usize>,
     /// How many lines (default: up to 256 KB).
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SearchParams {
+    /// The exact text to find (case-sensitive).
+    pub text: String,
+    /// A folder or file relative to the project (default: the app folder; for a project edited
+    /// in place, the project folder itself).
+    #[serde(default)]
+    pub path: Option<String>,
+    /// Most matches to return (default 50, at most 200).
     #[serde(default)]
     pub limit: Option<usize>,
 }
@@ -256,7 +285,6 @@ fn build_files_list(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, Tool
     // builder is told to read capture/ and reference/) shows what is in it.
     let listing_own = ws.is_own_record(&root);
     let depth = p.depth.unwrap_or(4).min(8);
-    const SKIP: [&str; 9] = ["node_modules", "target", "vendor", "dist", "build", ".git", "Library", "Temp", "Intermediate"];
     let mut entries = Vec::new();
     let mut stack = vec![(root.clone(), 0usize)];
     let mut truncated = false;
@@ -289,6 +317,105 @@ fn build_files_list(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, Tool
         }
     }
     Ok(ToolOutput::Value(json!({"root": shown(&ws, &root), "entries": entries, "truncated": truncated})))
+}
+
+/// Without this a builder searched its project with `native_bytes_find`, which gives byte offsets,
+/// not lines, and reread the same page of a file until it ran out of steps (#2251).
+fn build_files_search(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
+    let p: SearchParams = parse_params(params)?;
+    if p.text.is_empty() || p.text.contains('\n') {
+        return Err(ToolError::invalid("Give the text to find, on one line."));
+    }
+    let ws = workspace(ctx)?;
+    let default = if ws.manifest.app_in_root { "." } else { "app" };
+    let root = in_project_or_app(&ws, p.path.as_deref().unwrap_or(default), false)?;
+    if !root.exists() {
+        return Err(
+            ToolError::invalid(format!("{} isn't in the project.", shown(&ws, &root))).with_remediation("List the project's files with build_files_list.")
+        );
+    }
+    let searching_own = ws.is_own_record(&root);
+    let limit = p.limit.unwrap_or(50).clamp(1, 200);
+    let mut matches = Vec::new();
+    let mut more = false;
+    let mut left = MAX_SEARCHED;
+    // Folders that couldn't be listed in full: the search didn't see what's in them.
+    let mut unreadable = Vec::new();
+    let mut stack = vec![root.clone()];
+    'walk: while let Some(path) = stack.pop() {
+        if path.is_dir() {
+            // Out of budget: a queued folder isn't opened, only said to be unsearched.
+            if left == 0 {
+                more = true;
+                continue;
+            }
+            let Ok(dir) = std::fs::read_dir(&path) else {
+                unreadable.push(shown(&ws, &path));
+                continue;
+            };
+            let (mut items, failed, cut) = take_entries(dir, &mut left);
+            if failed {
+                unreadable.push(shown(&ws, &path));
+            }
+            more |= cut;
+            // Popped from the end, so reversed to search in name order (a cut folder keeps the
+            // entries the system listed first).
+            items.sort_by_key(|e| std::cmp::Reverse(e.file_name()));
+            for e in items {
+                let name = e.file_name();
+                // A link is never followed: it may lead out of the project.
+                let skip = e.file_type().map_or(true, |t| t.is_symlink() || (t.is_dir() && SKIP.contains(&name.to_string_lossy().as_ref())));
+                if !skip && (searching_own || !ws.is_own_record(&e.path())) {
+                    stack.push(e.path());
+                }
+            }
+            continue;
+        }
+        // Too big for a builder to read, or binary: not text it can edit.
+        let Ok(bytes) = craft_anything_platform::fs::read_file_capped(&path, MAX_READ_FILE) else { continue };
+        if bytes.iter().take(8000).any(|b| *b == 0) {
+            continue;
+        }
+        let text = String::from_utf8_lossy(&bytes);
+        for (offset, line) in text.lines().enumerate().filter(|(_, l)| l.contains(&p.text)) {
+            if matches.len() == limit {
+                more = true;
+                break 'walk;
+            }
+            let line = line.trim();
+            let at = line.find(&p.text).unwrap_or(0);
+            // A minified file's line can be huge: show the part around the match.
+            let start = line.floor_char_boundary(at.saturating_sub(MATCH_LINE / 2));
+            let shown_line = line.get(start..line.floor_char_boundary(start + MATCH_LINE)).unwrap_or(line);
+            matches.push(json!({"path": shown(&ws, &path), "offset": offset, "text": shown_line}));
+        }
+    }
+    let mut v = json!({"root": shown(&ws, &root), "matches": matches, "more": more});
+    if !unreadable.is_empty() {
+        v["unreadable"] = json!(unreadable);
+    }
+    Ok(ToolOutput::Value(v))
+}
+
+/// Take a folder's entries while `left` allows, each read (a failed one too) counting against it.
+/// Returns them, whether any read failed, and whether entries were left unread.
+fn take_entries<T>(mut entries: impl Iterator<Item = std::io::Result<T>>, left: &mut usize) -> (Vec<T>, bool, bool) {
+    let (mut taken, mut failed) = (Vec::new(), false);
+    loop {
+        if *left == 0 {
+            // One more read says whether there was more.
+            return match entries.next() {
+                Some(e) => (taken, failed || e.is_err(), true),
+                None => (taken, failed, false),
+            };
+        }
+        let Some(e) = entries.next() else { return (taken, failed, false) };
+        *left -= 1;
+        match e {
+            Ok(e) => taken.push(e),
+            Err(_) => failed = true,
+        }
+    }
 }
 
 /// Read a project file a builder can hold in memory, with a plain error for one over the cap.
@@ -456,6 +583,41 @@ mod tests {
 
     fn call(e: &Engine, id: &str, p: Value) -> Result<Value, ToolError> {
         e.call(id, p, CallOptions::new(Caller::Mcp).with_consent(Consent::Granted)).map(|o| o.to_json()["result"].clone())
+    }
+
+    /// A search's folder reads stop at its entry budget, failed reads included.
+    #[test]
+    fn a_folder_listing_stops_reading_at_the_budget() {
+        let reads = std::cell::Cell::new(0);
+        let entries = std::iter::repeat_with(|| {
+            reads.set(reads.get() + 1);
+            Err::<(), _>(std::io::Error::other("unreadable"))
+        });
+        let mut left = 5;
+        let (taken, failed, cut) = take_entries(entries.take(100_000), &mut left);
+        assert!(taken.is_empty() && failed && cut && left == 0);
+        assert!(reads.get() < 10, "{} reads for a budget of 5", reads.get());
+    }
+
+    /// #2251: a builder that can only find byte offsets rereads the same page until it runs out
+    /// of steps. A search gives the line, and reading at it shows the match.
+    #[test]
+    fn a_search_finds_the_line_a_read_then_opens() {
+        let (_d, ws, e) = building();
+        let body: String =
+            (0..500).map(|i| if i == 420 { "ipcMain.handle('form-popup:set-db', setDb);\n".to_string() } else { format!("// line {i}\n") }).collect();
+        call(&e, "build_file_write", json!({"path": "app/electron/main.cjs", "content": body})).unwrap();
+        std::fs::create_dir_all(ws.app_dir().join("node_modules/dep")).unwrap();
+        std::fs::write(ws.app_dir().join("node_modules/dep/index.js"), "form-popup:set-db").unwrap();
+        let found = call(&e, "build_files_search", json!({"text": "form-popup:set-db"})).unwrap();
+        let m = found["matches"].as_array().unwrap();
+        assert_eq!(m.len(), 1, "dependencies aren't searched: {found}");
+        assert_eq!(m[0]["path"], "app/electron/main.cjs");
+        let page = call(&e, "build_file_read", json!({"path": m[0]["path"], "offset": m[0]["offset"], "limit": 1})).unwrap();
+        assert!(page["text"].as_str().unwrap().contains("form-popup:set-db"), "{page}");
+        let capped = call(&e, "build_files_search", json!({"text": "// line", "limit": 3})).unwrap();
+        assert!(capped["matches"].as_array().unwrap().len() == 3 && capped["more"] == true, "{capped}");
+        assert!(call(&e, "build_files_search", json!({"text": "x", "path": "app/missing"})).is_err());
     }
 
     #[test]

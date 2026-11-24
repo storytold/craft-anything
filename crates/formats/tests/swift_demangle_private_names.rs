@@ -97,7 +97,10 @@ fn the_file_identifier_can_be_shortened_and_reused() {
 #[test]
 fn a_private_method_in_an_extension_leaves_out_the_extension_prefix() {
     // Constructed with `swiftc -enable-library-evolution` and checked with `swift-demangle`.
-    assert_eq!(dm("$sSi4mainE5twice029_12232F587A4C5CD8B1EEDF696793D2FCLLSiyF"), "Swift.Int.(twice in _12232F587A4C5CD8B1EEDF696793A4FC)() -> Swift.Int");
+    assert_eq!(
+        dm("$sSi4mainE5twice029_12232F587A4C5CD8B1EEDF696793D2FCLLSiyF"),
+        "(extension in main):Swift.Int.(twice in _12232F587A4C5CD8B1EEDF696793A4FC)() -> Swift.Int"
+    );
 }
 
 /// `swift-demangle` decodes none of these: `LL` after something other than two identifiers

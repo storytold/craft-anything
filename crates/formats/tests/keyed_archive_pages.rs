@@ -1,4 +1,4 @@
-use craft_anything_formats::keyed_archive;
+use craft_anything_formats::{keyed_archive, nib, plist};
 use craft_anything_testkit::apple as fx;
 
 #[test]
@@ -37,4 +37,79 @@ fn a_small_page_copies_only_its_requested_large_class_name() {
     assert_eq!(page[0].class.as_deref(), Some(class.as_str()));
     assert_eq!(page[0].references, [1]);
     assert_eq!(page.iter().filter_map(|row| row.class.as_ref()).map(String::len).sum::<usize>(), 64 << 10);
+}
+
+#[test]
+fn owned_conversion_moves_the_table_and_keeps_borrowed_results() {
+    let value = fx::dict(vec![
+        ("$archiver", fx::s("NSKeyedArchiver")),
+        ("$version", fx::P::Int(100_000)),
+        (
+            "$objects",
+            fx::P::Array(vec![
+                fx::s("$null"),
+                fx::P::Array(vec![fx::P::Uid(2), fx::P::Uid(3), fx::P::Uid(2)]),
+                fx::s("shared text"),
+                fx::P::Data(vec![1, 2, 3, 4]),
+            ]),
+        ),
+        ("$top", fx::dict(vec![("root", fx::P::Uid(1)), ("payload", fx::P::Uid(3))])),
+    ]);
+    for bytes in [fx::to_bplist(&value), fx::to_xml(&value).into_bytes()] {
+        let parsed = plist::parse(&bytes).unwrap();
+        let stored = parsed.get("$objects").unwrap().as_array().unwrap();
+        let table = stored.as_ptr();
+        let text = stored[2].as_str().unwrap().as_ptr();
+        let plist::Value::Data(payload) = &stored[3] else { panic!("missing payload") };
+        let data = payload.as_ptr();
+        let borrowed = keyed_archive::from_plist(&parsed).unwrap();
+        assert_eq!(stored, borrowed.objects, "the borrowed API leaves the original value usable");
+        let owned = keyed_archive::from_owned_plist(parsed).unwrap();
+        assert_eq!(owned.objects.as_ptr(), table);
+        assert_eq!(owned.objects[2].as_str().unwrap().as_ptr(), text);
+        let plist::Value::Data(payload) = &owned.objects[3] else { panic!("missing payload") };
+        assert_eq!(payload.as_ptr(), data);
+        assert_eq!((owned.archiver.as_str(), owned.version, &owned.top), (borrowed.archiver.as_str(), borrowed.version, &borrowed.top));
+        assert_eq!(owned.objects, borrowed.objects);
+        for root in [None, Some("root"), Some("payload")] {
+            assert_eq!(owned.root(root), borrowed.root(root));
+            let index = owned.root(root).unwrap().1;
+            assert_eq!(owned.project(index), borrowed.project(index));
+        }
+        assert_eq!(serde_json::to_value(owned.rows()).unwrap(), serde_json::to_value(borrowed.rows()).unwrap());
+        assert_eq!(nib::parse(&bytes).unwrap(), nib::from_keyed_archive(&borrowed));
+    }
+}
+
+#[test]
+fn owned_conversion_preserves_first_fields_and_validation_order() {
+    use plist::Value::{self, Array, Dict, Integer, String as Text, Uid};
+    let field = |key: &str, value| (key.to_owned(), value);
+    let objects = || Array(vec![Text("$null".into()), Text("first table".into())]);
+    let top = || Dict(vec![field("root", Uid(1))]);
+    let valid = Dict(vec![
+        field("$objects", objects()),
+        field("$objects", Array(vec![])),
+        field("$top", top()),
+        field("$top", Value::Null),
+        field("$archiver", Text("first archiver".into())),
+        field("$archiver", Text("second archiver".into())),
+        field("$version", Integer(100_000)),
+        field("$version", Integer(2)),
+    ]);
+    let borrowed = keyed_archive::from_plist(&valid).unwrap();
+    let owned = keyed_archive::from_owned_plist(valid).unwrap();
+    assert_eq!((owned.archiver, owned.version, owned.top, owned.objects), (borrowed.archiver, borrowed.version, borrowed.top, borrowed.objects));
+    for invalid in [
+        Value::Null,
+        Dict(vec![field("$top", top())]),
+        Dict(vec![field("$objects", Value::Null), field("$objects", objects()), field("$top", top())]),
+        Dict(vec![field("$objects", objects())]),
+        Dict(vec![field("$objects", objects()), field("$top", Value::Null), field("$top", top())]),
+        Dict(vec![field("$top", Value::Null), field("$objects", Value::Null)]),
+    ] {
+        let borrowed = keyed_archive::from_plist(&invalid).unwrap_err();
+        let owned = keyed_archive::from_owned_plist(invalid).unwrap_err();
+        assert_eq!(owned.to_string(), borrowed.to_string());
+    }
 }

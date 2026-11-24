@@ -1,17 +1,15 @@
 use craft_anything_formats::{
     arsc::{Limits, parse},
-    axml::chunk,
-    bytes::Reader,
+    axml::chunk_header,
 };
 use craft_anything_testkit::android::resources_arsc;
 
 fn children(data: &[u8], start: usize) -> Vec<(usize, u16)> {
-    let r = Reader::new(data);
-    let (_, head, size) = chunk(&r, start).unwrap();
+    let (_, head, size) = chunk_header(data, start).unwrap();
     let mut pos = start + head;
     let mut result = Vec::new();
     while pos < start + size {
-        let (kind, _, bytes) = chunk(&r, pos).unwrap();
+        let (kind, _, bytes) = chunk_header(data, pos).unwrap();
         result.push((pos, kind));
         pos += bytes;
     }

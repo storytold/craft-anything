@@ -184,7 +184,8 @@ impl TargetKind for GameKind {
 }
 
 /// Deep mode with the original's files: the build says which it used (`app/CREDITS.md`) and that
-/// it is for private use (`app/README.md` with `PRIVATE_USE_NOTE`), as the brief asks.
+/// it is for private use (`app/README.md` with `PRIVATE_USE_NOTE`), as the brief asks; or, when
+/// it used none, `app/CREDITS.md` says so with `NO_ORIGINALS_NOTE`.
 pub struct CreditsCheck;
 
 impl CreditsCheck {
@@ -272,6 +273,11 @@ fn is_game_word(w: &str) -> bool {
 fn credits(app: &Path) -> (bool, String) {
     // Whitespace collapsed, so a wrapped line still counts.
     let read = |name: &str| std::fs::read_to_string(app.join(name)).unwrap_or_default().split_whitespace().collect::<Vec<_>>().join(" ");
+    // Files the extraction step took out of the game are in the build, whatever CREDITS.md says.
+    let extracted = std::fs::read_dir(app.join("Original")).is_ok_and(|mut d| d.next().is_some());
+    if !extracted && read("CREDITS.md").contains(NO_ORIGINALS_NOTE) {
+        return (true, "app/CREDITS.md says the build uses none of the original's files.".into());
+    }
     let mut add = Vec::new();
     if !read("README.md").contains(PRIVATE_USE_NOTE) {
         add.push(format!("start app/README.md with this line, as written: \"{PRIVATE_USE_NOTE}\""));
@@ -281,8 +287,16 @@ fn credits(app: &Path) -> (bool, String) {
     }
     if add.is_empty() {
         (true, "app/README.md says the build is for private use and app/CREDITS.md lists the original's files.".into())
+    } else if extracted {
+        (false, format!("The original game's files are in app/Original/, so {}.", add.join(", and ")))
     } else {
-        (false, format!("This build uses the original game's own files, so {}.", add.join(", and ")))
+        (
+            false,
+            format!(
+                "If this build uses any of the original game's own files, {}. If it uses none, write this line in app/CREDITS.md instead, as written: \"{NO_ORIGINALS_NOTE}\"",
+                add.join(", and ")
+            ),
+        )
     }
 }
 
@@ -328,5 +342,21 @@ A private copy.",
         )
         .unwrap();
         assert!(!credits(d.path()).0, "the note must be there as written");
+    }
+
+    /// #2266: a build that uses none of the original's files says so instead of claiming it does,
+    /// unless files extracted from the game are in it.
+    #[test]
+    fn a_build_without_the_originals_files_says_so_instead() {
+        let d = tempfile::tempdir().unwrap();
+        let (ok, note) = credits(d.path());
+        assert!(!ok && note.contains(NO_ORIGINALS_NOTE), "the way out is offered: {note}");
+        std::fs::write(d.path().join("CREDITS.md"), format!("# Credits\n\n{NO_ORIGINALS_NOTE}\n")).unwrap();
+        let (ok, note) = credits(d.path());
+        assert!(ok && !note.contains("README"), "{note}");
+        std::fs::create_dir_all(d.path().join("Original")).unwrap();
+        std::fs::write(d.path().join("Original/MANIFEST.md"), "- Rock.png").unwrap();
+        let (ok, note) = credits(d.path());
+        assert!(!ok && note.contains(PRIVATE_USE_NOTE) && !note.contains(NO_ORIGINALS_NOTE), "extracted files are in the build: {note}");
     }
 }

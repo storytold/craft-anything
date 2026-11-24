@@ -54,9 +54,26 @@ pub fn from_plist(v: &Value) -> Result<KeyedArchive, FormatError> {
     })
 }
 
+/// Read an owned plist, moving its object table instead of copying every stored payload.
+pub fn from_owned_plist(mut v: Value) -> Result<KeyedArchive, FormatError> {
+    let objects = match &mut v {
+        Value::Dict(entries) => entries.iter_mut().find(|(key, _)| key == "$objects").map(|(_, value)| value),
+        _ => None,
+    };
+    let Some(Value::Array(objects)) = objects else {
+        return Err(FormatError::Malformed("no $objects array (not a keyed archive)".into()));
+    };
+    let objects = std::mem::take(objects);
+    // Keep the selected array's position, including before duplicate keys, while reusing the
+    // borrowed constructor's metadata validation. Its now-empty array has nothing to copy.
+    let mut archive = from_plist(&v)?;
+    archive.objects = objects;
+    Ok(archive)
+}
+
 /// Parse bytes (binary or XML plist) as a keyed archive.
 pub fn parse(data: &[u8]) -> Result<KeyedArchive, FormatError> {
-    from_plist(&plist::parse(data)?)
+    from_owned_plist(plist::parse(data)?)
 }
 
 /// A UID, also in its XML form `{"CF$UID": n}`.

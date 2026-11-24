@@ -868,6 +868,22 @@ pub fn resources_arsc() -> Vec<u8> {
     chunks.extend(type_chunk(1, &config(b"fr", 0, 0, 0), &[simple_entry(0, 3, 2), simple_entry(1, 3, 3)]));
     chunks.extend(type_spec(2, 1));
     chunks.extend(type_chunk(2, &config(b"\0\0", 320, 0x20, 21), &[bag]));
+    resource_table(&global, &types, &keys, 2, 3, &chunks)
+}
+
+/// `resources.arsc` holding one `string/app_name` entry in configuration `cfg` (a whole
+/// `ResTable_config`, its size in the first four bytes), to read the qualifiers the table gives it.
+pub fn resources_arsc_with_config(cfg: &[u8]) -> Vec<u8> {
+    let global = string_pool(&["Notes"], true);
+    let types = string_pool(&["string"], false);
+    let keys = string_pool(&["app_name"], false);
+    let mut chunks = type_spec(1, 1);
+    chunks.extend(type_chunk(1, cfg, &[simple_entry(0, 3, 0)]));
+    resource_table(&global, &types, &keys, 1, 1, &chunks)
+}
+
+/// A resource table of one package from encoded string pools and type chunks.
+fn resource_table(global: &[u8], types: &[u8], keys: &[u8], type_count: u32, key_count: u32, chunks: &[u8]) -> Vec<u8> {
     let header = 288usize;
     let mut pkg = Vec::new();
     u16le(&mut pkg, 0x0200);
@@ -882,19 +898,19 @@ pub fn resources_arsc() -> Vec<u8> {
         u16le(&mut pkg, u);
     }
     u32le(&mut pkg, header as u32);
-    u32le(&mut pkg, 2);
+    u32le(&mut pkg, type_count);
     u32le(&mut pkg, (header + types.len()) as u32);
-    u32le(&mut pkg, 3);
+    u32le(&mut pkg, key_count);
     u32le(&mut pkg, 0);
-    pkg.extend(types);
-    pkg.extend(keys);
-    pkg.extend(chunks);
+    pkg.extend_from_slice(types);
+    pkg.extend_from_slice(keys);
+    pkg.extend_from_slice(chunks);
     let mut out = Vec::new();
     u16le(&mut out, 0x0002);
     u16le(&mut out, 12);
     u32le(&mut out, (12 + global.len() + pkg.len()) as u32);
     u32le(&mut out, 1);
-    out.extend(global);
+    out.extend_from_slice(global);
     out.extend(pkg);
     out
 }

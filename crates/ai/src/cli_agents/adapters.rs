@@ -12,6 +12,7 @@ mod devin;
 mod dsh;
 mod grok;
 mod hermes;
+mod kimi_code;
 mod maki;
 mod opencode;
 pub use aider::Aider;
@@ -21,6 +22,7 @@ pub use devin::Devin;
 pub use dsh::DeepSeekHarness;
 pub use grok::Grok;
 pub use hermes::Hermes;
+pub use kimi_code::KimiCode;
 pub use maki::Maki;
 pub use opencode::OpenCode;
 
@@ -311,7 +313,8 @@ impl Default for AgentAdapters {
 }
 
 impl AgentAdapters {
-    /// The built-in coding agents, including the ACP-only Copilot and Grok Build adapters and Devin's.
+    /// The built-in coding agents, including the ACP-only Copilot, Grok Build and Kimi Code
+    /// adapters and Devin's.
     pub fn built_in() -> AgentAdapters {
         AgentAdapters {
             adapters: vec![
@@ -327,6 +330,7 @@ impl AgentAdapters {
                 Arc::new(Grok),
                 Arc::new(DeepSeekHarness),
                 Arc::new(Devin),
+                Arc::new(KimiCode),
             ],
         }
     }

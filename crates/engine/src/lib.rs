@@ -121,6 +121,22 @@ pub struct Engine {
     /// the session, with the project root it belongs to. Taken in whenever the session is next
     /// locked (see [`Engine::settle`]). Locked only briefly, and never while waiting for the session.
     pending: Mutex<Vec<(Option<std::path::PathBuf>, craft_anything_evidence::Evidence)>>,
+    /// The engine this one works beside ([`Engine::for_a_run`]).
+    app: Option<std::sync::Weak<Engine>>,
+    /// The asset keys this engine and the runs beside it spend from, once a run loaded them. Kept
+    /// outside every session's lock, so a key saved or removed through any of them reaches the rest
+    /// at their next tool call, and nobody waits for a busy session to say so (#943 review).
+    asset_keys: AssetKeysCell,
+}
+
+type AssetKeysCell = std::sync::Arc<KeysCell>;
+
+/// The asset keys in use, and a lock that loads take in turn, so the keychain is read outside
+/// the lock every tool call takes and a slow load still can't land after a newer one.
+#[derive(Default)]
+struct KeysCell {
+    loading: Mutex<()>,
+    keys: Mutex<Option<std::sync::Arc<tools::asset_tools::AssetKeys>>>,
 }
 
 /// A handle to the engine a tool runs in, for tools that start work which calls back into it (a
@@ -129,7 +145,13 @@ pub struct EngineRef(pub std::sync::Weak<Engine>);
 
 impl Engine {
     pub fn new(session: Session) -> Self {
-        Engine { registry: Registry::with_all_tools(), session: Mutex::new(session), pending: Mutex::new(Vec::new()) }
+        Engine {
+            registry: Registry::with_all_tools(),
+            session: Mutex::new(session),
+            pending: Mutex::new(Vec::new()),
+            app: None,
+            asset_keys: AssetKeysCell::default(),
+        }
     }
 
     /// The engine as most apps use it: shared, with tools from higher layers (`extra`, e.g. the
@@ -148,8 +170,55 @@ impl Engine {
         std::sync::Arc::new_cyclic(|me| {
             let mut session = session;
             session.ext.insert(std::sync::Arc::new(EngineRef(me.clone())));
-            Engine { registry: Registry::new(tools).with_runtime(runtime), session: Mutex::new(session), pending: Mutex::new(Vec::new()) }
+            Engine {
+                registry: Registry::new(tools).with_runtime(runtime),
+                session: Mutex::new(session),
+                pending: Mutex::new(Vec::new()),
+                app: None,
+                asset_keys: AssetKeysCell::default(),
+            }
         })
+    }
+
+    /// An engine of its own for work whose tools point its session at one project: the same tools,
+    /// with a session that takes on the person's changes here before each tool call
+    /// ([`Session::follow`]). It's what lets two API-key builds work at once. Never waits: while
+    /// this session is busy (a tool starting the run holds it), the run starts from `busy` (the
+    /// saved settings) and catches up at its first tool call that finds this one free.
+    pub fn for_a_run(self: &std::sync::Arc<Self>, busy: impl FnOnce() -> Session) -> std::sync::Arc<Engine> {
+        let session = self.try_session().map(|s| s.for_a_run()).unwrap_or_else(busy);
+        let (registry, asset_keys) = (self.registry.clone(), self.asset_keys.clone());
+        std::sync::Arc::new_cyclic(|me| {
+            let mut session = session;
+            session.ext.insert(std::sync::Arc::new(EngineRef(me.clone())));
+            Engine { registry, session: Mutex::new(session), pending: Mutex::new(Vec::new()), app: Some(std::sync::Arc::downgrade(self)), asset_keys }
+        })
+    }
+
+    /// Load the asset keys this engine and the runs beside it spend from, and use them in
+    /// `session` (this engine's, which the caller holds). Loads take turns, so keys read before a
+    /// change can't land after it; tool calls don't wait for `read` (the keychain can be slow).
+    pub fn load_asset_keys(
+        &self,
+        session: &mut Session,
+        read: impl FnOnce() -> tools::asset_tools::AssetKeys,
+    ) -> std::sync::Arc<tools::asset_tools::AssetKeys> {
+        let turn = self.asset_keys.loading.lock().unwrap_or_else(PoisonError::into_inner);
+        turn.label("Read the asset keys");
+        let keys = std::sync::Arc::new(read());
+        *self.asset_keys.keys.lock().unwrap_or_else(PoisonError::into_inner) = Some(keys.clone());
+        session.ext.insert(keys.clone());
+        keys
+    }
+
+    /// A run here (or beside this engine) loaded asset keys.
+    pub fn asset_keys_loaded(&self) -> bool {
+        self.asset_keys.keys.lock().unwrap_or_else(PoisonError::into_inner).is_some()
+    }
+
+    /// The engine this one works beside, if it was made with [`Engine::for_a_run`].
+    pub fn app(&self) -> Option<std::sync::Arc<Engine>> {
+        self.app.as_ref().and_then(std::sync::Weak::upgrade)
     }
 
     pub fn registry(&self) -> &Registry {
@@ -292,6 +361,15 @@ impl Engine {
             }
         };
         session.label(spec.id);
+        // Never waits: if the app's session is busy, this call goes by what it last saw, except for
+        // approvals (below), which it can't then check.
+        let followed = match self.app() {
+            Some(app) => app.try_session().map(|app| session.follow(&app)).is_some(),
+            None => true,
+        };
+        if let Some(keys) = self.asset_keys.keys.lock().unwrap_or_else(PoisonError::into_inner).clone() {
+            session.ext.insert(keys);
+        }
         if session.clean_room() && !clean_room::allows(spec.id) {
             return Err(clean_room::refusal(spec.id));
         }
@@ -312,13 +390,18 @@ impl Engine {
             return Err(err);
         }
         if spec.effects.needs_consent() && opts.consent != Consent::Granted {
-            let allowed = !session.settings.ask_before_running || session.project.as_ref().is_some_and(|p| p.is_allowed(spec.id));
+            // Approvals last seen aren't approvals now: the person may have turned asking back on.
+            let allowed = followed && (!session.settings.ask_before_running || session.project.as_ref().is_some_and(|p| p.is_allowed(spec.id)));
             if !allowed {
                 return Err(ToolError::new(ErrorCode::ConsentRequired, format!("{} runs code or changes a device, so it needs your OK first.", spec.title))
                     .with_remediation("Approve it when asked, or allow it for this project in Settings.")
                     .with_details(serde_json::json!({"tool": spec.id})));
             }
         }
+        // A model sometimes writes a number or a boolean as text (`"limit": "200"`): where the
+        // tool's schema says the value is one, it's read as one rather than refused. A builder
+        // used to retry the refused call until the run was out of room (#1825).
+        let params = tool::params_as_schema(&self.registry.input_schema(&spec), params);
         let run = spec.run;
         let invoke = |session: &mut Session| {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -401,7 +484,13 @@ mod tests {
         session.settings.engines.tools.chromium = Some(std::env::current_exe().unwrap());
         let mut specs = tools::all();
         specs.iter_mut().find(|s| s.id == tools::site_sign_in::SIGN_IN_TOOL).unwrap().run = run;
-        std::sync::Arc::new(Engine { registry: Registry::new(specs), session: Mutex::new(session), pending: Mutex::new(Vec::new()) })
+        std::sync::Arc::new(Engine {
+            registry: Registry::new(specs),
+            session: Mutex::new(session),
+            pending: Mutex::new(Vec::new()),
+            app: None,
+            asset_keys: AssetKeysCell::default(),
+        })
     }
 
     #[test]
@@ -584,6 +673,23 @@ mod tests {
         assert!(e.session().evidence(&ev.id).is_some(), "its own project is open: recorded");
     }
 
+    /// #943 review: a run whose app session is busy can't see whether the person turned asking
+    /// back on, so it doesn't run what needs consent on the approvals it last saw.
+    #[test]
+    fn a_run_asks_when_it_cant_read_the_apps_approvals() {
+        let mut s = crate::testing::session();
+        s.settings.ask_before_running = false;
+        let app = Engine::shared(s, Vec::new());
+        let run = app.for_a_run(crate::testing::session);
+        let p = serde_json::json!({"program": std::env::temp_dir().join("no-such-program.exe")});
+        let capture = || run.call("native_window_capture", p.clone(), CallOptions::new(Caller::Mcp));
+        assert!(capture().unwrap_err().message.contains("isn't a program file"), "the app says not to ask: past consent");
+        let busy = app.session();
+        assert_eq!(capture().unwrap_err().code, ErrorCode::ConsentRequired, "the app's session is busy");
+        drop(busy);
+        assert!(capture().unwrap_err().message.contains("isn't a program file"), "and once it's free, as before");
+    }
+
     #[test]
     fn isolated_sign_in_still_requires_consent_and_contains_panics() {
         fn broken(_: &mut Ctx<'_>, _: Value) -> Result<ToolOutput, ToolError> {
@@ -613,6 +719,83 @@ mod tests {
         let err = e.call("web_site_open", serde_json::json!({"url": "https://example.com"}), CallOptions::new(Caller::Cli)).unwrap_err();
         assert_eq!(err.code, ErrorCode::EngineMissing);
         assert!(err.message.contains("isn't there") && err.message.contains("brave"), "{}", err.message);
+    }
+
+    /// Two API-key builds in one session wrote into whichever project started last.
+    #[test]
+    fn runs_with_their_own_engines_keep_to_their_own_projects() {
+        use crate::inbox::InboxDir;
+        use crate::workspace::{TargetRef, Workspace};
+        let d = tempfile::tempdir().unwrap();
+        let app = Engine::shared(crate::testing::session(), Vec::new());
+        let start = |name: &str| {
+            let ws = Workspace::create(d.path(), name, "A game", TargetRef::None).unwrap();
+            let run = app.for_a_run(crate::testing::session);
+            run.session().ext.insert(std::sync::Arc::new(InboxDir(ws.inbox_dir())));
+            (ws, run)
+        };
+        let ((ws_a, a), (ws_b, b)) = (start("A"), start("B"));
+        for (run, who) in [(&a, "a"), (&b, "b")] {
+            run.call(
+                "build_file_write",
+                serde_json::json!({"path": "app/who.txt", "content": who}),
+                CallOptions::new(Caller::Mcp).with_consent(Consent::Granted),
+            )
+            .unwrap();
+        }
+        assert_eq!(std::fs::read_to_string(ws_a.app_dir().join("who.txt")).unwrap(), "a");
+        assert_eq!(std::fs::read_to_string(ws_b.app_dir().join("who.txt")).unwrap(), "b");
+        assert!(app.session().ext.get::<InboxDir>().is_none(), "the app's session isn't pointed anywhere by them");
+    }
+
+    /// What the person changes in the app reaches a run that's working: settings, a removed key,
+    /// and what they've allowed for its project.
+    #[test]
+    fn a_run_with_its_own_engine_takes_on_changes_made_in_the_app() {
+        use crate::project::{Project, Purpose};
+        use crate::tools::asset_tools::AssetKeys;
+        let d = tempfile::tempdir().unwrap();
+        let project = Project::create(d.path(), "A", Purpose::default()).unwrap();
+        let app = Engine::shared(crate::testing::session(), Vec::new());
+        let run = app.for_a_run(crate::testing::session);
+        run.load_asset_keys(&mut run.session(), || AssetKeys([("fal".to_string(), "k-1".to_string())].into()));
+        assert!(app.asset_keys_loaded(), "the app's engine goes by them too");
+        assert!(std::sync::Arc::ptr_eq(&run.app().unwrap(), &app));
+        let (mut with_app, mut with_run) = (project.clone(), project);
+        with_app.meta.allowed_tools.clear();
+        with_run.meta.allowed_tools.clear();
+        app.session().project = Some(with_app);
+        run.session().project = Some(with_run);
+
+        let auto = !app.session().settings.auto_mode;
+        {
+            let mut s = app.session();
+            s.settings.auto_mode = auto;
+            app.load_asset_keys(&mut s, AssetKeys::default);
+            s.project.as_mut().unwrap().meta.allowed_tools.push("some_tool".into());
+        }
+        let _ = run.call("core_session_show", Value::Null, CallOptions::new(Caller::Cli));
+        let s = run.session();
+        assert_eq!(s.settings.auto_mode, auto);
+        assert_eq!(s.ext.get::<AssetKeys>().unwrap().get("fal"), None, "a removed key stops being spent");
+        assert!(s.project.as_ref().unwrap().is_allowed("some_tool"));
+    }
+
+    /// A run keeps the mode it started in: Deep mode turned on in the app mustn't open the Deep
+    /// tools to a Clean room run, nor Clean room close them on a Deep one midway.
+    #[test]
+    fn a_run_keeps_the_mode_it_started_in() {
+        for deep in [false, true] {
+            let mut s = crate::testing::session();
+            s.settings.deep_mode = deep;
+            let app = Engine::shared(s, Vec::new());
+            let run = app.for_a_run(crate::testing::session);
+            app.session().settings.deep_mode = !deep;
+            let _ = run.call("core_session_show", Value::Null, CallOptions::new(Caller::Cli));
+            let s = run.session();
+            assert_eq!(s.settings.deep_mode, !deep, "the setting is still taken on");
+            assert_eq!(s.clean_room(), !deep, "but not by the run");
+        }
     }
 
     #[test]
@@ -700,5 +883,11 @@ mod tests {
         assert_eq!(serde_json::to_value(group).unwrap(), "demo_plugin");
         assert!(custom_toolset("No Spaces").is_none());
         assert_eq!(custom_toolset("core"), Some(Toolset::Core), "a built-in id is the built-in group");
+        // A run-time tool's params follow the schema it was registered with, as a built-in tool's
+        // do: its number written as text is read as a number, its text stays text (#1825).
+        let numeric = tool("demo_four", serde_json::json!({"type": "object", "properties": {"count": {"type": "integer"}, "note": {"type": "string"}}}));
+        let e = Engine::shared_with(crate::testing::session(), Vec::new(), vec![numeric]);
+        let out = e.call("demo_four", serde_json::json!({"count": "200", "note": "200"}), CallOptions::new(Caller::Cli)).unwrap().to_json();
+        assert_eq!(out["result"]["params"], serde_json::json!({"count": 200, "note": "200"}));
     }
 }

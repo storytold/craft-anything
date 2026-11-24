@@ -85,6 +85,9 @@ const DECLARED: &[Declared] = &[
     // Its print path gets neither; ACP (`acp = true` on the backend) hands over the server and
     // its permission requests, but isn't what a run does unless the person turned it on.
     Declared { id: "devin", path: Path::Argv, tool_server: Given::No, approvals: Given::No, mid_turn_notes: Given::No },
+    // `kimi acp` takes our server in `session/new` and asks with `session/request_permission`;
+    // its print mode (`kimi -p`) has neither, so it isn't used. No live run has checked either yet.
+    Declared { id: "kimi-code", path: Path::Acp, tool_server: Given::Yes, approvals: Given::Yes, mid_turn_notes: Given::No },
     // Its headless profile takes a patch overlay that holds the server, but no run has checked
     // that what it wants to do reaches our approval policy.
     Declared {

@@ -21,10 +21,14 @@ process-wrap = { version = "10", default-features = false, features = ["std", "p
 portable-pty = "0.9"
 vt100 = "0.16"
 
-# Window screenshots of a running program (safe API). Windows and macOS only for now: on Linux it
-# needs PipeWire, Wayland/GBM, XCB and clang to build (ROADMAP R2.4).
+# Window screenshots of a running program (safe API). Windows and macOS: on Linux it needs
+# PipeWire, Wayland/GBM, XCB and clang to build (ROADMAP R2.4).
 [target.'cfg(any(windows, target_os = "macos"))'.dependencies]
 xcap = "0.9"
+
+# Linux: the X protocol in Rust (no C libraries; already in the tree through winit and arboard).
+[target.'cfg(target_os = "linux")'.dependencies]
+x11rb = { version = "0.13", default-features = false, features = ["image"] }
 
 # Whether Screen Recording is allowed (a safe call; xcap uses the same crate).
 [target.'cfg(target_os = "macos")'.dependencies]

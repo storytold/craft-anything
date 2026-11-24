@@ -331,7 +331,9 @@ fn greeting(app: &CraftApp, ui: &mut Ui, dense: bool) {
 fn composer(app: &mut CraftApp, ui: &mut Ui, width: f32, dense: bool) {
     let answering = app.answering();
     let hint = if dense { tr("Ask the agent…") } else { tr("Ask anything, e.g. \"What does this program do?\"") };
-    ui.allocate_ui(Vec2::new(width, 0.0), |ui| {
+    ui.allocate_ui_with_layout(Vec2::new(width, 0.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+        disabled_backend_recovery(app, ui);
+        let disabled = app.backends.iter().any(|b| Some(&b.name) == app.state.backend.as_ref() && !b.enabled);
         let history = || {
             app.state
                 .chat
@@ -351,7 +353,7 @@ fn composer(app: &mut CraftApp, ui: &mut Ui, width: f32, dense: bool) {
                 previews: &[],
                 stop_button: answering.then_some("Stop"),
                 stopping: false,
-                send: !answering,
+                send: !answering && !disabled,
                 recall: false,
                 history: Some(&history),
                 font_size: if dense { 14.0 } else { 16.0 },
@@ -360,12 +362,49 @@ fn composer(app: &mut CraftApp, ui: &mut Ui, width: f32, dense: bool) {
         if out.stop {
             app.stop();
         }
-        // One answer at a time; what's typed meanwhile stays in the box.
-        if out.send && !answering {
+        // One answer at a time; a turned-off choice keeps the question for after recovery too.
+        // Enter can request a send even when the prompt box's Send button is hidden.
+        if out.send && !answering && !disabled {
             let text = std::mem::take(&mut app.state.input);
             app.send(&text);
         }
     });
+}
+
+fn disabled_backend_recovery(app: &mut CraftApp, ui: &mut Ui) {
+    let Some(name) = app.backends.iter().find(|b| Some(&b.name) == app.state.backend.as_ref() && !b.enabled).map(|b| b.name.clone()) else {
+        return;
+    };
+    let pending_id = ui.id().with(("enable-chat-backend", &name));
+    let pending = ui.data(|d| d.get_temp::<u64>(pending_id)).is_some_and(|id| app.jobs.list.iter().any(|j| j.id == id && j.outcome.is_none()));
+    if !pending {
+        ui.data_mut(|d| d.remove::<u64>(pending_id));
+    }
+    let t = Tokens::get(ui.ctx());
+    ui.add(
+        egui::Label::new(RichText::new(crate::i18n::trf("{name} is turned off. Turn it on or choose another AI.", &[("name", &name)])).color(t.text_dim))
+            .wrap(),
+    );
+    ui.horizontal_wrapped(|ui| {
+        if widgets::primary_icon(ui, None, "Turn on", !pending).clicked() {
+            let job = app.set_backend_enabled(&name, true);
+            ui.data_mut(|d| d.insert_temp(pending_id, job));
+        }
+        let enabled: Vec<_> = app.backends.iter().filter(|b| b.enabled).map(|b| b.name.clone()).collect();
+        widgets::dropdown("chat-recovery-backend").selected_text(tr("Choose another AI")).show_ui(ui, |ui| {
+            for name in enabled {
+                if widgets::menu_item(ui, false, &name).clicked() {
+                    app.choose_backend(Some(name));
+                    ui.close();
+                }
+            }
+            if widgets::menu_item(ui, false, tr("No AI (built-in engines only)")).clicked() {
+                app.choose_backend(None);
+                ui.close();
+            }
+        });
+    });
+    ui.add_space(theme::space::SM);
 }
 
 enum ChatAction {

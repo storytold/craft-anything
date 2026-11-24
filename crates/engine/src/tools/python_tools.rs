@@ -14,7 +14,7 @@ pub fn specs() -> Vec<ToolSpec> {
     vec![spec(
         "formats_bytecode_show",
         "Compiled Python file",
-        "Read a CPython compiled file (.pyc): the Python version from its magic number, how it ties to its source (modification time and size, or a source hash), and, for Python 3.8 to 3.14, its compiled code: each module, class and function with its name, dotted name, source file, first line, argument counts, the names it uses and the text among its constants, paged with offset/limit, parents before children. Other versions report the header and say why. python_version reads a file of bare marshalled code, such as a script taken out of a PyInstaller program. Built-in; nothing is executed and bytecode isn't decoded.",
+        "Read a CPython compiled file (.pyc): the Python version from its magic number, how it ties to its source (modification time and size, or a source hash), and, for Python 3.8 to 3.15, its compiled code: each module, class and function with its name, dotted name, source file, first line, argument counts, the names it uses and the text among its constants, paged with offset/limit, parents before children. Other versions report the header and say why. python_version reads a file of bare marshalled code, such as a script taken out of a PyInstaller program. Built-in; nothing is executed and bytecode isn't decoded.",
         "See what a compiled Python file holds: which Python made it, and its functions and text.",
         Toolset::Formats,
         Effects::EVIDENCE | Effects::CARRIES_TARGET_CONTENT,

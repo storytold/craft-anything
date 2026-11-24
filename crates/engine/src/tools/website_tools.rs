@@ -3,6 +3,8 @@
 //! [`super::web_common::Browser::resolve`]). `web_site_capture` records what a rebuild needs —
 //! full-page screenshots at several widths, the rendered HTML, design tokens, a layout outline,
 //! assets, links and form outlines — into a folder. `web_site_close` ends the browser.
+//! Given the person's own running browser's loopback debugging endpoint, `web_site_open` studies
+//! the site in a new tab of it instead, and that tab is closed again at the end.
 //!
 //! Data minimisation: form field values, cookies and storage are never read; the capture holds
 //! what any visitor sees on the page.
@@ -13,7 +15,7 @@ use super::native_common::spec;
 use super::site_sign_in;
 use super::web_common::{self, Browser, LaunchOptions, ProfileChoice};
 use crate::tool::{Caller, Ctx, Effects, Requires, ToolOutput, ToolSpec, Toolset, parse_params, schema_of};
-use craft_anything_engines::cdp::{self, CdpClient, CdpEvent, Deadline, Endpoint, PAGE_MAX_MESSAGE};
+use craft_anything_engines::cdp::{self, CdpClient, CdpEvent, Deadline, Endpoint, PAGE_MAX_MESSAGE, WsConn};
 use craft_anything_evidence::{Authority, Confidence, Coverage, ErrorCode, EvidenceBuilder, Limitation, Location, Subject, ToolError, sha256_hex};
 use craft_anything_platform::sync::Mutex;
 use schemars::JsonSchema;
@@ -21,6 +23,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 pub fn specs() -> Vec<ToolSpec> {
@@ -28,7 +31,7 @@ pub fn specs() -> Vec<ToolSpec> {
         spec(
             "web_site_open",
             "Open a website",
-            "Load a web page (http/https) in a private browser owned by this session (fresh profile, no history or logins) at a chosen window size, wait for it to finish loading, and report its final address, title and size. When web_site_sign_in saved a sign-in for that exact site, the private profile starts with a copy of it (signed_in: false opens signed out; true requires one). Every browser tool then inspects this page unless given another endpoint. Runs the site's scripts, so it needs your approval.",
+            "Load a web page (http/https) in a private browser owned by this session (fresh profile, no history or logins) at a chosen window size, wait for it to finish loading, and report its final address, title and size. When web_site_sign_in saved a sign-in for that exact site, the private profile starts with a copy of it (signed_in: false opens signed out; true requires one). With cdp_endpoint (the person's own browser started with --remote-debugging-port, loopback only) the page opens in a new tab of that browser instead, with its own sign-ins, and the tab is closed by web_site_close. Every browser tool then inspects this page unless given another endpoint. Runs the site's scripts, so it needs your approval.",
             "Open a website in a private, hidden browser so it can be studied.",
             Toolset::Browser,
             Effects::EVIDENCE
@@ -89,7 +92,23 @@ pub struct SiteBrowser {
     pub signed_in: Option<String>,
     /// Revision of the saved profile copied at launch; `None` for a fresh profile.
     pub sign_in_revision: Option<String>,
+    /// The tab we opened in the person's own browser; `None`: the browser is our private one.
+    pub own_tab: Option<String>,
+    /// `web_site_close` closed that tab already.
+    tab_closed: AtomicBool,
     _owner: Mutex<Browser>,
+}
+
+impl Drop for SiteBrowser {
+    // The person's browser and their other tabs stay as they were: only our own tab is closed.
+    fn drop(&mut self) {
+        if let Some(id) = self.own_tab.as_ref().filter(|_| !self.tab_closed.load(Ordering::SeqCst)) {
+            let dl = Deadline::new(Duration::from_secs(3), crate::tool::CancelToken::default());
+            if let Err(e) = browser_call(&self.endpoint, "Target.closeTarget", json!({"targetId": id}), &dl) {
+                log::warn!("couldn't close the study tab in your browser: {}", e.message);
+            }
+        }
+    }
 }
 
 impl SiteBrowser {
@@ -125,6 +144,11 @@ pub struct OpenParams {
     /// false: a fresh private profile; true: it must be saved (an error otherwise).
     #[serde(default)]
     pub signed_in: Option<bool>,
+    /// Open the page in a new tab of the person's own running browser instead of a private one:
+    /// its loopback debugging endpoint (http://127.0.0.1:9222, ws://127.0.0.1:9222/devtools/browser/…
+    /// or just 9222), from starting it with --remote-debugging-port. Its own sign-ins apply.
+    #[serde(default)]
+    pub cdp_endpoint: Option<String>,
 }
 
 fn d_width() -> u32 {
@@ -165,8 +189,15 @@ fn web_site_open(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolErr
     if !(320..=3840).contains(&p.width) || !(320..=4000).contains(&p.height) {
         return Err(ToolError::invalid("width must be 320..=3840 and height 320..=4000"));
     }
+    let own = p.cdp_endpoint.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(own_endpoint).transpose()?;
+    if own.is_some() && p.signed_in == Some(true) {
+        return Err(ToolError::invalid(
+            "signed_in: true uses a saved sign-in, but cdp_endpoint opens the page in your own browser, which keeps its own sign-ins",
+        )
+        .with_remediation("Leave out signed_in, or leave out cdp_endpoint."));
+    }
     let dl = deadline(ctx, p.timeout_secs)?;
-    let saved = chosen_sign_in(ctx.session, &url, p.signed_in)?;
+    let saved = if own.is_some() { None } else { chosen_sign_in(ctx.session, &url, p.signed_in)? };
     let reservation = saved.as_ref().map(|s| site_sign_in::lock_site(ctx.session, &s.key)).transpose()?;
     // Re-read under the reservation: a different engine may have replaced or forgotten it.
     let saved = if reservation.is_some() { chosen_sign_in(ctx.session, &url, p.signed_in)? } else { saved };
@@ -174,10 +205,19 @@ fn web_site_open(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolErr
     // A browser started for another sign-in (or none) isn't reused: each site sees only its own.
     // The new one replaces it once it has started, so a failed start leaves the old one open.
     let revision = saved.as_ref().map(|s| s.revision.clone());
-    let reuse = live_site(ctx, &dl).filter(|s| reuse_profile(p.signed_in, s.signed_in.as_deref(), s.sign_in_revision.as_deref(), saved.as_ref()));
-    let site = match reuse {
-        Some(s) => s,
-        None => {
+    let reuse = live_site(ctx, &dl).filter(|s| match &own {
+        Some(ep) => s.own_tab.is_some() && s.endpoint == *ep,
+        None => s.own_tab.is_none() && reuse_profile(p.signed_in, s.signed_in.as_deref(), s.sign_in_revision.as_deref(), saved.as_ref()),
+    });
+    let site = match (reuse, own) {
+        (Some(s), _) => s,
+        (None, Some(ep)) => {
+            ctx.report(None, "Opening a new tab in your browser…");
+            let site = Arc::new(own_tab(&ep, &dl)?);
+            ctx.session.ext.insert(site.clone());
+            site
+        }
+        (None, None) => {
             ctx.report(None, if want.is_some() { "Starting a private browser with your saved sign-in…" } else { "Starting a private browser…" });
             let profile = saved.as_ref().map_or(ProfileChoice::Fresh, |s| ProfileChoice::SeededFrom(s.profile.clone()));
             let opts = LaunchOptions { headless: p.headless, profile, ..LaunchOptions::default() };
@@ -190,6 +230,8 @@ fn web_site_open(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolErr
                 health: Mutex::new(Value::Null),
                 signed_in: want.clone(),
                 sign_in_revision: revision,
+                own_tab: None,
+                tab_closed: AtomicBool::new(false),
                 _owner: Mutex::new(b),
             });
             ctx.session.ext.insert(site.clone());
@@ -223,7 +265,14 @@ fn web_site_open(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolErr
     };
     let title = facts.get("title").and_then(Value::as_str).unwrap_or_default().to_string();
     let shown = shown_url(&final_url);
-    let how = if want.is_some() { " signed in" } else { "" };
+    let mine = site.own_tab.is_some();
+    let how = if want.is_some() {
+        " signed in"
+    } else if mine {
+        " in your browser"
+    } else {
+        ""
+    };
     let opened = if title.is_empty() { format!("Opened {shown}{how}.") } else { format!("Opened {shown}{how}: \"{title}\".") };
     let count = |k: &str| health.get(k).and_then(Value::as_array).map_or(0, Vec::len);
     let summary = match (count("errors"), count("failed_requests")) {
@@ -232,7 +281,7 @@ fn web_site_open(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolErr
     };
     let summary = format!("{summary}{}", dialogs_said(&dialogs));
     // Pages opened signed in often land on addresses carrying codes or tokens: keep only the path.
-    let (final_url, facts) = if want.is_some() { signed_in_urls(final_url, facts) } else { (final_url, facts) };
+    let (final_url, facts) = if want.is_some() || mine { signed_in_urls(final_url, facts) } else { (final_url, facts) };
     let browser = site.handle();
     let ev = EvidenceBuilder::new(
         "web_site_open",
@@ -240,11 +289,11 @@ fn web_site_open(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolErr
         browser_env(ctx.session.clean_room(), &browser),
     )
     .params(json!({"url": shown, "width": p.width, "height": p.height}))
-    .result(json!({"url": final_url, "title": title, "facts": facts, "health": health, "dialogs": dialogs, "browser": site.product, "signed_in": want.is_some(), "signed_in_site": want}))
+    .result(json!({"url": final_url, "title": title, "facts": facts, "health": health, "dialogs": dialogs, "browser": site.product, "signed_in": want.is_some(), "signed_in_site": want, "own_browser": mine}))
     .summary(summary)
     .confidence(Confidence::Observed)
     .authority(Authority::OurRun)
-    .limitation(profile_limitation(want.as_deref()))
+    .limitation(if mine { Limitation::new("own_browser", OWN_BROWSER) } else { profile_limitation(want.as_deref()) })
     .coverage(Coverage::complete(1))
     .location(Location::new("url", shown))
     .build()?;
@@ -302,10 +351,72 @@ fn profile_limitation(signed_in: Option<&str>) -> Limitation {
     }
 }
 
-/// The session's website browser when it is still answering; a dead one is dropped.
+/// Said of pages opened in the person's own browser.
+const OWN_BROWSER: &str =
+    "Opened in a new tab of your own browser: pages show what that browser is signed in to, so screenshots and page text may show your own account's data.";
+
+/// The person's own browser's endpoint: a bare port or a `ws://` debugger address stand for its
+/// `http://` origin. Only loopback is accepted ([`cdp::parse_endpoint`]), so nothing is scanned
+/// and no other computer is reached.
+fn own_endpoint(given: &str) -> Result<Endpoint, ToolError> {
+    if !given.is_empty() && given.bytes().all(|b| b.is_ascii_digit()) {
+        return cdp::parse_endpoint(&format!("http://127.0.0.1:{given}"));
+    }
+    match given.strip_prefix("ws://") {
+        Some(rest) => cdp::parse_endpoint(&format!("http://{}", rest.split('/').next().unwrap_or_default())),
+        None => cdp::parse_endpoint(given),
+    }
+}
+
+/// Largest answer to a browser-level command (a tab id, nothing bigger).
+const BROWSER_MAX_MESSAGE: usize = 1 << 20;
+
+/// One command on the browser's own connection rather than a page's: opening and closing tabs.
+fn browser_call(ep: &Endpoint, method: &str, params: Value, dl: &Deadline) -> Result<Value, ToolError> {
+    let version = cdp::json_version(ep, dl)?;
+    let ws = version.get("webSocketDebuggerUrl").and_then(Value::as_str).ok_or_else(|| {
+        ToolError::new(ErrorCode::EngineMissing, "the browser doesn't give its own debugger address (another client may be attached)")
+            .with_remediation("Close other DevTools clients of the browser and try again.")
+    })?;
+    let mut client = CdpClient::new(WsConn::connect(&cdp::ws_target(ws, ep)?, BROWSER_MAX_MESSAGE, dl)?);
+    let r = client.call(method, params, None, dl);
+    client.close(dl);
+    r
+}
+
+/// A new blank tab in the person's browser at `ep`, to study in without touching their others.
+fn own_tab(ep: &Endpoint, dl: &Deadline) -> Result<SiteBrowser, ToolError> {
+    let version = cdp::json_version(ep, dl)?;
+    let product = version.get("Browser").and_then(Value::as_str).unwrap_or("unknown").to_string();
+    let protocol = version.get("Protocol-Version").and_then(Value::as_str).unwrap_or_default().to_string();
+    let tab = browser_call(ep, "Target.createTarget", json!({"url": "about:blank"}), dl)?;
+    let id = tab.get("targetId").and_then(Value::as_str).filter(|id| !id.is_empty()).ok_or_else(|| {
+        ToolError::new(ErrorCode::GarbledOutput, "the browser didn't say which tab it opened")
+            .with_remediation("Check the endpoint is a Chromium remote-debugging port.")
+    })?;
+    Ok(SiteBrowser {
+        endpoint: ep.clone(),
+        _owner: Mutex::new(Browser::attached(ep, &product, &protocol)),
+        product,
+        version: protocol,
+        url: Mutex::new(String::new()),
+        health: Mutex::new(Value::Null),
+        signed_in: None,
+        sign_in_revision: None,
+        own_tab: Some(id.to_string()),
+        tab_closed: AtomicBool::new(false),
+    })
+}
+
+/// The session's website browser when it is still answering (and, in the person's browser, our
+/// tab is still open); a dead one is dropped.
 fn live_site(ctx: &mut Ctx<'_>, dl: &Deadline) -> Option<Arc<SiteBrowser>> {
     let site = ctx.session.ext.get::<SiteBrowser>()?;
-    if cdp::json_version(&site.endpoint, dl).is_ok() {
+    let alive = match &site.own_tab {
+        Some(id) => cdp::json_list(&site.endpoint, dl).is_ok_and(|tabs| tabs.iter().any(|t| t.get("id").and_then(Value::as_str) == Some(id))),
+        None => cdp::json_version(&site.endpoint, dl).is_ok(),
+    };
+    if alive {
         return Some(site);
     }
     ctx.session.ext.remove::<SiteBrowser>();
@@ -329,7 +440,7 @@ fn open_site(ctx: &mut Ctx<'_>, dl: &Deadline) -> Result<Arc<SiteBrowser>, ToolE
 fn page_client(site: &SiteBrowser, dl: &Deadline) -> Result<CdpClient, ToolError> {
     let b = site.handle();
     let targets = cdp::json_list(&site.endpoint, dl)?;
-    let target = web_common::pick_target(&targets, None, Some("page"))?;
+    let target = web_common::pick_target(&targets, site.own_tab.as_deref(), Some("page"))?;
     // Nobody sits at this private browser, so a page's own alert would hold it until the deadline.
     web_common::connect_target(&b, target, PAGE_MAX_MESSAGE, dl).map(CdpClient::answering_dialogs)
 }
@@ -923,13 +1034,17 @@ fn web_site_capture(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, Tool
         b.insert("health".into(), h.clone());
     }
     let signed_in = site.signed_in.is_some();
+    let own_browser = site.own_tab.is_some();
     let sign_in_page = has_password_field(&blueprint);
     if let Value::Object(b) = &mut blueprint {
-        if signed_in && let Some(u) = b.get("url").and_then(Value::as_str).map(shown_url) {
+        if (signed_in || own_browser)
+            && let Some(u) = b.get("url").and_then(Value::as_str).map(shown_url)
+        {
             b.insert("url".into(), json!(u));
         }
         b.insert("signed_in".into(), json!(signed_in));
         b.insert("signed_in_site".into(), json!(site.signed_in));
+        b.insert("own_browser".into(), json!(own_browser));
         b.insert("sign_in_page".into(), json!(sign_in_page));
     }
 
@@ -965,6 +1080,7 @@ fn web_site_capture(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, Tool
             "files": ["README.md", "capture.json"],
             "signed_in": signed_in,
             "signed_in_site": site.signed_in,
+            "own_browser": own_browser,
             "sign_in_page": sign_in_page,
         }))
         .summary(summary)
@@ -978,7 +1094,12 @@ fn web_site_capture(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, Tool
         })
         .limitations(html_cut(html))
         .limitations(site.signed_in.as_deref().map(|s| profile_limitation(Some(s))))
-        .limitations(sign_in_page.then(|| if signed_in { Limitation::new("sign_in_ended", SIGN_IN_ENDED) } else { Limitation::new("sign_in_page", SIGN_IN_HINT) }))
+        .limitations(own_browser.then(|| Limitation::new("own_browser", OWN_BROWSER)))
+        .limitations(sign_in_page.then(|| match (signed_in, own_browser) {
+            (true, _) => Limitation::new("sign_in_ended", SIGN_IN_ENDED),
+            (_, true) => Limitation::new("sign_in_page", OWN_SIGN_IN_HINT),
+            _ => Limitation::new("sign_in_page", SIGN_IN_HINT),
+        }))
         .coverage(Coverage::complete(p.widths.len() as u64))
         .location(Location::new("url", shown))
         .location(Location::new("path", out.display().to_string()))
@@ -989,6 +1110,9 @@ fn web_site_capture(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, Tool
 /// Said when a page captured signed out asks for a password.
 const SIGN_IN_HINT: &str =
     "This may be a sign-in page (it asks for a password). To study what's behind it, sign in once with web_site_sign_in and capture again.";
+/// Said when a page captured in the person's own browser asks for a password.
+const OWN_SIGN_IN_HINT: &str =
+    "This may be a sign-in page (it asks for a password). To study what's behind it, sign in to the site in your own browser and capture again.";
 /// Said when a page captured with a saved sign-in still asks for a password.
 const SIGN_IN_ENDED: &str = "This was opened with your saved sign-in but may still be a sign-in page (it asks for a password): the site may have ended that sign-in. Sign in again with web_site_sign_in and capture again.";
 
@@ -1167,6 +1291,10 @@ fn readme(b: &Value, shots: &[Value], (html_bytes, html_total): (usize, usize), 
             "Captured with the person's saved sign-in for {}: if the site still accepted it, this is the site as they see it when signed in, and the pictures and text may show their own account's data.\n\n",
             s("/signed_in_site")
         ));
+    } else if yes("own_browser") && yes("sign_in_page") {
+        md.push_str(&format!("{OWN_SIGN_IN_HINT}\n\n"));
+    } else if yes("own_browser") {
+        md.push_str("Captured in the person's own browser: this is the site as that browser shows it, signed in if it was, and the pictures and text may show their own account's data.\n\n");
     } else if yes("sign_in_page") {
         md.push_str(&format!("{SIGN_IN_HINT}\n\n"));
     }
@@ -1322,9 +1450,22 @@ pub struct CloseParams {}
 
 fn web_site_close(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
     let _: CloseParams = parse_params(params)?;
+    // The study tab in the person's browser is closed before it's let go, so a close that fails
+    // says so and can be tried again, instead of leaving the tab open behind a "closed".
+    if let Some(site) = ctx.session.ext.get::<SiteBrowser>()
+        && let Some(id) = &site.own_tab
+    {
+        let dl = Deadline::new(Duration::from_secs(5), ctx.cancel.clone());
+        browser_call(&site.endpoint, "Target.closeTarget", json!({"targetId": id}), &dl)
+            .map_err(|e| e.with_remediation("The study tab is still open in your browser: try web_site_close again, or close the tab yourself."))?;
+        site.tab_closed.store(true, Ordering::SeqCst);
+    }
     let closed = ctx.session.ext.remove::<SiteBrowser>().is_some();
     Ok(ToolOutput::Value(json!({"closed": closed})))
 }
+
+#[cfg(test)]
+mod own_browser_tests;
 
 #[cfg(test)]
 mod tests {

@@ -248,3 +248,22 @@ pub fn flutter_apk() -> Vec<u8> {
 pub fn plain_apk() -> Vec<u8> {
     crate::electron::zip_stored(&[("AndroidManifest.xml", b"\x03\x00\x08\x00"), ("lib/arm64-v8a/libnative.so", b"\x7fELF")])
 }
+
+/// A Windows Flutter runner: [`crate::pe64`] with its import moved from msvcrt.dll to
+/// `flutter_windows.dll` (the name lives in `.data`, RVA 0x3000, file offset 0x800).
+pub fn flutter_windows_exe() -> Vec<u8> {
+    let mut pe = crate::pe64();
+    // The import descriptor sits at `.rdata` + 0x100 (file 0x700); its Name field is at +0x0c.
+    pe[0x70c..0x710].copy_from_slice(&0x3000u32.to_le_bytes());
+    let name = b"flutter_windows.dll\0";
+    pe[0x800..0x800 + name.len()].copy_from_slice(name);
+    pe
+}
+
+/// [`crate::pe64`] that only mentions Flutter in its data, with no Flutter import.
+pub fn pe_mentioning_flutter() -> Vec<u8> {
+    let mut pe = crate::pe64();
+    let text = b"data\\flutter_assets\0";
+    pe[0x800..0x800 + text.len()].copy_from_slice(text);
+    pe
+}

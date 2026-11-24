@@ -89,18 +89,42 @@ fn popup_fade(ui: &Ui) -> f32 {
 /// One row of a dropdown's list or of a menu: a soft fill eases in under the pointer, and the chosen row has a
 /// tick at its end (so it doesn't rely on colour alone). `text` is shown as given.
 pub fn menu_item(ui: &mut Ui, selected: bool, text: impl Into<String>) -> Response {
+    menu_item_layout(ui, selected, text.into(), false)
+}
+
+/// A dropdown row bounded to the list's width. Keep the full accessible name when its
+/// painted label needs an ellipsis (for example, a server's long model identifier).
+pub fn menu_item_truncated(ui: &mut Ui, selected: bool, text: impl Into<String>) -> Response {
+    menu_item_layout(ui, selected, text.into(), true)
+}
+
+fn menu_item_layout(ui: &mut Ui, selected: bool, text: String, truncate: bool) -> Response {
     let t = Tokens::get(ui.ctx());
-    let text = text.into();
     ui.set_opacity(popup_fade(ui));
     // Rows sit close together, whatever list they are in.
     ui.spacing_mut().item_spacing.y = theme::space::XXS;
     let size = ControlSize::Medium;
-    let galley = ui.painter().layout_no_wrap(text.clone(), egui::FontId::proportional(size.text()), t.text);
     let tick = size.icon() + theme::space::SM;
+    let galley = if truncate {
+        egui::WidgetText::from(RichText::new(&text).font(egui::FontId::proportional(size.text())).color(t.text)).into_galley(
+            ui,
+            Some(egui::TextWrapMode::Truncate),
+            (ui.available_width() - theme::space::SM * 2.0 - tick).max(0.0),
+            egui::FontSelection::Default,
+        )
+    } else {
+        ui.painter().layout_no_wrap(text.clone(), egui::FontId::proportional(size.text()), t.text)
+    };
     let wanted = galley.size().x + theme::space::SM * 2.0 + tick;
     // As wide as the list, which is as wide as its widest row: while the list is being measured
     // a row asks only for what it needs, or a menu would open at its widest.
-    let width = if ui.is_sizing_pass() { wanted } else { wanted.max(ui.available_width()) };
+    let width = if truncate {
+        ui.available_width()
+    } else if ui.is_sizing_pass() {
+        wanted
+    } else {
+        wanted.max(ui.available_width())
+    };
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(width, size.height()), Sense::click());
     let h = hover_t(ui, &resp);
     let fill = if resp.is_pointer_button_down_on() { t.pressed } else { theme::mix(Color32::TRANSPARENT, t.hover, h) };

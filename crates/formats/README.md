@@ -34,7 +34,7 @@ Formats in this crate fall into two categories:
 
 ### Single-App Inspector Formats (Craft Anything Only)
 
-Verified across `storytold` repositories: **ASAR** (`asar.rs`) and **Android AXML/ARSC** (`axml.rs`, `arsc.rs`) have no consumers outside `storytold/craft-anything`.
+Verified across `storytold` repositories: **ASAR** (`asar.rs`) has no consumers outside `storytold/craft-anything`. The Android AXML/ARSC wire readers moved to `craft-android-res` in craft-libs; `axml.rs` keeps the manifest facts on top of them.
 
 - **Desktop / JS / Scripting App Packages**
   - `asar.rs` — Electron ASAR archive reader & test builder
@@ -44,8 +44,8 @@ Verified across `storytold` repositories: **ASAR** (`asar.rs`) and **Android AXM
   - `pyinstaller.rs` — PyInstaller `MEI` / CArchive TOC
   - `dart.rs` — Flutter / Dart AOT snapshot & ELF dynamic symbol reader
 - **Android-Specific Formats** (beyond `craft-dex` / `craft-zip` / `craft-pkcs7`)
-  - `axml.rs` — Android binary XML (`AndroidManifest.xml`, `res/*.xml`), string pool, manifest facts
-  - `arsc.rs` — Android compiled resource tables (`resources.arsc`)
+  - `axml.rs` — manifest facts over `craft-android-res` binary XML (`AndroidManifest.xml`, `res/*.xml`)
+  - `arsc.rs` — `craft-android-res` compiled resource tables (`resources.arsc`)
   - `apk_sign.rs` — APK Signing Block (v2/v3/v3.1) signer & digest reader
 - **Apple / macOS / iOS-Specific Formats** (beyond `craft-macho` / `craft-plist`)
   - `car.rs` — Compiled asset catalogs (`Assets.car` / BOM store)

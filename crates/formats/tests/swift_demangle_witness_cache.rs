@@ -60,7 +60,7 @@ fn a_merged_cache_variable_adds_merged() {
 fn a_type_declared_in_an_extension_leaves_out_the_extension_prefix() {
     assert_eq!(
         dm("_$s10Foundation15AttributeScopesO14XCUIAutomationE28SyntaxHighlightingAttributesVAfA0B5ScopeADWL"),
-        "lazy protocol witness table cache variable for type Foundation.AttributeScopes.SyntaxHighlightingAttributes and conformance Foundation.AttributeScopes.SyntaxHighlightingAttributes : Foundation.AttributeScope in XCUIAutomation"
+        "lazy protocol witness table cache variable for type (extension in XCUIAutomation):Foundation.AttributeScopes.SyntaxHighlightingAttributes and conformance (extension in XCUIAutomation):Foundation.AttributeScopes.SyntaxHighlightingAttributes : Foundation.AttributeScope in XCUIAutomation"
     );
 }
 

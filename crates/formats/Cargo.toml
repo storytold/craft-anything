@@ -12,6 +12,7 @@ workspace = true
 [dependencies]
 craft-evm = { workspace = true }
 craft-java-class = { workspace = true }
+craft-android-res = { workspace = true }
 craft-pcap = { workspace = true }
 craft-wasm = { workspace = true }
 craft-dex = { workspace = true }

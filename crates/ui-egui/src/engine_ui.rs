@@ -445,14 +445,22 @@ impl CraftApp {
 fn key_field(app: &mut CraftApp, ui: &mut Ui, provider: &dyn AssetProvider, save: &str) -> Option<String> {
     let t = Tokens::get(ui.ctx());
     let mut out = None;
-    ui.horizontal(|ui| {
+    let frame = widgets::text_field_frame_compact(&t);
+    let margin = frame.total_margin().sum().x;
+    let available = ui.available_width();
+    let width = (available - margin).clamp(0.0, 320.0);
+    let size = theme::ControlSize::Medium;
+    let button_width = widgets::label_galley(ui, &tr(save), size.text(), t.text).size().x + 2.0 * size.pad_x();
+    // TextEdit's desired width includes its frame; don't count those margins twice.
+    let narrow = width + ui.spacing().item_spacing.x + button_width > available;
+    let add = |ui: &mut Ui| {
         let key = app.key_inputs.entry(provider.id().into()).or_default();
         let r = ui.add(
             egui::TextEdit::singleline(key)
                 .password(true)
                 .hint_text(trf("Paste your {name} key", &[("name", provider.name())]))
-                .desired_width(320.0)
-                .frame(widgets::text_field_frame_compact(&t)),
+                .desired_width(width)
+                .frame(frame),
         );
         widgets::named(r, &trf("{name} key", &[("name", provider.name())]));
         let k = key.trim().to_string();
@@ -460,7 +468,12 @@ fn key_field(app: &mut CraftApp, ui: &mut Ui, provider: &dyn AssetProvider, save
             key.clear();
             out = Some(k);
         }
-    });
+    };
+    if narrow {
+        ui.vertical(add);
+    } else {
+        ui.horizontal(add);
+    }
     out
 }
 

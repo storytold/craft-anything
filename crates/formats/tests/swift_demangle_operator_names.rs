@@ -101,7 +101,10 @@ fn symbols_built_around_an_operator_function_decode() {
 #[test]
 fn an_operator_in_an_extension_leaves_out_the_extension_prefix() {
     // `swift-demangle` prints `static (extension in CoreDevice):CoreDevice._Error.~= infix …`.
-    assert_eq!(dm("_$s10CoreDevice6_ErrorPAAE2teoiySbx_s0C0_ptFZ"), "static CoreDevice._Error.~= infix(A, Swift.Error) -> Swift.Bool");
+    assert_eq!(
+        dm("_$s10CoreDevice6_ErrorPAAE2teoiySbx_s0C0_ptFZ"),
+        "static (extension in CoreDevice):CoreDevice._Error.~= infix(A, Swift.Error) -> Swift.Bool"
+    );
 }
 
 /// A private operator function names the file after the operator: `(< infix in _<hash>)`.
