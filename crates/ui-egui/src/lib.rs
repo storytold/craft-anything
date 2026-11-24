@@ -496,7 +496,8 @@ pub struct CraftApp {
     pub agent_model_picker: Option<builders::AgentModelPicker>,
     model_request: u64,
     pub model_tuning: std::collections::BTreeMap<String, ModelTuningDraft>,
-    /// The current model/options save for each backend; an older completion cannot settle its controls.
+    /// The current model/options save for each backend; an older completion cannot settle its
+    /// controls, and Settings shows it as pending while it runs (a save can wait behind a long job).
     model_save_jobs: std::collections::BTreeMap<String, u64>,
     /// The agent app whose program the file dialog is choosing.
     pub picking_program_for: Option<String>,
@@ -1700,6 +1701,8 @@ impl CraftApp {
     fn handle_done(&mut self, done: jobs::Finished<Done>) {
         let job = done.job;
         let checked_agent = self.agent_connection_jobs.remove(&job);
+        // A model or options save is over, whether it saved or failed: Settings stops showing it
+        // as pending, even for a backend whose row is no longer drawn.
         let model_save = self.model_save_jobs.iter().find_map(|(name, id)| (*id == job).then(|| name.clone()));
         if let Some(name) = &model_save {
             self.model_save_jobs.remove(name);
