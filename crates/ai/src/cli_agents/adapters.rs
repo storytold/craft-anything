@@ -401,7 +401,7 @@ fn question_args(mut a: Vec<String>, cx: &ArgsCx) -> Vec<String> {
     if let Some(model) = cx.options.cli_model.as_deref().filter(|m| !m.trim().is_empty()) {
         a.extend(["--model".into(), model.to_string()]);
     }
-    if let Some(r) = cx.resume {
+    if let Some(r) = cx.resume.map(str::trim).filter(|s| !s.is_empty()) {
         a.extend(["--resume".into(), r.to_string(), "--fork-session".into()]);
     }
     a.extend(["--no-session-persistence".into(), "--strict-mcp-config".into(), "--disallowedTools".into()]);
@@ -496,7 +496,7 @@ impl AgentAdapter for ClaudeCode {
         if let Some(model) = cx.options.cli_model.as_deref().filter(|m| !m.trim().is_empty()) {
             a.extend(["--model".into(), model.to_string()]);
         }
-        if let Some(r) = cx.resume {
+        if let Some(r) = cx.resume.map(str::trim).filter(|s| !s.is_empty()) {
             a.extend(["--resume".into(), r.to_string()]);
         }
         // Deep builders keep subagents (#1105): a subagent has only these tools and the session's
@@ -995,7 +995,7 @@ impl AgentAdapter for Codex {
         v.extend(cx.options.args.iter().cloned());
         // Exec-only flags (notably --sandbox) stay before the resume subcommand.
         // The saved thread id is positional data, never another CLI option.
-        if let Some(id) = cx.resume {
+        if let Some(id) = cx.resume.map(str::trim).filter(|s| !s.is_empty()) {
             v.extend(["resume".into(), "--".into(), id.into()]);
         }
         // The message itself goes in on stdin (see `stdin_text`).
