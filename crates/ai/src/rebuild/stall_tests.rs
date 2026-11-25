@@ -315,8 +315,16 @@ fn run_build_only_pausing(
     let mut worker = check_worker(ws, false);
     let pause = pause.then(|| worker.stop.clone());
     let model = WriteOnceBuilder { app: ws.app_dir(), prompts: Arc::clone(prompts) };
-    let slot =
-        ModelSlot { name: "WriteOnce".into(), model: Box::new(model), local: true, effort: None, max_turns: 10, context_tokens: 0, tools: Default::default() };
+    let slot = ModelSlot {
+        name: "WriteOnce".into(),
+        model: Box::new(model),
+        local: true,
+        effort: None,
+        max_turns: 10,
+        context_tokens: 0,
+        tools: Default::default(),
+        vision: Default::default(),
+    };
     let api = ApiConversation::start(Arc::new(EngineHost(worker.engine.clone())), vec![slot], LoopConfig::default()).unwrap();
     let entry = crate::BackendEntry {
         config: crate::BackendConfig {
