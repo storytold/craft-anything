@@ -700,10 +700,10 @@ been run live.
 - [x] Say per AI whether its model sees pictures (`vision = auto | yes | no` in `[[ai.backends]]`,
       `ai vision`), Auto asking the server: a model list's `input_modalities`, llama.cpp's `/props`
       `modalities` (through llama-swap's upstream route for a loaded model), LM Studio's model
-      `type`, Ollama's `capabilities`; Claude reads pictures. Unknown is treated as blind. A
-      builder whose model sees is to get the check's screenshot and the person's pictures attached
-      to its next message, the next step
+      `type`, Ollama's `capabilities`; Claude reads pictures. Unknown is treated as blind
       — claimed: youkaicountry, branch feature/r5.4-vision-setting
+- [ ] Let a builder whose model sees get the check's screenshot and the person's pictures attached
+      to its next message
 - [ ] Shrink a picture larger than `MAX_IMAGE_BYTES` (3.75 MB) before it's shown to a model,
       instead of refusing it (a 4K screenshot as PNG can be larger)
 - [ ] Before pictures reach a builder, bound a request's pictures as a whole (how many and their
