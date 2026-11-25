@@ -8,6 +8,7 @@
 
 pub mod agent;
 pub mod anthropic;
+pub mod billing;
 pub mod cli_agents;
 pub mod config;
 pub mod context;
@@ -30,6 +31,7 @@ pub mod ssh;
 pub mod window;
 
 pub use agent::FULL_TOOLS_BUDGET;
+pub use billing::{Billing, SignIn, billing_of};
 pub use cli_agents::models::{AgentModel, ModelContext};
 pub use config::{AiConfig, BackendEntry, BackendOptions, Price, ToolList};
 pub use failure::{FailureKind, TurnFailure};
@@ -506,6 +508,13 @@ pub struct TestReport {
     /// moved it), so a passing test doesn't hide a setting that's out of date.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub saved_program_replaced: Option<String>,
+    /// How it's billed: from its settings, or, for a coding agent whose check says, from its
+    /// own sign-in (#170).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub billing: Option<Billing>,
+    /// The account a coding agent's own status names (an email or organization), when it names one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
 }
 
 /// Text kept in the journal for a user message (bounded).
@@ -1466,11 +1475,15 @@ impl AiHub {
             };
             let out = p.timeout(Duration::from_secs(15)).run_checked()?;
             let mut reply = out.stdout_text().lines().next().unwrap_or_default().trim().to_string();
+            let (mut billing, mut account) = (None, None);
             if e.config.ssh_host.as_deref().is_none_or(|host| host.trim().is_empty()) {
                 let adapter = cli_agents::AgentAdapters::built_in().for_backend(&e.config.model, &e.options);
-                match adapter.signed_in(&program) {
-                    Some(true) => reply.push_str(" · signed in (model access is checked when you send a message)"),
-                    Some(false) => {
+                match adapter.sign_in(&program) {
+                    Some(SignIn { signed_in: true, billing: b, account: a }) => {
+                        reply.push_str(" · signed in (model access is checked when you send a message)");
+                        (billing, account) = (b, a);
+                    }
+                    Some(SignIn { signed_in: false, .. }) => {
                         return Err(ToolError::new(ErrorCode::BadSettings, format!("{} is installed but is not signed in.", e.config.name))
                             .with_remediation(adapter.sign_in_fix().unwrap_or_default()));
                     }
@@ -1485,6 +1498,8 @@ impl AiHub {
                 version_only: true,
                 saved_program_replaced: crate::cli_agents::replaced_program(&e.options, &program),
                 program: Some(program),
+                billing: billing.or(Some(billing_of(&e.config))),
+                account,
             });
         }
         let mut slot = self.build_model(&e)?;
@@ -1511,6 +1526,8 @@ impl AiHub {
             version_only: false,
             program: None,
             saved_program_replaced: None,
+            billing: Some(billing_of(&e.config)),
+            account: None,
         })
     }
 

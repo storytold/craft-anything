@@ -5,7 +5,7 @@ use crate::i18n::{LANGUAGES, tr, trf};
 use crate::state::SettingsTab;
 use crate::theme::{self, ThemeKind, Tokens};
 use crate::{CraftApp, Pick, icons, widgets};
-use craft_anything_ai::{BackendKind, BackendOptions};
+use craft_anything_ai::{BackendConfig, BackendKind, BackendOptions, Billing};
 use craft_anything_engine::Mode;
 use egui::{RichText, Ui, Vec2};
 use std::path::PathBuf;
@@ -430,6 +430,30 @@ fn engines(app: &mut CraftApp, ui: &mut Ui) {
     }
 }
 
+/// How an AI is paid for (a plan's sign-in, an API key or a server of the person's own) and, when
+/// a coding agent's own check named one, the account it's signed in to (#170). From memory only:
+/// the saved settings and the last check's result.
+fn billing_line(ui: &mut Ui, t: &Tokens, b: &BackendConfig, checked: Option<&(Billing, Option<String>)>) {
+    let billing = checked.map_or_else(|| craft_anything_ai::billing_of(b), |(billing, _)| *billing);
+    let (label, explanation) = billing_words(billing);
+    let account = checked.and_then(|(_, account)| account.as_deref());
+    let text = match account {
+        Some(account) => format!("{label} · {}", trf("Account: {account}", &[("account", account)])),
+        None => label,
+    };
+    ui.add(egui::Label::new(RichText::new(text).color(t.text_dim).size(theme::CAPTION)).truncate()).on_hover_text(explanation);
+}
+
+/// The translated words for a billing kind: its name and what it means for cost.
+fn billing_words(billing: Billing) -> (String, String) {
+    match billing {
+        Billing::Subscription => (tr("Subscription sign-in"), tr("Uses your plan's limits; requests aren't billed to an API key.")),
+        Billing::ApiKey => (tr("API key"), tr("Each request is billed to the key's account.")),
+        Billing::OwnServer => (tr("Your own server"), tr("Runs on a server you control; no account is billed.")),
+        Billing::AgentSignIn => (tr("The app's own sign-in"), tr("Uses whatever the app is signed in with: a plan or a key. Check it to find out which.")),
+    }
+}
+
 /// Keep both selectors in place while their model-specific choices load or fail. Loading is
 /// scheduled after drawing, and a failed lookup stays visible until explicitly retried.
 fn model_options_loading(ui: &mut Ui, backend: &str) {
@@ -502,6 +526,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                     let what = if model_in_use.is_some() && b.kind != BackendKind::AgentCli { String::new() } else { format!(" · {}", b.model) };
                     let ssh = b.ssh_host.as_ref().map(|h| format!(" · ssh {h}")).unwrap_or_default();
                     ui.add(egui::Label::new(RichText::new(format!("{:?}{what}{ssh}", b.kind)).color(t.text_faint).size(theme::CAPTION)).truncate());
+                    billing_line(ui, &t, b, app.agent_sign_ins.get(&b.name));
                     // An agent app on this computer: which program runs it, for one installed
                     // where it isn't looked for (#53).
                     if b.kind == BackendKind::AgentCli && b.ssh_host.as_deref().is_none_or(|h| h.trim().is_empty()) {
@@ -1558,6 +1583,60 @@ mod tests {
         assert!(text.contains("Agent test is installed but is not signed in."));
     }
 
+    /// #170: each AI says how it's billed, and an agent whose check named an account shows it;
+    /// a failed check stops showing the account it named before.
+    #[test]
+    fn each_ai_says_how_it_is_billed_and_a_checked_agent_names_its_account() {
+        let mut app = demo::app(demo::engine(craft_anything_engine::Mode::Experienced, true));
+        let backend = |name: &str, kind, model: &str, base_url: Option<&str>| BackendConfig {
+            name: name.into(),
+            kind,
+            model: model.into(),
+            base_url: base_url.map(str::to_string),
+            ssh_host: None,
+            enabled: true,
+        };
+        app.backends = vec![
+            backend("Claude API", BackendKind::Anthropic, "claude-opus-5-5", None),
+            backend("Ollama", BackendKind::OpenaiCompatible, "llama", Some("http://127.0.0.1:11434/v1")),
+            backend("Claude Code", BackendKind::AgentCli, "claude-code", None),
+            backend("Codex", BackendKind::AgentCli, "codex", None),
+        ];
+        app.agent_sign_ins.insert("Claude Code".into(), (Billing::Subscription, Some("someone@example.com".into())));
+        let text = ai_text(&mut app);
+        assert!(text.contains("API key"), "{text}");
+        assert!(text.contains("Your own server"), "{text}");
+        assert!(text.contains("Subscription sign-in · Account: someone@example.com"), "{text}");
+        assert!(text.contains("The app's own sign-in"), "an unchecked agent says only that it uses its own sign-in: {text}");
+        app.handle_done(crate::jobs::Finished {
+            job: 7,
+            result: Ok(crate::Done::AgentConnection("Claude Code".into(), Err("Claude Code is installed but is not signed in.".into()), None)),
+        });
+        let text = ai_text(&mut app);
+        assert!(!text.contains("someone@example.com"), "{text}");
+    }
+
+    /// The AI settings' text, drawn once.
+    fn ai_text(app: &mut CraftApp) -> String {
+        let context = egui::Context::default();
+        theme::install_fonts(&context);
+        let mut output = context.run_ui(Default::default(), |ui| ai(app, ui));
+        output.textures_delta.clear();
+        let shapes = output.shapes.iter().filter_map(|shape| match &shape.shape {
+            egui::epaint::Shape::Text(text) => Some(text.galley.text().to_string()),
+            _ => None,
+        });
+        shapes.collect::<Vec<_>>().join("\n")
+    }
+
+    /// The words the app shows are the engine's, so the CLI and the app say the same.
+    #[test]
+    fn billing_words_match_the_engine() {
+        for billing in [Billing::Subscription, Billing::ApiKey, Billing::OwnServer, Billing::AgentSignIn] {
+            assert_eq!(billing_words(billing), (billing.label().to_string(), billing.explanation().to_string()));
+        }
+    }
+
     /// #1358: an API backend with a saved key can have it replaced or forgotten in place, while an
     /// agent app (which signs in its own way) has no key row.
     #[test]
@@ -1740,7 +1819,7 @@ mod tests {
         assert_eq!(app.agent_connections.get("Finished agent"), Some(&Some(Ok("already checked".into()))));
         app.handle_done(Finished { job: 99, result: Err("unrelated job failed".into()) });
         assert_eq!(app.agent_connections.get("Running agent"), Some(&None));
-        app.handle_done(Finished { job: 42, result: Ok(Done::AgentConnection("Running agent".into(), Ok("checked".into()))) });
+        app.handle_done(Finished { job: 42, result: Ok(Done::AgentConnection("Running agent".into(), Ok("checked".into()), None)) });
         assert!(app.agent_connection_jobs.is_empty());
         assert_eq!(app.agent_connections.get("Running agent"), Some(&Some(Ok("checked".into()))));
         // The backend is intentionally absent: no real agent or credential access is needed.

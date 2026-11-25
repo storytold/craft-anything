@@ -1507,3 +1507,13 @@ Stop Ghidra's analysis	Parar a análise do Ghidra
 
 # Saved-builder notice: English until native-speaker review.
 The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.	The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.
+
+# How an AI is billed and its account (#170).
+Subscription sign-in	Login com assinatura
+Your own server	Seu próprio servidor
+The app's own sign-in	O login próprio do app
+Uses your plan's limits; requests aren't billed to an API key.	Usa os limites do seu plano; as solicitações não são cobradas de uma chave de API.
+Each request is billed to the key's account.	Cada solicitação é cobrada da conta da chave.
+Runs on a server you control; no account is billed.	Roda em um servidor que você controla; nenhuma conta é cobrada.
+Uses whatever the app is signed in with: a plan or a key. Check it to find out which.	Usa o que estiver conectado no app: um plano ou uma chave. Verifique para saber qual.
+Account: {account}	Conta: {account}

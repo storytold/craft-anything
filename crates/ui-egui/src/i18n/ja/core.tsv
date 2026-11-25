@@ -962,3 +962,14 @@ Stop Ghidra's analysis	Ghidra の解析を停止
 
 # Saved-builder notice: English until native-speaker review.
 The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.	The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.
+
+# How an AI is billed and its account (#170).
+Subscription sign-in	サブスクリプションでサインイン
+Your own server	自分のサーバー
+The app's own sign-in	アプリ自身のサインイン
+Uses your plan's limits; requests aren't billed to an API key.	プランの上限を使います。リクエストは API キーに課金されません。
+Each request is billed to the key's account.	リクエストごとにキーのアカウントに課金されます。
+Runs on a server you control; no account is billed.	自分で管理するサーバーで動きます。どのアカウントにも課金されません。
+Uses whatever the app is signed in with: a plan or a key. Check it to find out which.	アプリがサインインしているもの（プランまたはキー）を使います。確認するとどちらかわかります。
+Account: {account}	アカウント: {account}
+API key	API キー

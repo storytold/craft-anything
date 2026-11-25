@@ -1507,3 +1507,13 @@ Stop Ghidra's analysis	停止 Ghidra 的分析
 
 # Saved-builder notice: English until native-speaker review.
 The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.	The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.
+
+# How an AI is billed and its account (#170).
+Subscription sign-in	訂閱登入
+Your own server	你自己的伺服器
+The app's own sign-in	應用程式自己的登入
+Uses your plan's limits; requests aren't billed to an API key.	使用你方案的額度；請求不會計費到 API 金鑰。
+Each request is billed to the key's account.	每個請求都計費到該金鑰的帳戶。
+Runs on a server you control; no account is billed.	執行在你控制的伺服器上；不向任何帳戶計費。
+Uses whatever the app is signed in with: a plan or a key. Check it to find out which.	使用應用程式目前登入的方式：方案或金鑰。檢查一下即可知道是哪種。
+Account: {account}	帳戶：{account}

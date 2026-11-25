@@ -1507,3 +1507,13 @@ Stop Ghidra's analysis	Dừng phân tích của Ghidra
 
 # Saved-builder notice: English until native-speaker review.
 The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.	The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.
+
+# How an AI is billed and its account (#170).
+Subscription sign-in	Đăng nhập bằng gói đăng ký
+Your own server	Máy chủ của riêng bạn
+The app's own sign-in	Đăng nhập riêng của ứng dụng
+Uses your plan's limits; requests aren't billed to an API key.	Dùng hạn mức của gói bạn; yêu cầu không bị tính phí vào khóa API.
+Each request is billed to the key's account.	Mỗi yêu cầu được tính phí vào tài khoản của khóa.
+Runs on a server you control; no account is billed.	Chạy trên máy chủ do bạn quản lý; không tài khoản nào bị tính phí.
+Uses whatever the app is signed in with: a plan or a key. Check it to find out which.	Dùng thứ mà ứng dụng đã đăng nhập: một gói hoặc một khóa. Kiểm tra để biết là gì.
+Account: {account}	Tài khoản: {account}

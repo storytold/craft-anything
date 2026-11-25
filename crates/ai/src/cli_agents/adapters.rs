@@ -226,6 +226,12 @@ pub trait AgentAdapter: Send + Sync {
     fn signed_in(&self, _program: &str) -> Option<bool> {
         None
     }
+    /// What its sign-in check says: signed in or not, and, for an agent whose status says so,
+    /// whether it uses a plan or a key and which account (#170). The default knows only
+    /// [`signed_in`](AgentAdapter::signed_in).
+    fn sign_in(&self, program: &str) -> Option<crate::billing::SignIn> {
+        self.signed_in(program).map(crate::billing::SignIn::bare)
+    }
     /// The plain-words fix when sign-in preflight or ACP startup fails. Login stays in the CLI.
     fn sign_in_fix(&self) -> Option<String> {
         None
@@ -670,6 +676,12 @@ impl AgentAdapter for ClaudeCode {
     }
 
     fn signed_in(&self, program: &str) -> Option<bool> {
+        self.sign_in(program).map(|s| s.signed_in)
+    }
+
+    /// `claude auth status --json`, read for sign-in, plan or key, and account (see
+    /// [`crate::billing::claude_sign_in`]).
+    fn sign_in(&self, program: &str) -> Option<crate::billing::SignIn> {
         let out = match self.process(program).args(["auth", "status", "--json"]).timeout(Duration::from_secs(15)).stdout_cap(64 * 1024).run() {
             Ok(out) => out,
             Err(e) => {
@@ -692,11 +704,12 @@ impl AgentAdapter for ClaudeCode {
                 return None;
             }
         };
-        let signed = v.get("loggedIn").and_then(Value::as_bool);
+        let status = crate::billing::claude_sign_in(&v);
+        let signed = status.as_ref().map(|s| s.signed_in);
         if signed != Some(true) {
             log::debug!("claude auth status --json: exit {:?}, {} bytes on stdout, loggedIn: {signed:?}", out.code, text.len());
         }
-        signed
+        status
     }
 
     /// The account its `.claude.json` names (`oauthAccount`), kept there while the sign-in itself
@@ -914,8 +927,16 @@ impl AgentAdapter for Codex {
 
     /// Ask the selected CLI, not its auth file or keychain; discard raw status output.
     fn signed_in(&self, program: &str) -> Option<bool> {
+        self.sign_in(program).map(|s| s.signed_in)
+    }
+
+    /// `codex login status` names a ChatGPT sign-in or an API key, never an account.
+    fn sign_in(&self, program: &str) -> Option<crate::billing::SignIn> {
         let out = Process::new(program).args(["login", "status"]).timeout(Duration::from_secs(10)).stdout_cap(16 * 1024).run().ok()?;
-        codex_login_status(out.success, &out.stdout_text(), &out.stderr_text())
+        let (stdout, stderr) = (out.stdout_text(), out.stderr_text());
+        let signed_in = codex_login_status(out.success, &stdout, &stderr)?;
+        let billing = signed_in.then(|| crate::billing::codex_billing(&format!("{stdout}\n{stderr}"))).flatten();
+        Some(crate::billing::SignIn { signed_in, billing, account: None })
     }
 
     fn sign_in_fix(&self) -> Option<String> {

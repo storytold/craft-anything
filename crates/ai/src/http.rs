@@ -71,7 +71,13 @@ fn net_error(what: &str, url: &str, e: ureq::Error) -> ToolError {
 }
 
 /// Whether `url` points at this computer: `localhost`, a `127.x.x.x` address or `::1`.
-fn is_this_computer(url: &str) -> bool {
+pub(crate) fn is_this_computer(url: &str) -> bool {
+    let host = host_of(url);
+    host == "localhost" || host.ends_with(".localhost") || host == "::1" || host.parse::<std::net::Ipv4Addr>().is_ok_and(|ip| ip.is_loopback())
+}
+
+/// The host part of `url`, lower-cased, without port, user or brackets.
+pub(crate) fn host_of(url: &str) -> String {
     let rest = url.split_once("://").map_or(url, |(_, r)| r);
     let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
     let host_port = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
@@ -80,8 +86,7 @@ fn is_this_computer(url: &str) -> bool {
         Some(v6) => v6.split(']').next().unwrap_or_default(),
         None => host_port.rsplit_once(':').map_or(host_port, |(h, _)| h),
     };
-    let host = host.trim_end_matches('.').to_ascii_lowercase();
-    host == "localhost" || host.ends_with(".localhost") || host == "::1" || host.parse::<std::net::Ipv4Addr>().is_ok_and(|ip| ip.is_loopback())
+    host.trim_end_matches('.').to_ascii_lowercase()
 }
 
 /// Turn a non-2xx response into a plain error. Keys are never echoed.

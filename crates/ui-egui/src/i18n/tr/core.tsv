@@ -1507,3 +1507,13 @@ Stop Ghidra's analysis	Ghidra analizini durdur
 
 # Saved-builder notice: reviewed by native Turkish speaker @MacallanTheRoot.
 The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.	Bu proje için seçilen yapay zekâ ({saved}) devre dışı bırakılmış veya artık yapılandırılmamış. Projeyi bunun yerine {used} oluşturacak.
+
+# How an AI is billed and its account (#170).
+Subscription sign-in	Abonelikle oturum açma
+Your own server	Kendi sunucunuz
+The app's own sign-in	Uygulamanın kendi oturumu
+Uses your plan's limits; requests aren't billed to an API key.	Planınızın sınırlarını kullanır; istekler bir API anahtarına faturalanmaz.
+Each request is billed to the key's account.	Her istek anahtarın hesabına faturalanır.
+Runs on a server you control; no account is billed.	Sizin yönettiğiniz bir sunucuda çalışır; hiçbir hesaba fatura edilmez.
+Uses whatever the app is signed in with: a plan or a key. Check it to find out which.	Uygulamanın oturum açtığı şeyi kullanır: bir plan ya da bir anahtar. Hangisi olduğunu öğrenmek için denetleyin.
+Account: {account}	Hesap: {account}

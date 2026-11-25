@@ -171,7 +171,9 @@ pub enum Done {
     },
     /// What a scan found, and why an expected coding agent may be missing.
     Detected(Vec<Detected>, Vec<craft_anything_ai::detect::DetectHint>),
-    AgentConnection(String, Result<String, String>),
+    /// A local agent's check: its status or error, and how it's billed and the account its own
+    /// status names, when the check found out (#170).
+    AgentConnection(String, Result<String, String>, Option<(craft_anything_ai::Billing, Option<String>)>),
     /// The configured backends, selected roles, options, and replaced programs (see [`backends`]).
     Backends(BackendSnapshot),
     /// The models an AI can be set to (Settings → AI's model picker).
@@ -512,6 +514,9 @@ pub struct CraftApp {
     pub detecting: bool,
     /// Local agent checks: None while the worker runs, then a credential-free status or error.
     pub agent_connections: std::collections::BTreeMap<String, Option<Result<String, String>>>,
+    /// What each agent's last check said about its billing and account (#170); gone when a
+    /// check fails, so a signed-out agent doesn't keep naming an account.
+    pub agent_sign_ins: std::collections::BTreeMap<String, (craft_anything_ai::Billing, Option<String>)>,
     /// Which agent owns each pending check, including failures before the worker body starts.
     pub(crate) agent_connection_jobs: std::collections::BTreeMap<u64, String>,
     /// Counts AI choices, so an add that finishes later doesn't undo one made meanwhile.
@@ -678,6 +683,7 @@ impl CraftApp {
             detect_hints: Vec::new(),
             detecting: false,
             agent_connections: Default::default(),
+            agent_sign_ins: Default::default(),
             agent_connection_jobs: Default::default(),
             backend_choices: 0,
             log: Vec::new(),
@@ -1472,8 +1478,10 @@ impl CraftApp {
         let hub = self.hub.clone();
         let agent = name.clone();
         let job = self.jobs.spawn("Check", true, move |_| {
-            let status = hub.test_backend(&agent).map(|report| report.reply).map_err(|error| error.for_people());
-            Ok(Done::AgentConnection(agent, status))
+            let report = hub.test_backend(&agent);
+            let sign_in = report.as_ref().ok().and_then(|r| r.billing.map(|billing| (billing, r.account.clone())));
+            let status = report.map(|report| report.reply).map_err(|error| error.for_people());
+            Ok(Done::AgentConnection(agent, status, sign_in))
         });
         self.agent_connection_jobs.insert(job, name);
     }
@@ -1825,7 +1833,11 @@ impl CraftApp {
                 self.log(false, format!("Found {} AI option(s) on this computer", d.len()));
                 self.detected = Some(d);
             }
-            Done::AgentConnection(name, result) => {
+            Done::AgentConnection(name, result, sign_in) => {
+                match sign_in {
+                    Some(seen) => self.agent_sign_ins.insert(name.clone(), seen),
+                    None => self.agent_sign_ins.remove(&name),
+                };
                 self.agent_connections.insert(name, Some(result));
             }
             Done::Backends(snapshot) => {

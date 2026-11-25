@@ -1504,3 +1504,13 @@ Stop Ghidra's analysis	Arrêter l'analyse de Ghidra
 
 # Saved-builder notice: English until native-speaker review.
 The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.	The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.
+
+# How an AI is billed and its account (#170).
+Subscription sign-in	Connexion par abonnement
+Your own server	Votre propre serveur
+The app's own sign-in	La connexion propre à l'application
+Uses your plan's limits; requests aren't billed to an API key.	Utilise les limites de votre abonnement ; les requêtes ne sont pas facturées à une clé d'API.
+Each request is billed to the key's account.	Chaque requête est facturée au compte de la clé.
+Runs on a server you control; no account is billed.	Fonctionne sur un serveur que vous contrôlez ; aucun compte n'est facturé.
+Uses whatever the app is signed in with: a plan or a key. Check it to find out which.	Utilise ce avec quoi l'application est connectée : un abonnement ou une clé. Vérifiez-la pour le savoir.
+Account: {account}	Compte : {account}

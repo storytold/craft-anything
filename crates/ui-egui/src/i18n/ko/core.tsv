@@ -1507,3 +1507,13 @@ Stop Ghidra's analysis	Ghidra 분석 중지
 
 # Saved-builder notice: English until native-speaker review.
 The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.	The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.
+
+# How an AI is billed and its account (#170).
+Subscription sign-in	구독으로 로그인
+Your own server	직접 운영하는 서버
+The app's own sign-in	앱 자체 로그인
+Uses your plan's limits; requests aren't billed to an API key.	요금제 한도를 사용하며, 요청이 API 키로 청구되지 않습니다.
+Each request is billed to the key's account.	모든 요청이 키의 계정으로 청구됩니다.
+Runs on a server you control; no account is billed.	직접 관리하는 서버에서 실행되며, 청구되는 계정이 없습니다.
+Uses whatever the app is signed in with: a plan or a key. Check it to find out which.	앱이 로그인한 방식(요금제 또는 키)을 사용합니다. 확인하면 어느 쪽인지 알 수 있습니다.
+Account: {account}	계정: {account}

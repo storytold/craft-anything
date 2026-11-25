@@ -1507,3 +1507,13 @@ Stop Ghidra's analysis	Остановить анализ Ghidra
 
 # Saved-builder notice: English until native-speaker review.
 The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.	The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.
+
+# How an AI is billed and its account (#170).
+Subscription sign-in	Вход по подписке
+Your own server	Ваш собственный сервер
+The app's own sign-in	Собственный вход приложения
+Uses your plan's limits; requests aren't billed to an API key.	Использует лимиты вашего тарифа; запросы не оплачиваются ключом API.
+Each request is billed to the key's account.	Каждый запрос оплачивается с аккаунта ключа.
+Runs on a server you control; no account is billed.	Работает на сервере, которым вы управляете; ни один аккаунт не оплачивает.
+Uses whatever the app is signed in with: a plan or a key. Check it to find out which.	Использует то, чем вошло приложение: тариф или ключ. Проверьте, чтобы узнать.
+Account: {account}	Аккаунт: {account}
