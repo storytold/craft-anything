@@ -2579,7 +2579,19 @@ Owner: open · Status: in progress
       `capture/original.har`, so the brief's stand-in offer has a recording to point at
       (`analysis::web_har::har_from_network`, `browser_tools::write_recording`)
 - [ ] Live-check a Deep website study's recording on a real site, and the stand-in built from it
-- [ ] Start a stand-in backend from a recording automatically when a build begins
+- [x] Start a stand-in backend from a recording automatically when a build begins: a Deep website
+      build whose capture kept a recording builds `capture/standin/standin.json` from it and serves
+      it before the builder's turn, gives the builder its address in the brief and every later
+      message, asks for the project's last port again (`standin_port`; a busy one gives way to a
+      free one) and stops it when the run ends, also when it fails, is paused or the session moved
+      to Clean room meanwhile. A coding agent on another computer isn't given one
+      — claimed: mansur-akhmadi, branch feature/r3.11-standin-on-build-start
+- [ ] Play, pins and the app opened outside Craft Anything have no stand-in: the builder is told
+      to keep the original's API as the front end's default, so start one with Play from the
+      project's recording, or say on Play that the app talks to the original
+- [ ] A coding agent's own tool server doesn't see the stand-in the run started (it runs in the
+      app's session), so its `web_standin_show` doesn't list that one's unanswered requests: give
+      the builder the run's request log, or start the stand-in where the builder's tools run
 - [x] Stand-in backend: retain 304 samples without a usable cached body for diagnostics, skip them
       during replay, and report `cached_body_unavailable` when the best matching group has no
       usable answer. Build results count them; cached bodies still answer as 200 (#543)

@@ -140,6 +140,16 @@
       "type": "string",
       "default": ""
     },
+    "standin_port": {
+      "description": "The port the stand-in backend a Deep website build starts from the original's recording\nlast listened on. The next build asks for it again, so a front end the builder pointed at it\nstill reaches it; a busy port gives way to a free one. An older build drops it when it saves,\nwhich costs only a new port, so the format version stays.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint16",
+      "maximum": 65535,
+      "minimum": 0
+    },
     "start_files": {
       "description": "The names in the person's folder when the project started there (at most\n[`START_FILES_SHOWN`]), so the builder knows what to start from.",
       "type": "array",

@@ -19,7 +19,7 @@ fn kind_of(request: &str, target: &TargetRef, stack: &str) -> &'static str {
     KindRegistry::built_in().detect(request, target, stack).unwrap().id()
 }
 fn brief(ws: &Workspace, k: &str, deep: bool, ghidra: bool, editor: Option<&Path>, assets: bool, extra: Option<&str>) -> String {
-    super::brief(kind(k).as_ref(), &BriefCx { ws, deep, ghidra, editor, assets, image_model: None, sees_pictures: true }, extra)
+    super::brief(kind(k).as_ref(), &BriefCx { ws, deep, ghidra, editor, assets, image_model: None, sees_pictures: true, standin: None }, extra)
 }
 fn refine(k: &str, check: &CheckResult) -> String {
     kind(k).refine(check, true)
@@ -548,6 +548,7 @@ fn notes_added_while_it_works_reach_the_agent_at_its_next_step() {
         feed: Arc::new(Mutex::new(feed::FeedLog::open(&ws))),
         keys: crate::KeyStore::file_only(ws.root.join("keys.toml")),
         kept_checks: Mutex::default(),
+        standin: None,
         assets: false,
         usage: None,
         self_check: None,
@@ -700,6 +701,7 @@ fn notes_worker(ws: &Workspace, run: &RebuildRun) -> Worker {
         self_check: None,
         reset_progress_after_notes: false,
         taken_in_turn: Vec::new(),
+        standin: None,
     }
 }
 
@@ -789,7 +791,7 @@ fn said_to_look(text: &str) -> Option<&'static str> {
 #[test]
 fn a_builder_that_cant_see_is_never_sent_to_a_picture() {
     let sees_only = |ws: &Workspace, k: &str, deep: bool, assets: bool, sees_pictures: bool| {
-        super::brief(kind(k).as_ref(), &BriefCx { ws, deep, ghidra: false, editor: None, assets, image_model: None, sees_pictures }, None)
+        super::brief(kind(k).as_ref(), &BriefCx { ws, deep, ghidra: false, editor: None, assets, image_model: None, sees_pictures, standin: None }, None)
     };
     let mut checked = 0;
     // Everything a sighted builder is sent, to show the guard's phrases are still what it's told.
@@ -1549,8 +1551,11 @@ fn a_registered_kind_is_chosen_from_its_words_and_brings_its_checks() {
     let ws = Workspace::create(d.path(), "Deck", "Make slides", TargetRef::None).unwrap();
     let checks = kinds.get("slides").unwrap().checks(&ws);
     assert_eq!(checks.iter().map(|c| c.id()).collect::<Vec<_>>(), ["outline"]);
-    let b =
-        super::brief(&SlidesKind, &BriefCx { ws: &ws, deep: false, ghidra: false, editor: None, assets: false, image_model: None, sees_pictures: true }, None);
+    let b = super::brief(
+        &SlidesKind,
+        &BriefCx { ws: &ws, deep: false, ghidra: false, editor: None, assets: false, image_model: None, sees_pictures: true, standin: None },
+        None,
+    );
     assert!(b.contains("What to build: a slide deck."), "{b}");
 }
 
@@ -1680,6 +1685,7 @@ fn an_api_backend_builds_with_the_build_tools() {
         feed: Arc::new(Mutex::new(feed::FeedLog::open(&ws))),
         keys: crate::KeyStore::file_only(ws.root.join("keys.toml")),
         kept_checks: Mutex::default(),
+        standin: None,
         assets: false,
         usage: None,
         self_check: None,
@@ -1737,7 +1743,7 @@ fn other_pages_of_the_same_site_are_picked_from_its_links() {
     // The brief mentions the other pages only when some were captured.
     let d = tempfile::tempdir().unwrap();
     let ws = Workspace::create(d.path(), "Shop", "Clone it", TargetRef::Website { url: "https://shop.example.com/".into() }).unwrap();
-    let cx = |ws| BriefCx { ws, deep: false, ghidra: false, editor: None, assets: false, image_model: None, sees_pictures: true };
+    let cx = |ws| BriefCx { ws, deep: false, ghidra: false, editor: None, assets: false, image_model: None, sees_pictures: true, standin: None };
     // #1590: and it always says how to run the site without Craft Anything.
     assert_eq!(kinds::WebsiteKind.brief_sections(&cx(&ws)), [kinds::website::HOW_TO_RUN]);
     std::fs::create_dir_all(ws.capture_dir()).unwrap();
@@ -1890,6 +1896,7 @@ fn the_mechanics_sheet_is_required_without_claiming_effective_behavior() {
         feed: Arc::new(Mutex::new(feed::FeedLog::open(&ws))),
         keys: crate::KeyStore::file_only(ws.root.join("keys.toml")),
         kept_checks: Mutex::default(),
+        standin: None,
         assets: false,
         usage: None,
         self_check: None,
@@ -2253,6 +2260,45 @@ mod picking_up_a_build {
         assert_eq!(saved.manifest.status, Status::Ready);
         assert!(saved.manifest.note.contains("unverified"), "{}", saved.manifest.note);
         assert!(!saved.manifest.checks.last().unwrap().good(0.0));
+    }
+
+    /// R3.11: a Deep website build whose capture kept a recording starts a stand-in backend from
+    /// it before the builder's turn, tells the builder where it answers, and stops it at the end.
+    #[test]
+    fn a_website_build_serves_the_recorded_backend_while_it_builds() {
+        let b = bench();
+        let mut ws = worked_on(&b);
+        ws.manifest.target = TargetRef::Website { url: "https://example.com".into() };
+        ws.save().unwrap();
+        let requests = [json!({"method": "GET", "url": "https://api.example.test/v1/items/42", "status": 200, "mime_type": "application/json",
+            "response_body": {"state": "captured", "bytes": 11, "text": "{\"title\":1}"}})];
+        craft_anything_engine::tools::browser_tools::write_recording(&requests, &ws.capture_dir().join(crate::rebuild::study::RECORDING)).unwrap();
+        let (ok, feed) = try_with(&b, &ws, RunOptions { message: Some("Load the items from the API.".into()), ..RunOptions::default() });
+        assert!(ok, "{feed:?}");
+        let told = std::fs::read_to_string(&b.prompts).unwrap();
+        let port = Workspace::open(&ws.root).unwrap().manifest.standin_port.expect("the port is kept with the project");
+        let url = format!("http://127.0.0.1:{port}");
+        assert!(told.contains(&format!("{url} answers your front end")), "the follow-up gives the address: {told}");
+        assert_eq!(stopped_by_its_runs(&ws), 1, "stopped when the build ended");
+        // A build that ends without a working app stops it too.
+        std::fs::write(ws.root.join("reject-build"), "always").unwrap();
+        let (ok, _) = try_with(&b, &ws, RunOptions { message: Some("Try once more.".into()), ..RunOptions::default() });
+        assert!(!ok);
+        assert_eq!(stopped_by_its_runs(&ws), 2, "stopped when the build failed");
+    }
+
+    /// How many stand-ins runs started for `ws`, failing if any is still in its run's registry. A
+    /// port says nothing once freed (another test's server can take it), and the run's session
+    /// isn't the app's, so it asks the registry the run served it from; that a stopped one frees
+    /// its server and answerer is the stand-in tools' own test.
+    fn stopped_by_its_runs(ws: &Workspace) -> usize {
+        let started = crate::rebuild::recorded_backend::STARTED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let ours: Vec<_> = started.iter().filter(|(root, ..)| *root == ws.root).collect();
+        for (_, id, servers) in &ours {
+            // `stop` says whether it was still running; a dropped registry stopped all of its own.
+            assert!(!servers.upgrade().is_some_and(|s| s.stop(id)), "{id} still runs in its run's session");
+        }
+        ours.len()
     }
 
     #[test]
@@ -3287,6 +3333,7 @@ pub(crate) fn check_worker(ws: &Workspace, deep: bool) -> Worker {
         taken_in_turn: Vec::new(),
         keys: crate::KeyStore::file_only(ws.root.join("keys.toml")),
         kept_checks: Mutex::default(),
+        standin: None,
     }
 }
 
@@ -3720,7 +3767,7 @@ fn a_resumed_game_builder_hears_the_asset_choice_as_it_is_now() {
     let mut ws = Workspace::create(d.path(), "Game", "A snake game", TargetRef::None).unwrap();
     let game = kind("game");
     fn cx(ws: &Workspace, assets: bool) -> BriefCx<'_> {
-        BriefCx { ws, deep: false, ghidra: false, editor: None, assets, image_model: None, sees_pictures: true }
+        BriefCx { ws, deep: false, ghidra: false, editor: None, assets, image_model: None, sees_pictures: true, standin: None }
     }
     assert!(game.follow_up_sections(&cx(&ws, true)).is_empty(), "off and never used: nothing to say");
     // Turned on after the first build, with a key: the follow-up carries the asset note and budget.
@@ -3883,6 +3930,7 @@ fn preparing_the_builders_agent_does_not_lock_up() {
         feed: Arc::new(Mutex::new(feed::FeedLog::open(&ws))),
         keys: crate::KeyStore::file_only(ws.root.join("keys.toml")),
         kept_checks: Mutex::default(),
+        standin: None,
         assets: false,
         usage: None,
         self_check: None,
@@ -3927,6 +3975,7 @@ fn the_run_answers_the_builders_own_check_during_its_turn() {
         feed: Arc::new(Mutex::new(feed::FeedLog::open(&ws))),
         keys: crate::KeyStore::file_only(ws.root.join("keys.toml")),
         kept_checks: Mutex::default(),
+        standin: None,
         assets: false,
         usage: None,
         self_check: Some((Arc::new(SheetKind), 90.0)),
@@ -3967,6 +4016,7 @@ fn a_stopped_build_answers_the_check_it_took() {
         feed: Arc::new(Mutex::new(feed::FeedLog::open(&ws))),
         keys: crate::KeyStore::file_only(ws.root.join("keys.toml")),
         kept_checks: Mutex::default(),
+        standin: None,
         assets: false,
         usage: None,
         self_check: Some((Arc::new(SheetKind), 90.0)),
@@ -4127,6 +4177,7 @@ fn decompiling_once_is_remembered_by_the_project() {
         feed: Arc::new(Mutex::new(feed::FeedLog::open(&ws))),
         keys: crate::KeyStore::file_only(ws.root.join("keys.toml")),
         kept_checks: Mutex::default(),
+        standin: None,
         assets: false,
         usage: None,
         self_check: None,
@@ -4193,6 +4244,7 @@ fn a_build_says_why_it_refused_a_tool_that_needs_consent() {
         feed: Arc::new(Mutex::new(feed::FeedLog::open(&ws))),
         keys: crate::KeyStore::file_only(ws.root.join("keys.toml")),
         kept_checks: Mutex::default(),
+        standin: None,
         assets: false,
         usage: None,
         self_check: None,
@@ -4443,6 +4495,7 @@ fn a_note_the_builder_took_at_a_step_joins_the_feed_and_isnt_sent_again() {
         feed: Arc::new(Mutex::new(feed::FeedLog::open(&ws))),
         keys: crate::KeyStore::file_only(ws.root.join("keys.toml")),
         kept_checks: Mutex::default(),
+        standin: None,
         assets: false,
         usage: None,
         self_check: None,
@@ -4715,6 +4768,22 @@ fn a_website_brief_offers_a_stand_in_backend_only_when_the_capture_has_a_recordi
     craft_anything_engine::tools::browser_tools::write_recording(&requests, &capture.join(crate::rebuild::study::RECORDING)).unwrap();
     let with = brief(&ws, "website", true, false, None, false, None);
     assert!(with.contains("web_standin_build") && with.contains("web_standin_start"), "{with}");
+    assert!(!with.contains("is already serving a stand-in"), "none is running: {with}");
+    // One the run already serves is given by its address.
+    let cx = BriefCx {
+        ws: &ws,
+        deep: true,
+        ghidra: false,
+        editor: None,
+        assets: false,
+        image_model: None,
+        sees_pictures: true,
+        standin: Some("http://127.0.0.1:4100"),
+    };
+    let served = super::brief(kind("website").as_ref(), &cx, None);
+    assert!(served.contains("web_standin_build") && served.contains("http://127.0.0.1:4100 answers your front end"), "{served}");
+    // The words the negative check above looks for are the ones a running stand-in is given in.
+    assert!(served.contains("is already serving a stand-in"), "{served}");
     // Clean room reads nothing inside the original, so its brief never offers it.
     let clean = brief(&ws, "website", false, false, None, false, None);
     assert!(!clean.contains("web_standin"), "{clean}");
@@ -4894,6 +4963,7 @@ fn a_session_left_on_another_computer_starts_a_new_one_from_the_project() {
         feed: Arc::new(Mutex::new(feed::FeedLog::open(&ws))),
         keys: crate::KeyStore::file_only(ws.root.join("keys.toml")),
         kept_checks: Mutex::default(),
+        standin: None,
         assets: false,
         usage: None,
         self_check: None,
@@ -4951,6 +5021,7 @@ fn a_missing_session_with_nothing_to_start_from_is_said_plainly() {
         feed: Arc::new(Mutex::new(feed::FeedLog::open(&ws))),
         keys: crate::KeyStore::file_only(ws.root.join("keys.toml")),
         kept_checks: Mutex::default(),
+        standin: None,
         assets: false,
         usage: None,
         self_check: None,
@@ -5019,6 +5090,7 @@ fn the_builders_conversation_travels_with_the_project() {
         feed: Arc::new(Mutex::new(feed::FeedLog::open(&ws))),
         keys: crate::KeyStore::file_only(ws.root.join("keys.toml")),
         kept_checks: Mutex::default(),
+        standin: None,
         assets: false,
         usage: None,
         self_check: None,
@@ -5098,6 +5170,7 @@ fn waiting_for_another_analysis(d: &Path, limit_secs: u64) -> (Worker, std::sync
         feed: Arc::new(Mutex::new(feed::FeedLog::open(&ws))),
         keys: crate::KeyStore::file_only(ws.root.join("keys.toml")),
         kept_checks: Mutex::default(),
+        standin: None,
         assets: false,
         usage: None,
         self_check: None,
@@ -5193,6 +5266,7 @@ fn a_later_run_opens_the_projects_program_again_for_the_builder() {
             feed: Arc::new(Mutex::new(feed::FeedLog::open(&ws))),
             keys: crate::KeyStore::file_only(ws.root.join("keys.toml")),
             kept_checks: Mutex::default(),
+            standin: None,
             assets: false,
             usage: None,
             self_check: None,

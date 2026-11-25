@@ -85,6 +85,9 @@ pub struct BriefCx<'a> {
     /// The builder can look at pictures (an agent app opens them with its Read tool). One that
     /// can't (the API loop) is never sent to open a screenshot; it's told what to use instead.
     pub sees_pictures: bool,
+    /// The address of the stand-in backend the run started from the original's recording (Deep
+    /// websites only), which the brief gives the builder.
+    pub standin: Option<&'a str>,
 }
 
 /// The words the app uses for a kind's result.

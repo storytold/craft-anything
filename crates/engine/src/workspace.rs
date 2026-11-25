@@ -491,6 +491,12 @@ pub struct Manifest {
     /// saves, which costs at most one more reminder, so the format version stays.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub decompiled: bool,
+    /// The port the stand-in backend a Deep website build starts from the original's recording
+    /// last listened on. The next build asks for it again, so a front end the builder pointed at it
+    /// still reaches it; a busy port gives way to a free one. An older build drops it when it saves,
+    /// which costs only a new port, so the format version stays.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub standin_port: Option<u16>,
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -534,6 +540,7 @@ impl Manifest {
             awaiting_check: false,
             not_working_checks: 0,
             decompiled: false,
+            standin_port: None,
         }
     }
 

@@ -49,6 +49,7 @@ pub mod notes;
 mod output;
 pub mod project;
 pub mod question;
+mod recorded_backend;
 pub mod runs;
 pub mod self_check;
 pub mod stacks;
@@ -380,6 +381,7 @@ impl RebuildRun {
             taken_in_turn: Vec::new(),
             keys: hub.keys.clone(),
             kept_checks: Mutex::default(),
+            standin: None,
         };
         let r2 = running.clone();
         let key_store = hub.keys.clone();
@@ -396,6 +398,9 @@ impl RebuildRun {
                     ctx.run(&mut ws, entry, api, extractor, kept_without_api, &opts)
                 }));
                 let (ok, message, paused) = run_outcome(result, &mut ws);
+                if let Some(standin) = ctx.standin.take() {
+                    ctx.stop_standin(&standin);
+                }
                 ctx.record_usage(None);
                 // The CLI can exit as soon as it sees completion: release the helper while its
                 // supervisor threads are still available to stop it.
@@ -604,6 +609,8 @@ struct Worker {
     keys: crate::keys::KeyStore,
     /// The last check round in which everything worked, kept while nothing it looks at changes.
     kept_checks: Mutex<kept_check::KeptChecks>,
+    /// The stand-in backend this run started from the original's recording, stopped as it ends.
+    standin: Option<recorded_backend::RunningStandIn>,
 }
 
 /// The project a run records its usage in, and when it last did.
@@ -717,6 +724,12 @@ impl Worker {
     }
 
     fn call(&self, tool: &str, params: Value) -> Result<ToolOutput, ToolError> {
+        self.call_then(tool, params, |_| {})
+    }
+
+    /// [`Worker::call`], showing `seen` the result before the feed is told, so what the call made
+    /// can be taken charge of before the feed's callbacks run.
+    fn call_then(&self, tool: &str, params: Value, seen: impl FnOnce(&Result<ToolOutput, ToolError>)) -> Result<ToolOutput, ToolError> {
         self.stop.check()?;
         // The person started this run for this target, which is the consent for opening it.
         let opts = CallOptions::new(Caller::Ui).with_consent(craft_anything_engine::Consent::Granted).with_cancel(self.stop.clone());
@@ -724,6 +737,7 @@ impl Worker {
         let call_id = format!("run-{tool}");
         self.emit(RunEvent::Agent(AgentEvent::ToolStarted { call_id: call_id.clone(), tool: tool.to_string(), input: Value::Null }));
         let result = self.engine.call(tool, params, opts);
+        seen(&result);
         self.emit(RunEvent::Agent(AgentEvent::ToolFinished { call_id, tool: tool.to_string(), ok: result.is_ok(), summary: String::new(), evidence_id: None }));
         result
     }
@@ -984,14 +998,34 @@ impl Worker {
             Some(a) => Box::new(a),
             None => crate::cli_agents::builder_conversation(spec, self.approver(ws)),
         };
+        // Served before the brief is written, so the brief can give its address. It listens on
+        // this computer only, so a coding agent on another one isn't given it.
+        if !study::tools_run_remotely(remote, api_loop) {
+            self.start_standin(ws, deep);
+        }
+        let standin = self.standin.as_ref().map(|s| s.url.clone());
         // The builder's tool server is started in this run's mode (`--deep` or `--clean-room`).
         let s = self.engine.session();
         let ghidra = s.settings.ghidra_launcher().is_some();
         let image_model = s.settings.assets.image_model.clone();
         drop(s);
-        let cx = BriefCx { ws, deep, ghidra, editor: self.editor.as_deref(), assets: self.assets, image_model: image_model.as_deref(), sees_pictures };
-        // The project's settings as they are now, for an agent that carries on its session.
-        let now = || kind.follow_up_sections(&cx).iter().map(|s| format!("\n\n{s}")).collect::<String>() + &pictures_reminder(ws, sees_pictures);
+        let cx = BriefCx {
+            ws,
+            deep,
+            ghidra,
+            editor: self.editor.as_deref(),
+            assets: self.assets,
+            image_model: image_model.as_deref(),
+            sees_pictures,
+            standin: standin.as_deref(),
+        };
+        // The project's settings as they are now, for an agent that carries on its session; a
+        // stand-in's address is among them, since this run's may differ from the last one's.
+        let now = || {
+            kind.follow_up_sections(&cx).iter().map(|s| format!("\n\n{s}")).collect::<String>()
+                + &standin.as_deref().map(|url| format!("\n\n{}", recorded_backend::running_words(url))).unwrap_or_default()
+                + &pictures_reminder(ws, sees_pictures)
+        };
         let mut prompt = match &opts.message {
             // An agent with a saved session gets the follow-up; one without (an API loop) starts
             // from the brief with the request added.
