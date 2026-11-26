@@ -119,7 +119,10 @@ fn brain(app: &mut CraftApp, ui: &mut Ui, width: f32) {
         }
     }
     ui.add_space(theme::space::MD);
-    let detected: Vec<Detected> = app.detected.clone().unwrap_or_default();
+    // A host from ~/.ssh/config isn't an AI on this computer; it is added in Settings → AI, where
+    // its remote command can be given and checked.
+    let detected: Vec<Detected> =
+        app.detected.clone().unwrap_or_default().into_iter().filter(|d| d.suggestion.ssh_host.as_deref().is_none_or(|h| h.trim().is_empty())).collect();
     let tab = crate::detect_tabs::bar(ui, &mut app.state.detect_tab, &detected);
     let list_h = (ui.ctx().content_rect().height() - 330.0).clamp(220.0, 520.0);
     egui::ScrollArea::vertical().max_height(list_h).show(ui, |ui| {

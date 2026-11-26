@@ -61,10 +61,12 @@ impl TurnFailure {
     pub(crate) fn from_api(error: &ToolError) -> Self {
         let status = error.details.as_ref().and_then(|d| d.get("status")).and_then(serde_json::Value::as_u64);
         let provider = error.details.as_ref().and_then(|d| d.get("provider_error")).and_then(serde_json::Value::as_str);
-        // A request too long for the server's context is refused the same way however often it's sent.
-        let overflow = error.details.as_ref().and_then(|d| d.get("context_overflow")).and_then(serde_json::Value::as_bool) == Some(true);
+        // A request too long for the server's context, or larger than its per-minute limit, is refused
+        // the same way however often it's sent.
+        let said = |key: &str| error.details.as_ref().and_then(|d| d.get(key)).and_then(serde_json::Value::as_bool) == Some(true);
+        let never_fits = said("context_overflow") || said("request_too_large");
         let kind = match (status, provider) {
-            _ if overflow => FailureKind::Configuration,
+            _ if never_fits => FailureKind::Configuration,
             (Some(401 | 403), _) | (_, Some("authentication_error" | "permission_error" | "invalid_api_key")) => FailureKind::Authentication,
             (Some(402), _) | (_, Some("billing_error" | "insufficient_quota")) => FailureKind::Billing,
             (Some(429), _) | (_, Some("rate_limit_error" | "rate_limit_exceeded")) => FailureKind::RateLimited,
@@ -158,6 +160,16 @@ mod tests {
         assert_eq!(TurnFailure::from_api(&limit), TurnFailure { kind: FailureKind::RateLimited, retry_after_secs: Some(2) });
         let quota = crate::http::status_error("Provider", 429, r#"{"error":{"code":"insufficient_quota","message":"余额不足"}}"#);
         assert_eq!(TurnFailure::from_api(&quota).kind, FailureKind::Billing);
+        // Too large for the per-minute limit, sent as a rate limit (#2379); one that only has to wait isn't.
+        let limited = |message: &str| json!({"error":{"code":"rate_limit_exceeded","message":message}}).to_string();
+        let large = "Request too large for the model on tokens per min (TPM): Limit 30000, Requested 47000.";
+        let streamed = crate::http::SseEvent { event: None, data: limited(large) };
+        let streamed = crate::openai::ChatStream::default().apply(&streamed, &mut |_| {}).unwrap_err();
+        for error in [crate::http::status_error("Provider", 429, &limited(large)), crate::http::status_error("Provider", 413, &limited(large)), streamed] {
+            assert!(!TurnFailure::from_api(&error).retryable(), "{error:?}");
+        }
+        let wait = "Rate limit reached on tokens per min (TPM): Limit 30000, Used 29000, Requested 2000.";
+        assert_eq!(TurnFailure::from_api(&crate::http::status_error("Provider", 429, &limited(wait))).kind, FailureKind::RateLimited);
         assert!(!TurnFailure::from_api(&ToolError::new(ErrorCode::OverLimit, "oversized input")).retryable(), "a local size limit is not rate limiting");
     }
 

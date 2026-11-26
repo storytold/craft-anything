@@ -28,6 +28,7 @@ pub enum Made {
     Love,
     CryEngine,
     Cocos,
+    Axmol,
 }
 
 impl Made {
@@ -45,6 +46,7 @@ impl Made {
             Made::Love => "LÖVE",
             Made::CryEngine => "CryEngine",
             Made::Cocos => "Cocos",
+            Made::Axmol => "Axmol",
         }
     }
 }
@@ -178,7 +180,7 @@ pub fn detect_in(files: &[(String, PathBuf)]) -> Option<Found> {
         return Some(found(Made::Godot, Some(v), l, Some("Its game data is packed inside the program.")));
     }
     type Rule<'a> = (Made, &'a dyn Fn(&str) -> bool);
-    let rules: [Rule; 9] = [
+    let rules: [Rule; 10] = [
         (Made::Source, &|l| file_name(l) == "gameinfo.txt" || l.ends_with("_dir.vpk")),
         (Made::Cube, &|l| l.starts_with("packages/") && (l.ends_with(".cgz") || l.ends_with(".ogz"))),
         (Made::GameMaker, &|l| ["data.win", "game.unx", "game.ios"].contains(&file_name(l))),
@@ -187,6 +189,7 @@ pub fn detect_in(files: &[(String, PathBuf)]) -> Option<Found> {
         (Made::MonoGame, &|l| ["monogame.framework.dll", "microsoft.xna.framework.dll", "fna.dll"].contains(&file_name(l))),
         (Made::Love, &|l| file_name(l) == "love.dll" || l.ends_with(".love")),
         (Made::CryEngine, &|l| file_name(l) == "crysystem.dll"),
+        (Made::Axmol, &|l| ["axmol.dll", "libaxmol.so", "libaxmol.dylib"].contains(&file_name(l))),
         (Made::Cocos, &|l| file_name(l).starts_with("libcocos2d")),
     ];
     rules.iter().find_map(|(engine, pred)| find(*pred).map(|(l, _)| found(*engine, None, l, None)))
@@ -548,6 +551,8 @@ pub struct Places {
     pub program_data: Option<PathBuf>,
     pub app_data: Option<PathBuf>,
     pub home: Option<PathBuf>,
+    /// The Steam client location registered on Windows, if present.
+    pub steam_root: Option<PathBuf>,
     /// An explicit Unreal installation root, preferred over registered installations when valid.
     pub unreal_root: Option<PathBuf>,
     /// Explicit Visual Studio or VC toolset directories (`VSINSTALLDIR`, `VCINSTALLDIR`, `VCToolsInstallDir`).
@@ -563,11 +568,20 @@ impl Places {
     /// Capture environment-based search locations and the supplied engine store, with PATH lookup enabled.
     pub fn here(store: PathBuf) -> Places {
         let env = |k: &str| std::env::var_os(k).map(PathBuf::from);
+        #[cfg(windows)]
+        let steam_root = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER)
+            .open_subkey(r"Software\Valve\Steam")
+            .ok()
+            .and_then(|key| key.get_value::<String, _>("SteamPath").ok())
+            .map(PathBuf::from);
+        #[cfg(not(windows))]
+        let steam_root = None;
         Places {
             program_files: [env("ProgramFiles"), env("ProgramFiles(x86)"), env("ProgramW6432")].into_iter().flatten().collect(),
             program_data: env("ProgramData"),
             app_data: env("APPDATA"),
             home: env("HOME").or_else(|| env("USERPROFILE")),
+            steam_root,
             unreal_root: env("UE_ROOT"),
             vs_roots: [env("VSINSTALLDIR"), env("VCINSTALLDIR"), env("VCToolsInstallDir")].into_iter().flatten().collect(),
             applications: cfg!(target_os = "macos").then(|| PathBuf::from("/Applications")),
@@ -758,6 +772,9 @@ fn godot_installs(p: &Places) -> Vec<Installed> {
                 return None;
             }
             let program = if name.ends_with(".app") { path.join("Contents/MacOS/Godot") } else { path };
+            if !program.is_file() {
+                return None;
+            }
             let version = name.trim_start_matches("Godot_v").split('-').next()?.to_string();
             Some(Installed { builder: Builder::Godot, version, program })
         })
@@ -769,7 +786,76 @@ fn godot_installs(p: &Places) -> Vec<Installed> {
             }
         }
     }
+    v.extend(steam_godot_installs(p));
     v
+}
+
+/// Find the Windows editor in Steam's main folder or one of its configured libraries.
+fn steam_godot_installs(p: &Places) -> Vec<Installed> {
+    let roots: std::collections::BTreeSet<_> =
+        p.steam_root.iter().cloned().chain(p.program_files.iter().map(|dir| dir.join("Steam"))).filter(|p| p.is_absolute()).collect();
+    let mut editors = std::collections::BTreeSet::new();
+    roots
+        .into_iter()
+        .flat_map(|root| {
+            let other_libraries = steam_library_paths(&root);
+            std::iter::once(root).chain(other_libraries)
+        })
+        .filter_map(|library| {
+            let editor = steam_godot_editor(&library.join("steamapps/common/Godot Engine"))?;
+            // Steam's registry and library paths can spell the same location with different casing.
+            let identity = editor.program.canonicalize().unwrap_or_else(|_| editor.program.clone());
+            editors.insert(identity).then_some(editor)
+        })
+        .collect()
+}
+
+/// Steam uses the same launch filenames for Godot 3 and 4. The projects we generate require 4.
+fn steam_godot_editor(folder: &Path) -> Option<Installed> {
+    for exe in ["godot.windows.opt.tools.64.exe", "godot.windows.opt.tools.32.exe"] {
+        let program = folder.join(exe);
+        if program.is_file()
+            && let Some(info) = std::fs::File::open(&program).ok().and_then(craft_anything_formats::pe::read_file_version)
+            && let Some(version) = info.product_version
+            && version.starts_with("4.")
+        {
+            // Godot writes major.minor.patch.0 into its Windows product version.
+            return Some(Installed { builder: Builder::Godot, version: version.strip_suffix(".0").unwrap_or(&version).to_string(), program });
+        }
+    }
+    // A manually installed release can keep its download name in the Steam folder.
+    std::fs::read_dir(folder)
+        .ok()?
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name();
+            let release = name.to_str()?.strip_prefix("Godot_v")?;
+            let release = release.strip_suffix("_win64.exe").or_else(|| release.strip_suffix("_win32.exe"))?;
+            let version = release.split('-').next()?;
+            if !version.starts_with("4.") || !version.split('.').all(|n| n.parse::<u16>().is_ok()) || !entry.path().is_file() {
+                return None;
+            }
+            Some(Installed { builder: Builder::Godot, version: version.to_string(), program: entry.path() })
+        })
+        .max_by_key(|i| (version_key(&i.version), i.program.clone()))
+}
+
+/// Steam writes one quoted `path` entry per library, with backslashes doubled.
+fn steam_library_paths(root: &Path) -> Vec<PathBuf> {
+    let Ok(file) = std::fs::File::open(root.join("steamapps/libraryfolders.vdf")) else { return Vec::new() };
+    let mut config = String::new();
+    if file.take(1 << 20).read_to_string(&mut config).is_err() {
+        return Vec::new();
+    }
+    config
+        .lines()
+        .filter_map(|line| {
+            let value = line.trim().strip_prefix("\"path\"")?.trim();
+            let value = value.strip_prefix('"')?.strip_suffix('"')?;
+            let path = PathBuf::from(value.replace("\\\\", "\\"));
+            path.is_absolute().then_some(path)
+        })
+        .collect()
 }
 
 /// Check filesystem presence of MSVC, Xcode, or the selected Linux engine's bundled Clang.
@@ -1113,6 +1199,22 @@ mod tests {
     }
 
     #[test]
+    fn profiles_axmol_games_with_their_shared_engine_library() {
+        for library in ["Bin/Axmol.dll", "lib/libaxmol.so", "Game.app/Contents/Frameworks/libaxmol.dylib"] {
+            let dir = tempfile::tempdir().unwrap();
+            touch(dir.path(), "axmol-notes.txt", b"notes");
+            assert!(profile(dir.path()).found.is_none());
+
+            touch(dir.path(), library, b"engine library");
+            let game = profile(dir.path());
+            assert_eq!(game.engine.as_deref(), Some("Axmol"), "{library}");
+            let found = game.found.unwrap();
+            assert_eq!(found.clue, library.to_ascii_lowercase());
+            assert_eq!(found.version, None);
+        }
+    }
+
+    #[test]
     fn unity_version_tokens() {
         assert_eq!(unity_version(b"xx 6000.0.23f1 yy").as_deref(), Some("6000.0.23f1"));
         assert_eq!(unity_version(b"5.6.7f1").as_deref(), Some("5.6.7f1"));
@@ -1130,12 +1232,14 @@ mod tests {
         let store = d.path().join("store");
         touch(&store, "godot/Godot_v4.4.1-stable_win64.exe", b"");
         touch(&store, "godot/Godot_v4.4.1-stable_win64_console.exe", b"");
+        touch(&store, "godot/Godot_v4.5.0.app/Contents/Info.plist", b"");
+        std::fs::create_dir_all(store.join("godot/Godot_v4.6.0-stable_win64.exe")).unwrap();
         let p = Places { program_files: vec![pf.clone()], store, ..Default::default() };
         let inv = inventory(&p);
         assert_eq!(inv.best(Builder::Unity).unwrap().version, "6000.0.23f1", "newest first");
         assert_eq!(inv.engines.iter().filter(|i| i.builder == Builder::Unity).count(), 2);
         assert_eq!(inv.best(Builder::Godot).unwrap().version, "4.4.1");
-        assert_eq!(inv.engines.iter().filter(|i| i.builder == Builder::Godot).count(), 1, "the console helper isn't the editor");
+        assert_eq!(inv.engines.iter().filter(|i| i.builder == Builder::Godot).count(), 1, "only valid editor files count");
         assert_eq!(inv.best(Builder::Unreal).unwrap().version, "5.4");
         assert!(inv.unity_hub.is_some() && inv.epic_launcher.is_none());
         assert!(!inv.ready(Builder::Unreal), "Unreal also needs C++ tools");
@@ -1334,6 +1438,73 @@ mod tests {
         assert_eq!(inv.engines.iter().filter(|i| i.builder == Builder::Unreal).count(), 2);
         assert!(!inv.cpp_tools, "an older engine's compiler cannot establish readiness for the selected engine");
         assert!(!inv.ready(Builder::Unreal));
+    }
+
+    fn steam_editor_pe(major: u16, minor: u16, patch: u16) -> Vec<u8> {
+        // Give the testkit PE the fixed product version used by Godot (major.minor.patch.0).
+        let mut pe = craft_anything_testkit::pe64();
+        let fixed = pe.windows(4).position(|w| w == 0xfeef04bdu32.to_le_bytes()).unwrap();
+        let ms = (u32::from(major) << 16) | u32::from(minor);
+        pe[fixed + 16..fixed + 20].copy_from_slice(&ms.to_le_bytes());
+        pe[fixed + 20..fixed + 24].copy_from_slice(&(u32::from(patch) << 16).to_le_bytes());
+        pe
+    }
+
+    #[test]
+    fn finds_godot_in_steams_default_and_secondary_libraries() {
+        let d = tempfile::tempdir().unwrap();
+        let program_files = d.path().join("Program Files (x86)");
+        let steam = program_files.join("Steam");
+        let secondary = d.path().join("Steam Library");
+        let editor = "steamapps/common/Godot Engine/godot.windows.opt.tools.64.exe";
+        let places = Places { program_files: vec![program_files], store: d.path().join("store"), ..Default::default() };
+
+        let pe = steam_editor_pe(4, 7, 2);
+        touch(&steam, editor, &pe);
+        assert_eq!(inventory(&places).best(Builder::Godot).map(|i| i.program.clone()), Some(steam.join(editor)));
+        let registered = Places { steam_root: Some(steam.join("steamapps/..")), ..places.clone() };
+        let editors = inventory(&registered).engines.into_iter().filter(|i| i.builder == Builder::Godot).count();
+        assert_eq!(editors, 1, "the registry and Program Files can point to the same editor");
+        std::fs::remove_file(steam.join(editor)).unwrap();
+
+        let library_path = secondary.to_string_lossy().replace('\\', "\\\\");
+        touch(
+            &steam,
+            "steamapps/libraryfolders.vdf",
+            format!("\"libraryfolders\"\n{{\n\t\"1\"\n\t{{\n\t\t\"path\"\t\t\"{library_path}\"\n\t}}\n}}\n").as_bytes(),
+        );
+        let places = Places { steam_root: Some(steam), program_files: Vec::new(), ..places };
+        let program = secondary.join(editor);
+        std::fs::create_dir_all(&program).unwrap();
+        assert!(!inventory(&places).ready(Builder::Godot));
+        std::fs::remove_dir(&program).unwrap();
+        touch(&secondary, editor, &pe);
+        assert_eq!(inventory(&places).best(Builder::Godot).map(|i| i.program.clone()), Some(program));
+    }
+
+    #[test]
+    fn steam_godot_selects_a_versioned_gui_editor_for_a_godot_4_project() {
+        let root = tempfile::tempdir().unwrap();
+        let places = Places { steam_root: Some(root.path().into()), store: root.path().join("store"), ..Default::default() };
+        let folder = root.path().join("steamapps/common/Godot Engine");
+        let win64 = "godot.windows.opt.tools.64.exe";
+        let win32 = "godot.windows.opt.tools.32.exe";
+        touch(&folder, win64, &steam_editor_pe(3, 6, 2));
+        touch(&folder, win32, b"");
+        touch(&folder, "Godot_v4.8-stable_win64_console.exe", b"");
+        touch(&folder, "Godot_v3.6-stable_win64.exe", b"");
+        assert!(!inventory(&places).ready(Builder::Godot));
+
+        touch(&folder, win32, &steam_editor_pe(4, 7, 2));
+        let inv = inventory(&places);
+        let found = inv.best(Builder::Godot).unwrap();
+        assert_eq!((&found.program, found.version.as_str()), (&folder.join(win32), "4.7.2"));
+        std::fs::remove_file(folder.join(win32)).unwrap();
+        let release = "Godot_v4.6.1-stable_win64.exe";
+        touch(&folder, release, b"");
+        let inv = inventory(&places);
+        let found = inv.best(Builder::Godot).unwrap();
+        assert_eq!((&found.program, found.version.as_str()), (&folder.join(release), "4.6.1"));
     }
 
     #[test]

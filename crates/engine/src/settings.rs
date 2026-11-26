@@ -30,8 +30,8 @@ pub struct GhidraSettings {
     pub language_id: Option<String>,
     /// A Ghidra compiler-spec id to pair with `language_id` (e.g. `gcc`, `default`, `windows`).
     pub compiler_spec: Option<String>,
-    /// Memory for Ghidra in GB (4 to 31). More makes its first look at a big program faster.
-    /// `None`: half this computer's memory.
+    /// Memory for Ghidra in GB (1 to 31). More makes its first look at a big program faster; less
+    /// keeps a small computer or container usable. `None`: half this computer's memory (4 to 31).
     pub memory_gb: Option<u64>,
 }
 

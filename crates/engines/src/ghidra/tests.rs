@@ -345,8 +345,13 @@ fn ghidra_memory_follows_the_setting_within_its_bounds() {
         memory_gb,
     };
     assert_eq!(ghidra_heap(&cfg(Some(12))), "12G");
-    assert_eq!(ghidra_heap(&cfg(Some(2))), "4G");
+    // What the person set is used below the automatic floor too (#2425).
+    assert_eq!(ghidra_heap(&cfg(Some(1))), "1G");
+    assert_eq!(ghidra_heap(&cfg(Some(2))), "2G");
+    assert_eq!(ghidra_heap(&cfg(Some(3))), "3G");
+    assert_eq!(ghidra_heap(&cfg(Some(0))), "1G", "Java can't start Ghidra with no heap");
     assert_eq!(ghidra_heap(&cfg(Some(200))), "31G");
+    assert_eq!(ghidra_heap(&cfg(None)), format!("{}G", auto_heap_gb(machine_memory_gb())));
     assert_eq!(suggested_heap_gb(10 << 20), 4);
     assert_eq!(suggested_heap_gb(192 << 20), 8);
     assert_eq!(suggested_heap_gb(900 << 20), 16);
@@ -804,4 +809,82 @@ fn an_empty_platform_folder_is_not_a_decompiler_and_an_unknown_layout_is_left_to
 
     let unknown = tempfile::tempdir().unwrap();
     assert!(has_decompiler_for(unknown.path(), "mac_"), "never refused on a guess");
+}
+
+/// A stand-in `support/analyzeHeadless` in its own install folder that appends the heap it was
+/// given and its arguments to `record`, one line each per start, then fails as Ghidra would.
+#[cfg(unix)]
+fn recording_launcher(dir: &Path) -> (PathBuf, PathBuf) {
+    use std::os::unix::fs::PermissionsExt;
+    let support = dir.join("install").join("support");
+    std::fs::create_dir_all(&support).unwrap();
+    let record = dir.join("record.txt");
+    let launcher = support.join("analyzeHeadless");
+    let script = format!(
+        "#!/bin/sh\nprintf 'heap=%s\\n' \"${{GHIDRA_HEADLESS_MAXMEM-unset}}\" >> '{r}'\nprintf 'args=%s\\n' \"$*\" >> '{r}'\nexit 1\n",
+        r = record.display()
+    );
+    std::fs::write(&launcher, script).unwrap();
+    std::fs::set_permissions(&launcher, std::fs::Permissions::from_mode(0o755)).unwrap();
+    (launcher, record)
+}
+
+/// The heap each start of the stand-in was given, with the arguments it was started with.
+#[cfg(unix)]
+fn recorded_starts(record: &Path) -> Vec<(String, String)> {
+    let text = std::fs::read_to_string(record).unwrap_or_default();
+    let lines: Vec<&str> = text.lines().collect();
+    lines
+        .chunks(2)
+        .map(|pair| {
+            let heap = pair.first().and_then(|l| l.strip_prefix("heap=")).unwrap_or_default().to_string();
+            let args = pair.get(1).and_then(|l| l.strip_prefix("args=")).unwrap_or_default().to_string();
+            (heap, args)
+        })
+        .collect()
+}
+
+/// #2425: the memory set for Ghidra reaches both of its starts, the one-time analysis and the
+/// bridge that opens the saved analysis, also below the automatic amount's floor of 4 GB, and the
+/// automatic amount is used when nothing is set.
+#[cfg(unix)]
+#[test]
+fn every_ghidra_start_is_given_the_memory_that_was_set() {
+    let auto = format!("{}G", auto_heap_gb(machine_memory_gb()));
+    for (memory_gb, want) in [(Some(1), "1G".to_string()), (Some(3), "3G".to_string()), (Some(12), "12G".to_string()), (None, auto)] {
+        // A plain prefix: Ghidra's store must not sit under a dot folder, which tempdir()'s names are.
+        let d = tempfile::Builder::new().prefix("ghidra-heap").tempdir().unwrap();
+        let (launcher, record) = recording_launcher(d.path());
+        let cfg = Config {
+            analyze_headless: launcher,
+            java_home: None,
+            startup_timeout: Duration::from_secs(30),
+            store_dir: d.path().join("store"),
+            language_id: None,
+            compiler_spec: None,
+            memory_gb,
+        };
+        let _link = LinkGuard(cfg.store_dir.clone());
+        let (bytes, digest) = (b"not really a program", "cd".repeat(32));
+        let sha = craft_anything_evidence::sha256_hex(bytes);
+
+        // The analysis: nothing is saved yet, so the target is imported and analysed.
+        let err = analyse(&cfg, bytes, &sha, &digest, &|| false, &|_, _| {}).unwrap_err();
+        assert!(matches!(err, GhidraError::Launch(_)), "{memory_gb:?}: {err:?}");
+        let starts = recorded_starts(&record);
+        assert_eq!(starts.len(), 1, "{memory_gb:?}: {starts:?}");
+        assert!(starts[0].1.contains("-import"), "the analysis start: {starts:?}");
+        assert_eq!(starts[0].0, want, "{memory_gb:?}: the analysis");
+
+        // The bridge: the analysis is saved, so the program is opened and our script runs on it.
+        let project = project_cache_dir(&ghidra_root(&cfg.store_dir).unwrap(), &sha, &digest);
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::write(project.join(ANALYSED_MARKER), "target").unwrap();
+        let Err(err) = Session::start(&cfg, bytes, &sha, &digest, &|| false, &|_, _| {}) else { panic!("the stand-in opens no bridge") };
+        assert!(!matches!(err, GhidraError::Cancelled), "{memory_gb:?}: {err:?}");
+        let starts = recorded_starts(&record);
+        assert_eq!(starts.len(), 2, "{memory_gb:?}: {starts:?}");
+        assert!(starts[1].1.contains("-process") && starts[1].1.contains(BRIDGE_SCRIPT_NAME), "the bridge start: {starts:?}");
+        assert_eq!(starts[1].0, want, "{memory_gb:?}: the bridge");
+    }
 }

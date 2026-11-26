@@ -55,3 +55,8 @@ This run's builder didn't report how many tokens it used.
 Take a sound out of an Unreal game
 Hold to the floor
 Add with key
+{program} (or its path on {host})
+Chat AI
+Use for chat
+Builder for a new run: {name}
+No builder available for a new run.

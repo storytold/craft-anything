@@ -533,7 +533,7 @@ fn tool(cli: &Cli, args: &[String], f: Format) -> u8 {
     if let Some(v) = &inv.output_format {
         match <Format as clap::ValueEnum>::from_str(v, true) {
             Ok(v) => f = v,
-            Err(_) => return usage("--output-format needs one of json, jsonl, md, text"),
+            Err(_) => return usage("--output-format needs one of json, jsonl, md, text, csv, tsv"),
         }
     }
     if inv.help {

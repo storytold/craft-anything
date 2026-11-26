@@ -327,6 +327,10 @@ fn opencode_failure(error: &Value) -> TurnFailure {
                     TurnFailure::from_api(&crate::http::status_error("OpenCode", status, data.get("responseBody").and_then(Value::as_str).unwrap_or_default()))
                 },
             );
+            // OpenCode may give the service's words without its response body or status.
+            if data.get("message").and_then(Value::as_str).is_some_and(crate::http::request_too_large) {
+                failure.kind = FailureKind::Configuration;
+            }
             if failure.kind == FailureKind::Unknown && data.get("isRetryable").and_then(Value::as_bool) == Some(true) {
                 failure.kind = FailureKind::Transient;
             } else if failure.retryable() && data.get("isRetryable").and_then(Value::as_bool) == Some(false) {
@@ -392,6 +396,10 @@ mod tests {
         assert_eq!(opencode_failure(&json!({"name":"APIError","data":{"isRetryable":true}})).kind, FailureKind::Transient);
         let quota = json!({"name":"APIError","data":{"statusCode":429,"isRetryable":true,"responseBody":"{\"error\":{\"code\":\"insufficient_quota\"}}"}});
         assert_eq!(opencode_failure(&quota).kind, FailureKind::Billing);
+        for status in [json!(429), json!(null)] {
+            let large = json!({"name":"APIError","data":{"statusCode":status,"isRetryable":true,"message":"Request too large for the model: Limit 30000, Requested 47000."}});
+            assert!(!opencode_failure(&large).retryable(), "told without a response body, status {status}");
+        }
     }
 
     #[test]

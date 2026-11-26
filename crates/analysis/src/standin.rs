@@ -9,7 +9,12 @@
 //! headers, credential query values, secret-shaped values in bodies, and any value the caller names
 //! are all dropped, and [`Dropped`] says how many. Bodies are otherwise kept: they're the answer.
 //!
-//! Replay is read-only. A write answers what was recorded and changes nothing later reads see.
+//! Replay follows the recording's timeline. Each answer keeps its place in the recording, and a
+//! write a client replays moves later reads of its path (and of paths above or under it) on to the
+//! answers recorded after that write, so a list read after a recorded "add" shows what the
+//! original showed then. Nothing is computed from what the client sends: a write steps to the next
+//! recorded write of its kind whatever it carries, and one the recording has no answer of its own
+//! for (past the recorded ones of its kind) is refused and changes nothing.
 
 use crate::web_har::{CREDENTIAL_HEADERS, Redactor, contains_ascii_ci, decode_query_name, is_credential_param, is_uuid, replace_needles_with, split_url};
 use craft_anything_formats::har::{self, Har, HarEntry, HarError};
@@ -18,8 +23,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
-/// The version of the file a [`StandIn`] is saved as (see docs/file-formats.md).
-pub const STANDIN_VERSION: u32 = 1;
+/// The version of the file a [`StandIn`] is saved as (see docs/file-formats.md). 2 adds each
+/// sample's place in the recording ([`Sample::order`]) and whether it answered a write ([`Sample::write`]).
+pub const STANDIN_VERSION: u32 = 2;
+
+/// Methods that read: anything else may change what later reads return.
+const READ_METHODS: [&str; 4] = ["GET", "HEAD", "OPTIONS", "TRACE"];
 
 /// Takes the place of a dropped secret.
 const DROPPED: &str = "[dropped]";
@@ -146,6 +155,15 @@ pub struct Sample {
     /// Recorded as 304 with the cached body; kept as a 200, since nothing here sends validators.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub was_not_modified: bool,
+    /// Where in the recording this answer was given: its entry's index. Files before version 2
+    /// have none: their answers replay in turn, and a write gets each one once.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub order: Option<u64>,
+    /// It answered a write: a method that isn't a read, unless the body was GraphQL that only
+    /// queries. Replaying one the original accepted (see [`accepted`]) moves later reads of related
+    /// paths on to what was recorded after it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub write: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -588,10 +606,42 @@ pub fn safe_path(path: &str) -> String {
 /// What tells this request apart from others to the same URL, without keeping any of its values: the
 /// GraphQL operations it names (`op:GetUser`), or the sorted names in a JSON body (`keys:a,b`).
 pub fn request_key(body: &[u8]) -> Option<String> {
+    key_of(&json_body(body)?)
+}
+
+/// A request body as JSON, when it is JSON and small enough to read.
+fn json_body(body: &[u8]) -> Option<Value> {
     if body.is_empty() || body.len() > MAX_KEY_BODY {
         return None;
     }
-    let v: Value = serde_json::from_slice(body).ok()?;
+    serde_json::from_slice(body).ok()
+}
+
+/// Whether a request body is GraphQL that only reads: every operation it runs is a query. A POST
+/// carrying one is a read. A body naming its operation without the text (a persisted query) can't
+/// be told apart from a mutation, so it isn't.
+fn graphql_reads(v: &Value) -> bool {
+    match v {
+        Value::Object(o) => only_queries(o),
+        Value::Array(a) => !a.is_empty() && a.len() <= MAX_KEY_NAMES && a.iter().all(|x| x.as_object().is_some_and(only_queries)),
+        _ => false,
+    }
+}
+
+/// One GraphQL request whose own text shows it only queries.
+fn only_queries(o: &serde_json::Map<String, Value>) -> bool {
+    let Some(doc) = own_document(o) else { return false };
+    let name = o.get("operationName").and_then(Value::as_str).filter(|n| !n.is_empty());
+    // A name that isn't among the operations read (past the reader's cap, say) could be anything.
+    let runs: Vec<_> = doc.operations.iter().filter(|d| name.is_none() || d.name.as_deref() == name).collect();
+    !doc.open_ended && !runs.is_empty() && runs.iter().all(|d| d.kind == "query")
+}
+
+fn own_document(o: &serde_json::Map<String, Value>) -> Option<craft_anything_js::api_ops::Document> {
+    o.get("query").and_then(Value::as_str).and_then(|q| craft_anything_js::api_ops::read_document(q, true))
+}
+
+fn key_of(v: &Value) -> Option<String> {
     let one = |o: &serde_json::Map<String, Value>| -> Option<String> {
         if let Some(n) = o.get("operationName").and_then(Value::as_str).filter(|n| !n.is_empty()) {
             return Some(n.to_string());
@@ -599,7 +649,7 @@ pub fn request_key(body: &[u8]) -> Option<String> {
         let doc = craft_anything_js::api_ops::read_document(o.get("query")?.as_str()?, true)?;
         doc.operations.into_iter().find_map(|d| d.name)
     };
-    match &v {
+    match v {
         Value::Object(o) => match one(o) {
             Some(n) => Some(format!("op:{n}")),
             None if o.is_empty() => None,
@@ -694,6 +744,12 @@ struct Seen<'a> {
     query: String,
     /// Decoded body text and its shape.
     shape: Option<String>,
+    /// The entry's index in the recording.
+    order: u64,
+    /// The request was a write.
+    write: bool,
+    /// What told the request apart: see [`request_key`].
+    request_key: Option<String>,
 }
 
 /// Replace segments that differ between otherwise identical paths when the recording shows they're
@@ -770,7 +826,7 @@ pub fn build(har: &Har, opts: &BuildOptions) -> StandIn {
     let mut scrub = Scrub::new(&opts.hidden_values);
     let mut skipped = Skipped::default();
     let mut seen: Vec<Seen<'_>> = Vec::new();
-    for e in &har.entries {
+    for (order, e) in (0u64..).zip(&har.entries) {
         // What's dropped from a request counts even if the request goes no further.
         for (k, _) in &e.request.headers {
             if is_secret_header(k) {
@@ -815,13 +871,22 @@ pub fn build(har: &Har, opts: &BuildOptions) -> StandIn {
         } else {
             None
         };
-        seen.push(Seen { entry: e, method, host, path, segs, query_names, query, shape });
+        // The request body is read once, for both what tells it apart and whether it writes.
+        let json = e.request.post.as_ref().and_then(|p| p.text.as_deref()).and_then(|t| json_body(t.as_bytes()));
+        let write = is_write(&method, json.as_ref());
+        let request_key = json.as_ref().and_then(key_of).filter(|k| !scrub.holds_hidden(k));
+        seen.push(Seen { entry: e, method, host, path, segs, query_names, query, shape, order, write, request_key });
     }
     merge_siblings(&mut seen);
 
     let mut routes: BTreeMap<(String, String), StandInRoute> = BTreeMap::new();
     let mut hosts: BTreeSet<String> = BTreeSet::new();
     let mut body_bytes = 0usize;
+    // The place of the last accepted write kept for each template: a read answered the same either
+    // side of a related one is kept twice, since the two say what was there before and after.
+    let mut kept_writes: BTreeMap<String, u64> = BTreeMap::new();
+    // The latest of them, so a read repeated long after every write needn't look through them all.
+    let mut latest_kept_write: Option<u64> = None;
     for s in &seen {
         let template = s.segs.join("/");
         let key = (template.clone(), s.method.clone());
@@ -840,11 +905,10 @@ pub fn build(har: &Har, opts: &BuildOptions) -> StandIn {
         }
         let full = route.samples.len() >= opts.max_samples_per_route;
         let replace = if full {
-            let request_key = sample_request_key(s, &scrub);
             route
                 .samples
                 .iter()
-                .position(|sample| sample.status == 304 && sample.path == s.path && sample.query == s.query && sample.request_key == request_key)
+                .position(|sample| sample.status == 304 && sample.path == s.path && sample.query == s.query && sample.request_key == s.request_key)
         } else {
             None
         };
@@ -856,8 +920,17 @@ pub fn build(har: &Har, opts: &BuildOptions) -> StandIn {
             continue;
         }
         let mut sample = make_sample(s, opts, &mut scrub);
-        // A request polled over and over gives the same answer many times; one is enough.
-        let repeats_last = |sample: &Sample| route.samples.last().is_some_and(|last| same_sample(last, sample));
+        // A request polled over and over gives the same answer many times; one is enough. Each write
+        // is its own step through the recording, so writes are all kept.
+        let repeats_last = |sample: &Sample| {
+            route.samples.last().is_some_and(|last| {
+                let written_since = || {
+                    latest_kept_write.is_some_and(|w| after(w, last.order))
+                        && kept_writes.iter().any(|(t, o)| after(*o, last.order) && related(t, &route.template))
+                };
+                !last.write && same_sample(last, sample) && !written_since()
+            })
+        };
         let mut repeat = repeats_last(&sample);
         if !repeat {
             let size = sample.text.as_ref().map_or(0, String::len).saturating_add(sample.base64.as_ref().map_or(0, String::len));
@@ -889,6 +962,10 @@ pub fn build(har: &Har, opts: &BuildOptions) -> StandIn {
                 route.samples.remove(at);
                 route.samples_left_out = route.samples_left_out.saturating_add(1);
             }
+            if accepted(&sample) {
+                kept_writes.insert(route.template.clone(), s.order);
+                latest_kept_write = latest_kept_write.max(Some(s.order));
+            }
             route.samples.push(sample);
         }
     }
@@ -911,7 +988,8 @@ pub fn build(har: &Har, opts: &BuildOptions) -> StandIn {
 
 fn same_sample(left: &Sample, right: &Sample) -> bool {
     // Keep this exhaustive so a new response field cannot silently disappear from repeat checks.
-    let Sample { path, query, request_key, status, content_type, headers, text, base64, body_left_out, was_not_modified } = left;
+    // Where each was recorded doesn't make them different answers.
+    let Sample { path, query, request_key, status, content_type, headers, text, base64, body_left_out, was_not_modified, order: _, write } = left;
     path == &right.path
         && query == &right.query
         && request_key == &right.request_key
@@ -921,6 +999,7 @@ fn same_sample(left: &Sample, right: &Sample) -> bool {
         && base64 == &right.base64
         && body_left_out == &right.body_left_out
         && was_not_modified == &right.was_not_modified
+        && write == &right.write
         && same_headers(headers, &right.headers)
 }
 
@@ -964,19 +1043,17 @@ fn note_status(route: &mut StandInRoute, status: u16, mime: Option<&str>, scrub:
     }
 }
 
-fn sample_request_key(s: &Seen<'_>, scrub: &Scrub) -> Option<String> {
-    s.entry.request.post.as_ref().and_then(|p| p.text.as_deref()).and_then(|t| request_key(t.as_bytes())).filter(|k| !scrub.holds_hidden(k))
-}
-
 fn make_sample(s: &Seen<'_>, opts: &BuildOptions, scrub: &mut Scrub) -> Sample {
     let r = &s.entry.response;
     let mut sample = Sample {
         path: s.path.clone(),
         query: s.query.clone(),
-        request_key: sample_request_key(s, scrub),
+        request_key: s.request_key.clone(),
         status: u16::try_from(r.status).unwrap_or(500),
         content_type: clean_mime(r.mime.as_deref(), scrub),
         headers: scrub.headers(&r.headers),
+        order: Some(s.order),
+        write: s.write,
         ..Default::default()
     };
     if let Some(url) = r.redirect_url.as_deref()
@@ -1105,6 +1182,10 @@ pub enum NoMatchReason {
     OperationNotRecorded,
     /// The matching responses need a cached body that is unavailable in the recording.
     CachedBodyUnavailable,
+    /// A write the recording has no answer of its own for: past the recorded writes of its kind,
+    /// a named operation where only another one's (its name hidden) was recorded, or a mutation
+    /// sent as text where only reads were.
+    WriteNotRecorded,
 }
 
 /// A route close to what was asked for.
@@ -1127,10 +1208,129 @@ pub enum Answer {
     NoMatch(NoMatch),
 }
 
-/// How far each set of matching answers has got, so a repeated request goes through them in order.
-/// Grows only with the samples in the stand-in, never with the requests made.
+/// One client's way through a stand-in: how far each set of matching answers has got, so a
+/// repeated request goes through them in order, and where in the recording its writes have taken
+/// it. Grows only with the samples in the stand-in, never with the requests made.
 #[derive(Debug, Clone, Default)]
-pub struct Turns(BTreeMap<(usize, usize, MatchKind), usize>);
+pub struct Turns {
+    turns: BTreeMap<(usize, usize, MatchKind), usize>,
+    /// By route and recorded request key: the place of the last write of that kind replayed,
+    /// accepted or not. The next one answers from after it.
+    written: BTreeMap<(usize, Option<String>), u64>,
+    /// By route: the place of the last accepted write replayed. Reads of related paths answer from
+    /// after it.
+    accepted: BTreeMap<usize, u64>,
+    /// In a file without places: how many writes each set of answers has given, apart from the
+    /// reads' turns, so polling a read doesn't use up a write's answers.
+    untimed_writes: BTreeMap<(usize, usize, MatchKind), usize>,
+}
+
+impl Turns {
+    /// How far the writes replayed so far have taken this client: the entry index of the latest
+    /// accepted one. `None` until one is replayed, and always for a file without places.
+    pub fn position(&self) -> Option<u64> {
+        self.accepted.values().max().copied()
+    }
+}
+
+/// A write the original accepted: answered without an error. A 304 still kept as one has no body
+/// to replay, so no client can get past it.
+fn accepted(s: &Sample) -> bool {
+    s.write && (200..400).contains(&s.status) && s.status != 304
+}
+
+/// Whether a write to one path template can change what a read of the other returns: one is the
+/// other, or lies under it (`/notes` and `/notes/{id}`, `/cart` and `/cart/items`). Templates are
+/// worked out for each method apart, so `{id}` stands for any segment (`/notes/b` and `/notes/{id}`).
+fn related(a: &str, b: &str) -> bool {
+    template_segments(a).zip(template_segments(b)).all(|(x, y)| x == y || x == ID || y == ID)
+}
+
+/// A template's segments without the slashes at either end. One inside stays, as an empty segment:
+/// `/api//notes` is answered apart from `/api/notes`.
+fn template_segments(t: &str) -> impl Iterator<Item = &str> {
+    let t = t.strip_prefix('/').unwrap_or(t);
+    let t = t.strip_suffix('/').unwrap_or(t);
+    (!t.is_empty()).then(|| t.split('/')).into_iter().flatten()
+}
+
+/// A request that may change what later reads return: a method that isn't a read, unless it's a
+/// POST whose JSON body is GraphQL that only queries. `method` is upper case.
+fn is_write(method: &str, json: Option<&Value>) -> bool {
+    !READ_METHODS.contains(&method) && !(method == "POST" && json.is_some_and(graphql_reads))
+}
+
+/// Whether [`answer`] takes this request as a write, so a server can count the ones it refuses.
+/// A POST too large to read could be a query, so it's counted as a request with no answer.
+pub fn is_write_request(method: &str, body: &[u8]) -> bool {
+    let method = method.to_ascii_uppercase();
+    method != "HEAD" && !(method == "POST" && body.len() > MAX_KEY_BODY) && is_write(&method, json_body(body).as_ref())
+}
+
+/// Whether a body carries GraphQL text of its own that doesn't only query: then it's known to be
+/// a write, and a recorded read isn't its answer. Each request of a batch is judged by its own
+/// text, so one named only by its operation doesn't make the batch a write.
+fn writes_by_its_own_text(v: &Value) -> bool {
+    let one = |o: &serde_json::Map<String, Value>| own_document(o).is_some() && !only_queries(o);
+    match v {
+        Value::Object(o) => one(o),
+        Value::Array(a) => a.iter().any(|x| x.as_object().is_some_and(one)),
+        _ => false,
+    }
+}
+
+/// `order` comes after `place`, where no place is before the start.
+fn after(order: u64, place: Option<u64>) -> bool {
+    place.is_none_or(|p| order > p)
+}
+
+/// Narrow the fitting answers of route `ri` to the ones that apply at this client's place in the
+/// recording, and say whether they're writes to step through. A write request takes the first
+/// recorded write after the last one replayed of that write's own kind; past them, or for a named
+/// GraphQL operation none of them recorded, there's none (`None`): a stand-in never answers a write
+/// nobody recorded as if it worked. Otherwise the
+/// recorded reads apply: those between the last accepted write replayed on a related path and the
+/// next related one recorded, or else the earliest from after that place (which shows the client's
+/// own write), or else the newest from before it.
+/// When any answer has no place (a file from before version 2), all of them apply, and [`answer`]
+/// gives a write each of them once.
+fn on_timeline(
+    standin: &StandIn,
+    ri: usize,
+    route: &StandInRoute,
+    fit: Vec<usize>,
+    turns: &Turns,
+    write: bool,
+    key: Option<&str>,
+) -> Option<(Vec<usize>, bool)> {
+    let placed: Option<Vec<(usize, u64, bool)>> = fit.iter().map(|i| route.samples.get(*i).and_then(|s| Some((*i, s.order?, s.write)))).collect();
+    let Some(placed) = placed.filter(|p| !p.is_empty()) else { return Some((fit, false)) };
+    let first_by = |pool: &[(usize, u64, bool)], keep: &dyn Fn(u64) -> bool| pool.iter().filter(|x| keep(x.1)).min_by_key(|x| x.1).map(|x| x.0);
+    let last_by = |pool: &[(usize, u64, bool)], keep: &dyn Fn(u64) -> bool| pool.iter().filter(|x| keep(x.1)).max_by_key(|x| x.1).map(|x| x.0);
+    let (writes, reads): (Vec<_>, Vec<_>) = placed.iter().partition(|x| x.2);
+    if write && !writes.is_empty() {
+        let kind = |x: &(usize, u64, bool)| route.samples.get(x.0).and_then(|s| s.request_key.clone());
+        // Another operation's answer (its name hidden from the file, say) isn't this one's.
+        if key.is_some_and(|k| k.starts_with("op:")) && !writes.iter().any(|x| kind(x).as_deref() == key) {
+            return None;
+        }
+        let next = writes.iter().filter(|x| after(x.1, turns.written.get(&(ri, kind(x))).copied())).min_by_key(|x| x.1).map(|x| x.0);
+        return next.map(|i| (vec![i], true));
+    }
+    // A request named only by its operation can't be told from a write, but the recording can.
+    let pool = if reads.is_empty() { placed } else { reads };
+    let near: Vec<(usize, &StandInRoute)> = standin.routes.iter().enumerate().filter(|(_, r)| related(&r.template, &route.template)).collect();
+    let clock = near.iter().filter_map(|(j, _)| turns.accepted.get(j)).max().copied();
+    let next_write = near.iter().flat_map(|(_, r)| &r.samples).filter(|s| accepted(s)).filter_map(|s| s.order).filter(|o| after(*o, clock)).min();
+    let before_next = |o: u64| next_write.is_none_or(|n| o < n);
+    let mut now: Vec<(usize, u64, bool)> = pool.iter().copied().filter(|x| after(x.1, clock) && before_next(x.1)).collect();
+    if now.is_empty() {
+        let fallback = first_by(&pool, &|o| after(o, clock)).or_else(|| last_by(&pool, &|o| !after(o, clock)));
+        return Some((fallback.into_iter().collect(), false));
+    }
+    now.sort_by_key(|x| x.1);
+    Some((now.into_iter().map(|x| x.0).collect(), false))
+}
 
 fn template_fits(template: &str, path: &str) -> bool {
     let mut t = template.split('/');
@@ -1173,9 +1373,10 @@ fn fitting(all: Vec<usize>, route: &StandInRoute, key: Option<&str>) -> Vec<usiz
 }
 
 /// The recorded answer for a request, trying the exact path and query, then the exact path, then the
-/// path template. A repeated request goes through the answers that fit in recording order, then starts
-/// again. This never changes the stand-in: a recorded write answers as recorded and later reads
-/// don't see it. `path` and `query` are as the client sent them.
+/// path template. Of the answers that fit, those that apply at the client's place in the recording
+/// are used (see [`on_timeline`]); a repeated request goes through them in recording order, then
+/// starts again. A replayed write the original accepted moves `turns` on to its place, so later reads
+/// of related paths answer from after it. This never changes the stand-in. `path` and `query` are as the client sent them.
 pub fn answer(standin: &StandIn, turns: &mut Turns, method: &str, path: &str, query: &str, body: &[u8]) -> Answer {
     let method = method.to_ascii_uppercase();
     // HEAD asks what GET would say; the server leaves out the body.
@@ -1184,8 +1385,12 @@ pub fn answer(standin: &StandIn, turns: &mut Turns, method: &str, path: &str, qu
     let mut scrub = Scrub::new(&[]);
     let clean_path = scrub.path(path.split(['?', '#']).next().unwrap_or_default(), false);
     let clean_query = scrub.query_text(query, false);
-    let key = request_key(body);
+    let json = json_body(body);
+    let key = json.as_ref().and_then(key_of);
     let key = key.as_deref();
+    let write = is_write(look_for, json.as_ref());
+    // A request named only by its GraphQL operation may be a read the recording knows.
+    let known_write = write && (!key.is_some_and(|k| k.starts_with("op:")) || json.as_ref().is_some_and(writes_by_its_own_text));
 
     let mut operation_missing = false;
     let mut consider = |route: &StandInRoute, candidates: Vec<usize>| -> Option<Vec<usize>> {
@@ -1256,13 +1461,42 @@ pub fn answer(standin: &StandIn, turns: &mut Turns, method: &str, path: &str, qu
     if fit.is_empty() {
         return Answer::NoMatch(NoMatch { reason: NoMatchReason::CachedBodyUnavailable, nearest: nearest(standin, look_for, &clean_path) });
     }
-    let first = fit.first().copied().unwrap_or(0);
-    let counter = turns.0.entry((ri, first, how)).or_insert(0);
-    let at = counter.checked_rem(fit.len()).unwrap_or(0);
-    *counter = counter.saturating_add(1);
+    // On a timeline a lone answer takes no turn, so a set that starts with it later starts at the
+    // beginning; without positions every answer takes one, as before positions were recorded.
+    let timed = fit.iter().all(|i| route.samples.get(*i).is_some_and(|s| s.order.is_some()));
+    // A mutation sent as text where only reads were recorded: none of them is its answer.
+    if timed && write && json.as_ref().is_some_and(writes_by_its_own_text) && fit.iter().all(|i| route.samples.get(*i).is_some_and(|s| !s.write)) {
+        return Answer::NoMatch(NoMatch { reason: NoMatchReason::WriteNotRecorded, nearest: Vec::new() });
+    }
+    let Some((fit, stepping)) = on_timeline(standin, ri, route, fit, turns, write, key) else {
+        return Answer::NoMatch(NoMatch { reason: NoMatchReason::WriteNotRecorded, nearest: Vec::new() });
+    };
+    let at = match fit.first() {
+        Some(first) if fit.len() > 1 || !timed => {
+            // A file from before version 2 can't tell its writes from its reads: a write takes each
+            // recorded answer once, then gets none, like a write past the recorded ones on a timeline.
+            let untimed_write = !timed && known_write;
+            let counter = if untimed_write { &mut turns.untimed_writes } else { &mut turns.turns }.entry((ri, *first, how)).or_insert(0);
+            if untimed_write && *counter >= fit.len() {
+                return Answer::NoMatch(NoMatch { reason: NoMatchReason::WriteNotRecorded, nearest: Vec::new() });
+            }
+            let at = counter.checked_rem(fit.len()).unwrap_or(0);
+            *counter = counter.saturating_add(1);
+            at
+        }
+        _ => 0,
+    };
     let Some(sample) = fit.get(at).and_then(|i| route.samples.get(*i)) else {
         return Answer::NoMatch(NoMatch { reason: NoMatchReason::PathNotRecorded, nearest: Vec::new() });
     };
+    if let (true, Some(order)) = (stepping, sample.order) {
+        let written = turns.written.entry((ri, sample.request_key.clone())).or_insert(order);
+        *written = (*written).max(order);
+        if accepted(sample) {
+            let at = turns.accepted.entry(ri).or_insert(order);
+            *at = (*at).max(order);
+        }
+    }
     let body = match (&sample.text, &sample.base64) {
         (Some(t), _) => t.clone().into_bytes(),
         (None, Some(b)) => base64_decode(b).unwrap_or_default(),

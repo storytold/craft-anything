@@ -462,11 +462,14 @@ fn engine_stacks_get_their_own_steps_checks_and_play() {
 
     let d = tempfile::tempdir().unwrap();
     let stop = CheckStop::default();
-    assert_eq!(build_check(d.path(), "app/", "Unity", None, Some(ed), &stop).unwrap(), (false, "No Unity project found in app/ yet.".into()));
-    assert_eq!(build_check(d.path(), "app/", "Godot", None, Some(ed), &stop).unwrap(), (false, "No Godot project (project.godot) found in app/ yet.".into()));
-    assert!(build_check(d.path(), "app/", "Unreal Engine", None, Some(ed), &stop).unwrap().1.contains(".uproject"));
+    assert_eq!(build_check(d.path(), "app/", "Unity", None, Some(ed), &stop, &[]).unwrap(), (false, "No Unity project found in app/ yet.".into()));
+    assert_eq!(
+        build_check(d.path(), "app/", "Godot", None, Some(ed), &stop, &[]).unwrap(),
+        (false, "No Godot project (project.godot) found in app/ yet.".into())
+    );
+    assert!(build_check(d.path(), "app/", "Unreal Engine", None, Some(ed), &stop, &[]).unwrap().1.contains(".uproject"));
     // #174: an app edited in place is said to be in the project folder, not in an app/ that isn't there.
-    let none = build_check(d.path(), "the project folder", "Builder's choice", None, None, &stop).unwrap();
+    let none = build_check(d.path(), "the project folder", "Builder's choice", None, None, &stop, &[]).unwrap();
     assert_eq!(none, (false, "No project to build found in the project folder yet.".into()));
 
     // Play: a Godot project opens in Godot; a packaged Unity build runs its own program.
@@ -983,6 +986,80 @@ mod typed_retries {
             .unwrap_err();
         assert_eq!(error.code, ErrorCode::Cancelled);
         assert_eq!(agent.sent.len(), 1);
+    }
+
+    /// #2379: a rate limit is waited out past the three tries, with capped waits, and a failure
+    /// after it still gets its own three.
+    #[test]
+    fn a_rate_limit_is_retried_until_it_lifts() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ws = Workspace::create(dir.path(), "x", "Build a thing", TargetRef::None).unwrap();
+        let mut worker = check_worker(&ws, false);
+        let limited = Some(TurnFailure::new(FailureKind::RateLimited));
+        let busy = Some(TurnFailure::new(FailureKind::Transient));
+        let mut agent = FailingConversation::new([limited; 12].into_iter().chain([busy, busy, None]), false);
+        let mut waits = Vec::new();
+        let result = worker.turn_with_wait(&mut ws, &mut agent, "Build it", true, None, |_, seconds| {
+            waits.push(seconds);
+            Ok(())
+        });
+        assert_eq!(result.unwrap(), "Done");
+        assert_eq!(agent.sent.len(), 15, "every rate limit and both busy answers were tried again");
+        assert!(waits[..12].windows(2).all(|w| w[0] <= w[1]) && waits[0] < waits[11] && waits[10] == waits[11], "waits grow, then stop growing: {waits:?}");
+    }
+
+    /// #2379: a limit that never lifts ends the run with its reason, for a coding agent's saved
+    /// session (whose tries can cost money) as for an API, and short waits from the service don't
+    /// use the tries up at once.
+    #[test]
+    fn a_rate_limit_that_never_lifts_stops_the_build() {
+        for saved in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let mut ws = Workspace::create(dir.path(), "x", "Build a thing", TargetRef::None).unwrap();
+            let mut worker = check_worker(&ws, false);
+            let (tx, rx) = std::sync::mpsc::channel();
+            worker.tx = tx;
+            let failure = TurnFailure { kind: FailureKind::RateLimited, retry_after_secs: Some(1) };
+            let mut agent = FailingConversation::new([Some(failure); 100], saved);
+            let mut waits = Vec::new();
+            let error = worker
+                .turn_with_wait(&mut ws, &mut agent, "Build it", true, None, |_, seconds| {
+                    waits.push(seconds);
+                    Ok(())
+                })
+                .unwrap_err();
+            assert_eq!(error.code, ErrorCode::ProgramFailed);
+            assert!(error.message.contains("rate limit") && error.message.contains("provider response"), "{error:?}");
+            assert!(agent.sent.len() < 100 && agent.sent.len() == waits.len() + 1, "the last try isn't waited after");
+            assert!(waits[0] < waits[waits.len() - 1], "{waits:?}");
+            let said: Vec<String> = rx.try_iter().filter_map(|e| if let RunEvent::Step { text, .. } = e { Some(text) } else { None }).collect();
+            assert_eq!(said.len(), waits.len());
+            for (text, wait) in said.iter().zip(&waits) {
+                assert!(text.contains("rate limit") && text.contains(&format!("in {wait} s")) && text.contains(&format!("of {}", waits.len())), "{text}");
+            }
+        }
+    }
+
+    /// #2379: Pause pressed during a rate limit's wait ends the run there.
+    #[test]
+    fn a_pause_ends_the_wait_for_a_rate_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ws = Workspace::create(dir.path(), "x", "Build a thing", TargetRef::None).unwrap();
+        let mut worker = check_worker(&ws, false);
+        let (tx, rx) = std::sync::mpsc::channel();
+        worker.tx = tx;
+        let stop = worker.stop.clone();
+        let pause = std::thread::spawn(move || {
+            // The step is said right before the wait starts.
+            while !matches!(rx.recv().unwrap(), RunEvent::Step { text, .. } if text.contains("rate limit")) {}
+            std::thread::sleep(Duration::from_millis(100));
+            stop.cancel();
+        });
+        let mut agent = FailingConversation::new([Some(TurnFailure::new(FailureKind::RateLimited))], false);
+        let error = worker.turn(&mut ws, &mut agent, "Build it", true, None).unwrap_err();
+        pause.join().unwrap();
+        assert_eq!(error.code, ErrorCode::Cancelled);
+        assert_eq!(agent.sent.len(), 1, "nothing is sent after a pause");
     }
 
     #[test]
@@ -1703,6 +1780,85 @@ impl TargetKind for SheetKind {
     fn checks(&self, _ws: &Workspace) -> Vec<Box<dyn Check>> {
         vec![Box::new(MechanicsCheck)]
     }
+}
+
+/// Reads the stand-in at `url` the way a check's browser would: the list, then adds twice.
+struct StandInProbe(String);
+
+impl StandInProbe {
+    fn send(&self, raw: &str) -> String {
+        use std::io::{Read, Write};
+        let port: u16 = self.0.rsplit(':').next().unwrap().parse().unwrap();
+        let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        s.write_all(raw.replace("{HOST}", &format!("127.0.0.1:{port}")).as_bytes()).unwrap();
+        let mut out = String::new();
+        let _ = s.read_to_string(&mut out);
+        out
+    }
+    fn add(&self) -> String {
+        self.send("POST /todos HTTP/1.1\r\nHost: {HOST}\r\nContent-Length: 2\r\n\r\n{}")
+    }
+}
+
+impl Check for StandInProbe {
+    fn id(&self) -> &'static str {
+        "probe"
+    }
+    fn run(&self, cx: &mut CheckCx) -> Result<CheckResult, ToolError> {
+        let first = self.send("GET /todos HTTP/1.1\r\nHost: {HOST}\r\n\r\n");
+        let (added, again) = (self.add(), self.add());
+        let status = |r: &str| r.get(..12).unwrap_or(r).to_string();
+        let note = format!("first read {}; adds {} {}", first.rsplit("\r\n").next().unwrap_or_default(), status(&added), status(&again));
+        Ok(CheckResult::new(self.id(), cx.round, true, note))
+    }
+}
+
+struct ProbeKind(String);
+
+impl TargetKind for ProbeKind {
+    fn id(&self) -> &'static str {
+        "probe"
+    }
+    fn words(&self) -> KindWords {
+        KindWords { button: "Open", icon: "globe", ready: "Ready", change_hint: "Ask for a change" }
+    }
+    fn detect(&self, _cx: &DetectCx) -> Option<u32> {
+        None
+    }
+    fn default_stack(&self, _cx: &DetectCx) -> &'static str {
+        "Rust"
+    }
+    fn goal(&self) -> &'static str {
+        "a website"
+    }
+    fn checks(&self, _ws: &Workspace) -> Vec<Box<dyn Check>> {
+        vec![Box::new(StandInProbe(self.0.clone()))]
+    }
+}
+
+#[test]
+fn a_check_reads_a_stand_in_from_the_start_and_says_what_it_refused() {
+    let d = tempfile::tempdir().unwrap();
+    let ws = Workspace::create(d.path(), "Todos", "Recreate this site", TargetRef::None).unwrap();
+    let entry = |method: &str, status: i64, text: &str| json!({"request": {"method": method, "url": "https://api.example.test/todos"}, "response": {"status": status, "content": {"mimeType": "application/json", "text": text}}});
+    let har = json!({"log": {"version": "1.2", "entries": [entry("GET", 200, r#"{"todos":[]}"#), entry("POST", 201, r#"{"id":1}"#), entry("GET", 200, r#"{"todos":[1]}"#)]}});
+    let (recording, out) = (d.path().join("site.har"), d.path().join("standin"));
+    std::fs::write(&recording, har.to_string()).unwrap();
+    let w = check_worker(&ws, true);
+    let call = |id: &str, p: serde_json::Value| w.engine.call(id, p, CallOptions::new(Caller::Mcp)).unwrap().to_json();
+    call("web_standin_build", json!({"path": recording, "output_dir": out}));
+    let url = call("web_standin_start", json!({"path": out}))["result"]["url"].as_str().unwrap().to_string();
+    // The builder's own trial add, before the check, moves the stand-in on and uses up the recorded add.
+    assert!(StandInProbe(url.clone()).add().starts_with("HTTP/1.1 201"));
+    assert!(StandInProbe(url.clone()).add().starts_with("HTTP/1.1 404"), "refused before the check, so not the check's to report");
+
+    let c = w.run_checks(&ws, &ProbeKind(url.clone()), 1).unwrap().remove(0);
+    assert!(c.note.contains(r#"first read {"todos":[]}"#), "the check's first read is the recording's first: {}", c.note);
+    assert!(c.note.contains("adds HTTP/1.1 201 HTTP/1.1 404"), "{}", c.note);
+    let said = c.note.split("adds HTTP/1.1 201 HTTP/1.1 404").nth(1).unwrap_or_default();
+    assert!(said.contains("stand-in") && said.contains("1 write"), "the check says what was refused during it, not before: {}", c.note);
+    call("web_standin_stop", json!({}));
 }
 
 #[test]

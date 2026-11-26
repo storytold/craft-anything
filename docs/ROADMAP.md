@@ -370,8 +370,9 @@ only when it's green and a maintainer has fully reviewed it, code as well as wor
       time limit, through `platform::retry::when_interrupted`); the Cutter command tool, whose
       commands can change the session, calls once and says the call was interrupted
       — claimed: tanish2k09, branch bugfix/r5.2-interrupted-loopback-call
-- [ ] `mcp_client.rs`'s `post` reports an interrupted call (EINTR) as "Couldn't reach the plugin"
+- [x] `mcp_client.rs`'s `post` reports an interrupted call (EINTR) as "Couldn't reach the plugin"
       (`EngineMissing`); a JSON-RPC POST isn't safe to send again, so say it was interrupted instead
+      — claimed: Afloat16, branch bugfix/r5.2-mcp-interrupted-post
 - [x] Every PR that adds UI strings appends them to the end of all 14 catalogs, so any two such
       PRs conflict once one merges (#1465): one folder per language (`i18n/<code>/core.tsv`),
       each PR adding its own file there, joined in name order by `build.rs`
@@ -547,6 +548,11 @@ been run live.
       `TurnDone` left them out while coding agents count them. It counts them now; a live run on
       Ollama 0.40.7 had recorded 5,323 input tokens of 75,014
       — claimed: SoldierPePe, branch bugfix/r5.4-usage-cached-tokens
+- [x] A Claude Code turn's input tokens leave out the tokens it wrote to the prompt cache: the
+      `result` line's usage adds `input_tokens` and `cache_read_input_tokens` but not
+      `cache_creation_input_tokens`, so `TurnDone`, `usage.json` and "N tokens in" undercount a
+      fresh or resumed session, unlike the built-in loop above. It adds all three now
+      — claimed: thejesh23, branch bugfix/r5.4-claude-code-cache-writes
 - [ ] Told that its `cargo new app` made `app/app/`, the model kept editing `app/app/Cargo.toml`
       and running `cargo build` in `app/`, and checks 2 and 3 still found the project one folder
       down (live, GPU). See whether naming the move gets it out, or whether the run should move it
@@ -797,6 +803,12 @@ Owner: open · Status: todo
       "The user said no" (#1938): it now says nobody was asked and points at a plugin's `consent`
       setting (`Conversation::refuse_consent`, `BUILD_REFUSES_CONSENT`)
       — claimed: justinjohn0306, branch bugfix/r5.5-build-consent-refusal
+- [x] Every turn of a Claude API build pays full price for the whole conversation again: the
+      request marks only the tools and the system prompt for the prompt cache, never a message, so
+      each step resends every earlier tool call and result uncached. The conversation's last
+      block is marked too now (`mark_conversation_for_cache`), so the next step reads what came
+      before from the cache
+      — claimed: thejesh23, branch bugfix/r5.5-anthropic-cache-conversation
 - [ ] **decision**: should an API-model build ask the person (a card, as coding-agent builds do
       through the project's inbox) before a tool that needs consent, or follow a setting, instead
       of refusing every one outside the Build tools (#1938)
@@ -1105,6 +1117,19 @@ Owner: open · Status: in progress
 - [ ] More pins once their hashes are checked against the publisher: Chromium (no published
       checksums found yet), Rizin for Linux (the tar.xz unpacks to ~800 MB, so it needs streaming
       extraction) and macOS (a .pkg)
+- [x] Use the memory set for Ghidra (`engines.ghidra.memory_gb`, Settings → Engines) below 4 GB too:
+      a set amount was raised to the automatic amount's floor of 4 GB, so a 1-3 GB setting always
+      started Ghidra with `-Xmx4G` (#2425). A set amount is now kept within 1-31 GB
+      (`ghidra::SET_HEAP_GB`); the 4-31 GB range is for the automatic amount only. Both starts (the
+      analysis and the bridge) take it from one place; tested with a stand-in launcher that records
+      `GHIDRA_HEADLESS_MAXMEM`, not run with a real Ghidra
+      (claimed: ilijachrchev, branch bugfix/2425-ghidra-memory)
+- [ ] Ghidra before 12.1 ignores the memory setting: its `support/analyzeHeadless` fixes `MAXMEM=2G`
+      and reads no variable (checked in Ghidra's published 11.0, 11.4, 11.4.2, 12.0 and 12.0.4
+      launchers; 12.1 and 12.1.4 read `GHIDRA_HEADLESS_MAXMEM`). Say so when an older Ghidra is in
+      use, or start it another way that takes a heap
+- [ ] Live check of #2425 with a real Ghidra 12.1.4 or 12.2: `memory_gb = 1` gives `-Xmx1G` for the
+      analysis and the bridge
 
 ### R1.6 Headless first
 Owner: maintainers · Status: in progress
@@ -1197,8 +1222,17 @@ Owner: open · Status: in progress
       writes under one bounded, cancellable interprocess lock. Refuse malformed state rather
       than replacing it; separate-process regressions retain concurrent appends and reject one
       of two updates based on the same revision
-- [ ] Refresh externally changed investigation/evidence records incrementally, avoiding repeated
-      full reloads under the session lock while retaining mid-turn findings visibility
+- [x] Refresh externally changed investigation/evidence records incrementally: reuse verified
+      evidence and parsed investigation state only when the complete file-byte digest matches.
+      Changed records still pass their integrity checks; local replacements and project switches
+      invalidate reuse, and unchanged evidence still consumes the count/byte budgets. Mid-turn
+      findings stay visible. File scans, reads and byte hashing still run under the caller's
+      session lock; repeated JSON decoding, canonical hashing and payload replacement do not.
+      — claimed: Afloat16, branch refactor/r2.2-incremental-investigation-refresh
+- [ ] The refresh above still scans, reads and hashes every investigation and evidence file while
+      the caller holds the session lock, so a large project on a slow or network drive holds up
+      every other tool for that long (review of #2211). Read and hash outside the lock, then take
+      it only to swap in what changed
 - [x] Offer OpenCode locally and over SSH with its own visible chat models and supported thinking
       depths (Low, Medium, High, Xhigh, Max) in settings and headless clients. Choices are validated
       before saving; explicit choices are refused at execution until native MCP support is available.
@@ -1270,6 +1304,18 @@ Owner: open · Status: in progress
 - [ ] A turn stopped before OpenCode's first event leaves no session id to delete: OpenCode names its
       session only in that event, so the session it may already have made stays (#1115, review on
       #1176). Needs a session id known before the run (one we create and pass in), if OpenCode allows it
+- [ ] An OpenCode session left by a version from before turns were recorded (0.5.0 and earlier) is
+      never found by the sweep, which acts only on its own records, so the shared service can
+      still resume it (#1115). Until there is a safe way to tell such a session from the person's
+      own, say so where the sweep reports, with the commands to remove one by hand
+      (`opencode session list`, then `opencode session delete <id>`)
+- [ ] A recorded session on an SSH host that can't be reached three times running is dropped from
+      the records while it may still be alive on the host (#1115). Keep the record and say which
+      host still holds a session, rather than forgetting it
+- [ ] Removing the app through the system's own uninstaller or a launcher runs none of our
+      clean-up, so recorded OpenCode sessions stay (#1115); only `craft-anything-cli uninstall`
+      sweeps them. Say so in the uninstall docs, and sweep from each package's removal step
+      where the package format has one
 - [x] OpenCode's model discovery (`api model.list`, run before every turn to check the chosen
       model) has no `--standalone`, so it starts the shared service, and the service resumes any
       unfinished session on the computer, in any project (#1115). Seen live with 2.2.5 on Linux: a
@@ -1522,8 +1568,17 @@ Owner: open · Status: in progress
       — claimed: Plastic-time, branch bugfix/r2.2-windows-home-is-the-user-profile
 - [ ] CI runs the tests on Ubuntu only, so `cfg(windows)` tests (search paths, consoles, Job
       Objects) are checked only on contributors' machines: run them on a Windows runner too
-- [ ] "Claude Code on <ssh host>" is offered for any SSH host, whether or not it has Claude Code
-      (#62)
+- [x] "Claude Code on <ssh host>" is offered for any SSH host, whether or not it has Claude Code
+      (#62). Done: the suggestions stay, but adding one in Settings → AI or the CLI runs
+      `ssh <host> -- <program> --version` with the program named by the suggestion or the one the
+      person gives for that host, within a 15-second deadline, and saves nothing when the host
+      doesn't have it, naming the exact check command; ssh's own failures use the shared
+      `ssh::diagnose` (a refused key, an untrusted host key, an unreachable host), a non-executable
+      remote file's shell 126 is named as a launch failure while a program's own 126 is accepted, a
+      missing local ssh keeps its install message, and a host beginning with `-` or a git server
+      alias is refused before ssh. The Connect job's cancel stops the check, an agent on this computer is not
+      checked, and first run leaves SSH hosts to Settings
+      — claimed: AlexJoaquimPereira, branch bugfix/r2.2-ssh-agent-check
 - [ ] Gemini CLI's sign-in reportedly refuses individuals now (#400): check, and stop recommending
       it in the builder setup dialog if so
 - [x] DeepSeek Harness: an adapter runs `dsh --profile headless "<task>"` and hands it our tool
@@ -1573,8 +1628,13 @@ Owner: maintainers · Status: in progress
       whole words and never the system, so `win` no longer pictures the menu bar
 - [x] `native_window_capture` keeps looking for up to 10 s past `wait_secs` when no window is there
       yet, instead of deciding from one look; tried with a program that opens its window late
-- [ ] Close a pictured program politely before killing it: a helper it started through launchd
-      outlives the process group, and can stay running with the program's data files open
+- [x] Close a pictured program politely before killing it: a helper it started through launchd
+      outlives the process group, and can stay running with the program's data files open.
+      `native_window_capture` now asks first (an app on macOS quits as from its menu, anything
+      else on macOS and Linux gets SIGTERM; the window's owner is asked when a launcher started
+      it), waits up to 3 s, then kills the group — PR #2244
+- [ ] Close a pictured program politely on Windows too: it is still killed straight away, since
+      posting WM_CLOSE to its windows needs `unsafe`
 - [x] `apple_calls_observe`: the breakpoint callback is one valid line (it had a literal backslash
       and `n` between statements, so lldb stopped before launching, #251), covers every breakpoint
       instead of only the first, a failed lldb run is an error and not "0 calls", and names or
@@ -1659,9 +1719,10 @@ Owner: open · Status: in progress
 - [x] Run the Go row of `[[toolchain]]` on a real existing project on macOS. The opt-in test
       covers a passing module, a failed test assertion and a build syntax error (Go 1.26.4, arm64)
       — PR #1849; claimed: rudycelekli, branch test/r2.7-real-go-project-checks
-- [ ] That opt-in Go test writes Go's build cache and module folder in the real home when someone
+- [x] That opt-in Go test writes Go's build cache and module folder in the real home when someone
       runs it (review of #1849). Let the check functions take environment for the child, and give
       the test a `GOCACHE` and `GOPATH` inside its temp folder
+      — PR #2213; claimed: rmsff, branch test/r2.7-go-test-temp-cache
 - [ ] Run the .NET, Maven and Gradle rows of `[[toolchain]]` on real projects, and every row
       on Windows (`windows_program`): Rust, Node.js, Python, Go and Make were run for real, on a Mac
       only. Also a person's own Unity project: it's opened in batch mode, which should exit with
@@ -1722,6 +1783,11 @@ Owner: maintainers · Status: in progress
 ### R2.9 Everyday use: typing, projects, settings
 Owner: maintainers · Status: in progress
 Gaps found while using the app for real projects.
+- [ ] The headless app the UI tests use builds its engine with `Session::new` (`ui-egui`'s
+      `demo::engine`), not the isolated test session, so a UI test that reaches a tool which
+      saves, or looks for an installed program, touches the real config folder and finds what
+      this computer has. Build it from a session kept in a temp folder with
+      `engines.only_configured`, as `engine::testing::session()` does
 - [x] `i18n::trf` filled placeholders with repeated replacements, so a value containing a later
       placeholder was rewritten. It now fills them in one pass over the template: inserted names
       and other values stay literal, and unknown names and stray braces are kept as written. The
@@ -2345,6 +2411,20 @@ Gaps found while using the app for real projects.
       terminal found npm (#2178): programs are looked up in a PATH whose `%VAR%` entries are
       expanded (`which::expand_vars`), and in Node.js's own install folder after it
       — claimed: justinjohn0306, branch bugfix/2178-npm-on-windows-path
+- [x] The Approvals link under a project's prompt box sat right under Send, so a click a little
+      low opened Approvals instead of sending (#2435). It now starts the row under the box, at the
+      end away from Send, in both the one-row and the two-row layout. A UI test checks the gap at
+      the smallest window, a normal one and 200% zoom, that the row holds still, and that a click
+      or Enter opens the menu
+      - claimed: ilijachrchev, branch bugfix/2435-approvals-link-gap
+- [ ] At the smallest window (760 x 520) and 200% zoom the project screen is 260 points tall, and
+      the row under the prompt box (Approvals, Change it / Just ask) is drawn below the window's
+      bottom edge, out of reach (found while fixing #2435; it was so before that change too)
+- [x] Esc while typing in a project's prompt box stays on the project and keeps the draft; it went
+      to the new-project screen, because egui lets go of a field's focus on Esc before the app
+      looked at it (#2434). Esc with nothing focused still goes home, and still closes the palette,
+      a dialog or Settings first
+      Claimed: ilijachrchev, branch bugfix/2434-esc-in-prompt
 
 ### R2.10 Pinned builds
 Owner: maintainers · Status: in progress
@@ -2474,7 +2554,24 @@ Owner: open · Status: in progress
 - [x] Verify stand-in session cleanup by the original answerer's lifetime rather than polling a
       released port that another listener may reuse
       — claimed: Afloat16, branch test/r3.11-standin-session-lifetime-20261103
-- [ ] Stand-in backend: writes that change later reads (recorded answers are replayed as they are)
+- [x] Stand-in backend: writes that change later reads (recorded answers are replayed as they are).
+      Done: each sample keeps its place in the recording (`order`) and whether it answered a write
+      (`write`, standin.json version 2); a replayed write the original accepted moves later reads of
+      its path, and of paths above or under it, on to the answers recorded after it, a GraphQL query
+      sent by POST counts as a read, and a version-1 file's answers replay in turn, with a write
+      getting each recorded one once; a build's check starts the stand-ins in the app's session
+      from the beginning and says in its result how many writes they refused
+      — claimed: mansur-akhmadi, branch feature/r3.11-standin-writes-change-reads
+- [ ] Stand-in backend: a write steps to the next recorded write of its kind whatever it sends (another
+      id or text gets the recorded answer), one past them or with no recorded match is refused and changes nothing; reads follow
+      only the recorded timeline, every write is kept and counts toward a route's answers, a write reaches only reads of related paths (a sign-in
+      changing `/me` isn't seen), a running stand-in keeps one place for all clients, and
+      a route keeps its first 16 answers, so the later states of a long recording are left out; a
+      GraphQL operation named past the first 64 its document defines counts as a write (the reader
+      keeps no more), and one whose recorded name was hidden is refused
+- [ ] Stand-in backend: a coding agent's builder starts its stand-ins through its own MCP server, so a
+      build's check can't take them back to the start, and the builder's trial requests during its turn
+      still move what the check then reads
 - [x] Tell the builder about the stand-in backend in a website's brief, when the capture kept a
       recording (`capture/*.har`): what `web_standin_build`, `web_standin_start` and the rest do
       (`brief::standin_words`); Deep mode only, since Clean room reads nothing inside the original
@@ -2487,8 +2584,13 @@ Owner: open · Status: in progress
       during replay, and report `cached_body_unavailable` when the best matching group has no
       usable answer. Build results count them; cached bodies still answer as 200 (#543)
       — claimed: Afloat16, branch bugfix/r3.11-standin-empty-304-20261103
-- [ ] Godot format 4 and IL2CPP metadata 38 and 39 are header-only; read their tables once a real
+- [ ] Godot format 4 and IL2CPP metadata 35 and 38 are header-only; read their tables once a real
       file can be checked
+- [x] Read IL2CPP metadata 39 (380-byte header of (offset, size, count) triples, literals found by
+      their start offsets, two-byte type indexes), with its layout measured on a shipped game's file
+      and the type names of its largest assembly (5,394) checked against another tool's reading of
+      the same file
+      — claimed: MarkusHalle, branch feature/r3.11-il2cpp-v39
 - [x] Bun: take each module's stored source map and bytecode out as files.
       — claimed: Afloat16, branch feature/r3.11-bun-module-payloads
 - [x] A standalone `.pyz`: a PyInstaller PYZ archive given on its own is its own packed reader
@@ -3785,11 +3887,15 @@ Owner: open · Status: in progress
       decode. Other rendering (no `(extension in …)` prefix, unsupported manglings reported invalid) is unchanged.
       — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-generic-spec
 
+- [x] `fD` on a non-class Swift type now reads `deinit` instead of `__deallocating_deinit`: non-class contexts (structs, enums, protocols and their extensions) use `deinit`, while classes keep `__deallocating_deinit`. Example: `_$s13HomeDataModel8StreamedVfD` -> `HomeDataModel.Streamed.deinit`.
+      — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-struct-deinit
 
 - [x] Take target file signatures from the shared craft-sniff table. The app still breaks ties
       that need its own parsers (managed PE, Java class versus a universal Mach-O, APK by name
       or manifest, ASAR, text). Fat Mach-O files that start 0xCAFEBABF are now recognized.
       — claimed: FredApps, branch refactor/target-kind-craft-sniff
+- [x] Decode Swift `MS`/`WS`/`…TS` protocol self-conformance symbols: `_$ss5ErrorMS` reads `protocol self-conformance descriptor for Swift.Error`, `_$ss5ErrorWS` reads `protocol self-conformance witness table for Swift.Error`, and `_$ss5ErrorP5_codeSivgTS` reads `protocol self-conformance witness for Swift.Error._code.getter : Swift.Int`.
+      — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-self-conformance
 - [x] Swift protocol requirements base descriptors decode. A symbol ending `TL` is the protocol
       requirements base descriptor of the protocol before it, which the demangler reported as an
       unsupported thunk; `_$s7SwiftUI10ShapeStyleTL` is

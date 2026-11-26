@@ -19,7 +19,8 @@
 //! chunks) is refused rather than guessed at.
 
 use crate::common::FormatError;
-use crate::unreal_texture::{Cur, skip_properties};
+use crate::unreal_pak::Cur;
+use crate::unreal_texture::skip_properties;
 use serde::Serialize;
 
 /// Bulk-data flags (as in [`crate::unreal_texture`]).
@@ -189,13 +190,13 @@ fn record(data: &[u8], at: usize) -> Option<(u32, usize, i64, usize)> {
 /// Find the sound in a SoundWave export's data (`data`: its `serial_size` bytes), with the
 /// package's `.ubulk` when it has one.
 pub fn sound(data: &[u8], names: &[String], ubulk: Option<&[u8]>) -> Result<Sound, FormatError> {
-    let mut c = Cur { data, pos: 0 };
+    let mut c = Cur::new(data);
     skip_properties(&mut c, names)?;
     if c.i32("guid flag")? != 0 {
         c.take(16, "guid")?;
     }
     let mut part = false;
-    for at in c.pos..data.len() {
+    for at in c.position()..data.len() {
         let Some((flags, size, offset, header)) = record(data, at) else { continue };
         // At the end of the .uexp (rather than a separate file) isn't read, as for textures.
         let at_end = flags & PAYLOAD_AT_END != 0 && flags & SEPARATE_FILE == 0;

@@ -5,7 +5,7 @@ use crate::i18n::{LANGUAGES, tr, trf};
 use crate::state::SettingsTab;
 use crate::theme::{self, ThemeKind, Tokens};
 use crate::{CraftApp, Pick, icons, widgets};
-use craft_anything_ai::BackendKind;
+use craft_anything_ai::{BackendKind, BackendOptions};
 use craft_anything_engine::Mode;
 use egui::{RichText, Ui, Vec2};
 use std::path::PathBuf;
@@ -452,6 +452,14 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
     ui.add_space(theme::space::LG);
     widgets::caption(ui, "Your brains");
     ui.add_space(theme::space::XS);
+    if app.state.screen == crate::state::Screen::Project
+        && let Some(workspace) = &app.workspace
+    {
+        let builder = app.resolve_builder(workspace.manifest.builder.as_deref());
+        let label = builder.map_or_else(|| tr("No builder available for a new run."), |name| trf("Builder for a new run: {name}", &[("name", &name)]));
+        ui.label(RichText::new(label).color(t.text_dim));
+        ui.add_space(theme::space::XS);
+    }
     if app.backends.is_empty() {
         ui.label(RichText::new(tr("No AI is set up yet. The built-in engines still work; an AI adds plain-words answers.")).color(t.text_dim));
     }
@@ -487,7 +495,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                         ui.data_mut(|d| d.insert_temp(confirm_id, b.name.clone()));
                     }
                     if app.state.backend.as_ref() == Some(&b.name) {
-                        widgets::pill(ui, "In use", t.on_accent, t.accent);
+                        widgets::pill(ui, "Chat AI", t.on_accent, t.accent);
                     }
                     ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                         ui.add(egui::Label::new(RichText::new(&b.name).font(theme::semibold(theme::BODY))).truncate());
@@ -828,7 +836,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
             }
             ui.add_space(theme::space::MD);
             controls(ui, |ui| {
-                if app.state.backend.as_ref() != Some(&b.name) && widgets::secondary(ui, None, "Use").clicked() {
+                if app.state.backend.as_ref() != Some(&b.name) && widgets::secondary(ui, None, "Use for chat").clicked() {
                     pick = Some(b.name.clone());
                 }
                 // Who builds: the chosen one says so (click to go back to automatic).
@@ -1001,6 +1009,9 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
     }
     for d in detected.into_iter().filter(|d| crate::detect_tabs::tab_of(d) == tab) {
         let configured = app.backends.iter().any(|b| b.name == d.suggestion.name);
+        let ssh = d.suggestion.ssh_host.as_deref().map(str::trim).filter(|h| !h.is_empty());
+        let saved = app.backend_options.get(&d.suggestion.name);
+        let options = add_options(&d.suggestion, configured, saved, app.state.remote_commands.get(&d.suggestion.name).map(String::as_str));
         widgets::panel(&t).show(ui, |ui| {
             ui.set_width(ui.available_width());
             // The buttons first, in the top right corner, then the name and reason wrapped in the
@@ -1017,11 +1028,11 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                 {
                     let taken = |n: &String| app.backends.iter().any(|b| &b.name == n);
                     if let Some(name) = (2..100).map(|i| format!("{} {i}", d.suggestion.name)).find(|n| !taken(n)) {
-                        app.add_backend(craft_anything_ai::BackendConfig { name, ..d.suggestion.clone() }, None);
+                        app.add_backend_with_options(craft_anything_ai::BackendConfig { name, ..d.suggestion.clone() }, options.clone(), None);
                     }
                 }
             } else if !d.needs_key && widgets::primary(&mut right_ui, "Add").clicked() {
-                app.add_backend(d.suggestion.clone(), None);
+                app.add_backend_with_options(d.suggestion.clone(), options.clone(), None);
             }
             let right = right_ui.min_rect();
             // Nothing on the right (a key to paste below instead): the text takes the whole width.
@@ -1033,6 +1044,22 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                 egui::Label::new(RichText::new(&d.reason).color(t.text_faint).size(theme::CAPTION).line_height(Some(theme::leading(theme::CAPTION)))).wrap(),
             );
             ui.advance_cursor_after_rect(left_ui.min_rect().union(right));
+            // A host from ~/.ssh/config may run the agent under another name or path: give it
+            // before adding, so the check runs that command instead of the usual one.
+            if let Some(host) = ssh
+                && d.suggestion.kind == BackendKind::AgentCli
+            {
+                ui.add_space(theme::space::XS);
+                let usual = craft_anything_ai::cli_agents::program_for(&d.suggestion.model);
+                let saved = app.backend_options.get(&d.suggestion.name).and_then(|options| options.command.clone());
+                let command = app.state.remote_commands.entry(d.suggestion.name.clone()).or_insert_with(|| saved.unwrap_or_default());
+                ui.add(
+                    egui::TextEdit::singleline(command)
+                        .hint_text(trf("{program} (or its path on {host})", &[("program", &usual), ("host", host)]))
+                        .desired_width(320.0)
+                        .frame(widgets::text_field_frame(&t)),
+                );
+            }
             // Hosted API providers accept a pasted key even when the environment already has one,
             // so a different key can be stored without editing environment variables (#1358).
             if crate::detect_tabs::can_paste_key(&d) && !configured {
@@ -1432,11 +1459,49 @@ pub(crate) fn settings_not_saved(e: &craft_anything_engine::evidence::ToolError)
     said
 }
 
+/// The options a suggestion is added with. An SSH agent uses the command typed for it (else its
+/// usual program); another account of a configured one keeps that backend's saved options, and a
+/// command typed for it wins. Other suggestions have no options of their own.
+fn add_options(config: &craft_anything_ai::BackendConfig, configured: bool, saved: Option<&BackendOptions>, command: Option<&str>) -> BackendOptions {
+    let command = command.map(str::trim).filter(|c| !c.is_empty()).map(str::to_string);
+    if configured {
+        let mut options = saved.cloned().unwrap_or_default();
+        if let Some(command) = command {
+            options.command = Some(command);
+        }
+        return options;
+    }
+    let ssh = config.ssh_host.as_deref().is_some_and(|h| !h.trim().is_empty());
+    if config.kind == BackendKind::AgentCli && ssh { BackendOptions { command, ..Default::default() } } else { BackendOptions::default() }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{Done, builders::AgentModelPicker, demo, jobs::Finished};
     use craft_anything_ai::{BackendConfig, BackendKind};
+
+    /// The command typed for an SSH agent is what gets added and checked; another account keeps the
+    /// configured command, and a local agent has none.
+    #[test]
+    fn an_ssh_agent_adds_with_the_command_typed_for_it() {
+        let ssh = BackendConfig {
+            name: "Claude on box".into(),
+            kind: BackendKind::AgentCli,
+            model: "claude-code".into(),
+            base_url: None,
+            ssh_host: Some("box".into()),
+            enabled: true,
+        };
+        assert_eq!(add_options(&ssh, false, None, Some(" /opt/claude ")).command.as_deref(), Some("/opt/claude"));
+        assert!(add_options(&ssh, false, None, None).command.is_none());
+        assert!(add_options(&ssh, false, None, Some("  ")).command.is_none(), "blank is the usual program");
+        let saved = BackendOptions { command: Some("/saved/claude".into()), ..Default::default() };
+        assert_eq!(add_options(&ssh, true, Some(&saved), None).command.as_deref(), Some("/saved/claude"), "another account keeps the command");
+        assert_eq!(add_options(&ssh, true, Some(&saved), Some("/typed")).command.as_deref(), Some("/typed"), "a typed one wins");
+        let local = BackendConfig { ssh_host: None, ..ssh.clone() };
+        assert!(add_options(&local, false, None, Some("/x")).command.is_none(), "a local agent has no remote command");
+    }
 
     /// Settings that couldn't be loaded say so where the person is looking, with the file's name.
     #[test]
@@ -1499,6 +1564,50 @@ mod tests {
             .join("\n");
         assert!(text.contains("Check"));
         assert!(text.contains("Agent test is installed but is not signed in."));
+    }
+
+    #[test]
+    fn settings_distinguishes_chat_from_the_open_projects_builder() {
+        use craft_anything_engine::workspace::{TargetRef, Workspace};
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut workspace = Workspace::create(dir.path(), "Notes", "Notes app", TargetRef::None).unwrap();
+        workspace.manifest.builder = Some("Project builder".into());
+        let mut app = demo::app(demo::engine(craft_anything_engine::Mode::Beginner, true));
+        app.workspace = Some(workspace);
+        app.state.screen = crate::state::Screen::Project;
+        app.state.backend = Some("Chat backend".into());
+        app.builder = Some("Chat backend".into());
+        app.detected = None;
+        app.backends = ["Chat backend", "Project builder"]
+            .map(|name| BackendConfig { name: name.into(), kind: BackendKind::Openai, model: "gpt-test".into(), base_url: None, ssh_host: None, enabled: true })
+            .to_vec();
+
+        let context = egui::Context::default();
+        theme::install_fonts(&context);
+        let settings_text = |app: &mut CraftApp| {
+            let mut output = context.run_ui(Default::default(), |ui| ai(app, ui));
+            output.textures_delta.clear();
+            output
+                .shapes
+                .iter()
+                .filter_map(|shape| match &shape.shape {
+                    egui::epaint::Shape::Text(text) => Some(text.galley.text()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        let text = settings_text(&mut app);
+        assert!(text.contains("Chat AI"));
+        assert!(text.contains("Project builder"));
+        assert!(text.contains("Builder for a new run: Project builder"));
+
+        app.backends[1].enabled = false;
+        assert!(settings_text(&mut app).contains("Builder for a new run: Chat backend"));
+        app.backends[0].enabled = false;
+        assert!(settings_text(&mut app).contains("No builder available for a new run."));
+        assert_eq!(app.workspace.as_ref().unwrap().manifest.builder.as_deref(), Some("Project builder"));
     }
 
     /// #1358: an API backend with a saved key can have it replaced or forgotten in place, while an
@@ -1806,7 +1915,7 @@ mod tests {
     #[test]
     fn a_late_add_does_not_undo_a_choice_made_meanwhile() {
         let mut app = demo::app(demo::engine(craft_anything_engine::Mode::Beginner, false));
-        let added = |choices| Ok(Done::BackendAdded { name: "Home server".into(), result: Ok(()), choices, address: String::new() });
+        let added = |choices| Ok(Done::BackendAdded { name: "Home server".into(), result: Ok(()), choices, address: String::new(), submitted_command: None });
         let started = app.backend_choices;
         app.choose_backend(None);
         app.handle_done(Finished { job: 0, result: added(started) });
@@ -1815,10 +1924,37 @@ mod tests {
         assert_eq!(app.state.backend.as_deref(), Some("Home server"), "with no choice meanwhile, the added AI is chosen");
         // Two adds at once: the first one's selection isn't a choice, so the second is selected too.
         let started = app.backend_choices;
-        let other = |choices| Ok(Done::BackendAdded { name: "Laptop".into(), result: Ok(()), choices, address: String::new() });
+        let other = |choices| Ok(Done::BackendAdded { name: "Laptop".into(), result: Ok(()), choices, address: String::new(), submitted_command: None });
         app.handle_done(Finished { job: 0, result: added(started) });
         app.handle_done(Finished { job: 0, result: other(started) });
         assert_eq!(app.state.backend.as_deref(), Some("Laptop"), "the add that finished last is selected");
+    }
+
+    /// A command edited while its SSH check runs is newer than the one submitted: the add clears
+    /// only the exact draft it sent, and a failed check keeps whatever is there.
+    #[test]
+    fn a_command_edited_while_its_add_runs_is_kept() {
+        let mut app = demo::app(demo::engine(craft_anything_engine::Mode::Beginner, false));
+        let name = "Claude on box";
+        let answer = |result, submitted: Option<&str>, choices| crate::jobs::Finished {
+            job: 0,
+            result: Ok(Done::BackendAdded { name: name.into(), result, choices, address: String::new(), submitted_command: submitted.map(str::to_string) }),
+        };
+        app.state.remote_commands.insert(name.into(), " /opt/claude ".into());
+        app.handle_done(answer(Ok(()), Some("/opt/claude"), app.backend_choices));
+        assert!(!app.state.remote_commands.contains_key(name), "the submitted draft is cleared");
+
+        app.state.remote_commands.insert(name.into(), "/opt/claude --new".into());
+        app.handle_done(answer(Ok(()), Some("/opt/claude"), app.backend_choices));
+        assert_eq!(app.state.remote_commands.get(name).map(String::as_str), Some("/opt/claude --new"), "an edit made while the check ran stays");
+
+        app.state.remote_commands.insert(name.into(), "/opt/claude".into());
+        app.handle_done(answer(Err(craft_anything_engine::evidence::ToolError::invalid("not found")), Some("/opt/claude"), app.backend_choices));
+        assert_eq!(app.state.remote_commands.get(name).map(String::as_str), Some("/opt/claude"), "a failed check keeps the draft");
+
+        app.state.remote_commands.insert(name.into(), "/typed while checking".into());
+        app.handle_done(answer(Ok(()), None, app.backend_choices));
+        assert_eq!(app.state.remote_commands.get(name).map(String::as_str), Some("/typed while checking"), "a draft typed with no command submitted stays");
     }
 
     /// A chat started while an AI connects is a choice too: the add doesn't switch AI under it.
@@ -1841,7 +1977,7 @@ mod tests {
         assert!(app.conversation.is_some(), "the chat started");
         app.handle_done(Finished {
             job: 0,
-            result: Ok(Done::BackendAdded { name: "Laptop".into(), result: Ok(()), choices: started, address: String::new() }),
+            result: Ok(Done::BackendAdded { name: "Laptop".into(), result: Ok(()), choices: started, address: String::new(), submitted_command: None }),
         });
         assert_eq!(app.state.backend.as_deref(), Some("Box"), "the chat's AI stays chosen");
         assert!(app.conversation.is_some(), "the chat keeps going");
@@ -1850,7 +1986,7 @@ mod tests {
         app.send("And then?");
         app.handle_done(Finished {
             job: 0,
-            result: Ok(Done::BackendAdded { name: "Laptop".into(), result: Ok(()), choices: started, address: String::new() }),
+            result: Ok(Done::BackendAdded { name: "Laptop".into(), result: Ok(()), choices: started, address: String::new(), submitted_command: None }),
         });
         assert_eq!(app.state.backend.as_deref(), Some("Box"), "a follow-up keeps its AI");
         assert!(app.conversation.is_some(), "the follow-up's answer keeps going");
@@ -1926,7 +2062,7 @@ mod model_options_tests {
         let ask = |app: &mut CraftApp, job| app.server_form.connecting = Some((job, "Npu".into(), std::time::Instant::now()));
         let answer = |job, address: &str, result| crate::jobs::Finished {
             job,
-            result: Ok(crate::Done::BackendAdded { name: "Npu".into(), result, choices: 0, address: address.into() }),
+            result: Ok(crate::Done::BackendAdded { name: "Npu".into(), result, choices: 0, address: address.into(), submitted_command: None }),
         };
         ask(&mut app, 7);
         app.handle_done(answer(7, A, Err(refused())));
@@ -1987,6 +2123,7 @@ mod model_options_tests {
                 result: Err(refused),
                 choices: app.backend_choices,
                 address: "http://127.0.0.1:0/v1".into(),
+                submitted_command: None,
             }),
         });
         assert!(app.server_form.connecting.is_none());
@@ -2016,6 +2153,7 @@ mod model_options_tests {
                 result: Err(craft_anything_engine::evidence::ToolError::cancelled()),
                 choices: app.backend_choices,
                 address: "http://127.0.0.1:0/v1".into(),
+                submitted_command: None,
             }),
         });
         assert!(app.server_form.connecting.is_none());

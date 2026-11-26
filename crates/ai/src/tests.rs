@@ -170,6 +170,219 @@ pub(crate) fn serve(status: &'static str, body: &'static str) -> String {
     base
 }
 
+/// #62: an agent for an SSH host is added only when the host has its program; a refused add
+/// saves nothing, and an agent on this computer is not checked remotely.
+#[test]
+fn an_ssh_agent_is_checked_before_it_is_added() {
+    let (h, _d) = hub();
+    let config = |name: &str| BackendConfig {
+        name: name.into(),
+        kind: BackendKind::AgentCli,
+        model: "claude-code".into(),
+        base_url: None,
+        ssh_host: Some("pi5".into()),
+        enabled: true,
+    };
+    let mut asked = Vec::new();
+    let refused = h.add_backend_with_check(
+        BackendEntry { config: config("Claude on pi5"), options: BackendOptions::default() },
+        None,
+        &CancelToken::default(),
+        |host, program, _| {
+            asked.push((host.to_string(), program.to_string()));
+            Err(ToolError::new(ErrorCode::EngineMissing, "not installed"))
+        },
+    );
+    assert!(refused.is_err());
+    assert_eq!(asked, [("pi5".to_string(), "claude".to_string())], "the host and its program are checked");
+    assert!(h.config().backends.is_empty(), "a refused agent saves nothing");
+    // A command given for that host is the one checked, so the default name need not be there;
+    // surrounding spaces on the host are not saved as another name for it.
+    let mut custom = None;
+    let mut seen_host = None;
+    let mut custom_config = config("Claude on pi5");
+    custom_config.ssh_host = Some(" pi5 ".into());
+    let with_command = BackendOptions { command: Some("/opt/claude/bin/claude".into()), ..Default::default() };
+    let added = h.add_backend_with_check(BackendEntry { config: custom_config, options: with_command }, None, &CancelToken::default(), |host, program, _| {
+        seen_host = Some(host.to_string());
+        custom = Some(program.to_string());
+        Ok(())
+    });
+    assert!(added.is_ok());
+    assert_eq!(seen_host.as_deref(), Some("pi5"), "the host is checked as saved");
+    assert_eq!(custom.as_deref(), Some("/opt/claude/bin/claude"));
+    let saved = h.config().backends.into_iter().find(|b| b.config.name == "Claude on pi5").expect("the added agent");
+    assert_eq!(saved.config.ssh_host.as_deref(), Some("pi5"), "the trimmed host is saved");
+    // An agent on this computer is not checked on a host.
+    let local = BackendConfig { name: "Local".into(), kind: BackendKind::AgentCli, model: "claude-code".into(), base_url: None, ssh_host: None, enabled: true };
+    let mut checked = false;
+    h.add_backend_with_check(BackendEntry { config: local, options: BackendOptions::default() }, None, &CancelToken::default(), |_, _, _| {
+        checked = true;
+        Ok(())
+    })
+    .unwrap();
+    assert!(!checked, "a local agent needs no remote check");
+}
+
+/// A host that ssh would read as an option, or an alias that leads to a git server, is refused
+/// before any ssh run: the person typed it, and neither can run an agent.
+#[test]
+fn an_ssh_host_that_looks_like_an_option_or_names_a_git_server_is_refused() {
+    let (h, _d) = hub();
+    let config = |name: &str, host: &str| BackendConfig {
+        name: name.into(),
+        kind: BackendKind::AgentCli,
+        model: "claude-code".into(),
+        base_url: None,
+        ssh_host: Some(host.into()),
+        enabled: true,
+    };
+    let mut checked = false;
+    let dash = h
+        .add_backend_with_check(
+            BackendEntry { config: config("Dash", "-oProxyCommand=touch /tmp/craft-anything-ssh-test"), options: BackendOptions::default() },
+            None,
+            &CancelToken::default(),
+            |_, _, _| {
+                checked = true;
+                Ok(())
+            },
+        )
+        .unwrap_err();
+    assert!(dash.message.contains("can't begin with a '-'"), "{}", dash.message);
+    assert!(!checked, "the host never reaches ssh");
+    assert!(crate::ssh::is_git_server("github.com"), "the fixture names a git server");
+    let git = h
+        .add_backend_with_check(
+            BackendEntry { config: config("Git server", "github.com"), options: BackendOptions::default() },
+            None,
+            &CancelToken::default(),
+            |_, _, _| {
+                checked = true;
+                Ok(())
+            },
+        )
+        .unwrap_err();
+    assert!(git.message.contains("git server"), "{}", git.message);
+    assert!(!checked, "a git alias never reaches ssh");
+}
+
+/// A Connect job cancelled during the remote check saves nothing.
+#[test]
+fn a_cancelled_connect_does_not_save_an_ssh_agent() {
+    let (h, _d) = hub();
+    let config = BackendConfig {
+        name: "Claude on pi5".into(),
+        kind: BackendKind::AgentCli,
+        model: "claude-code".into(),
+        base_url: None,
+        ssh_host: Some("pi5".into()),
+        enabled: true,
+    };
+    let stop = CancelToken::default();
+    let inside = stop.clone();
+    let result = h.add_backend_with_check(BackendEntry { config, options: BackendOptions::default() }, Some("sk-test".into()), &stop, move |_, _, _| {
+        inside.cancel();
+        Ok(())
+    });
+    assert_eq!(result.unwrap_err().code, ErrorCode::Cancelled);
+    assert!(h.config().backends.is_empty(), "a cancelled check saves nothing");
+    assert!(h.keys.get("Claude on pi5").is_none(), "a cancelled check stores no key");
+}
+
+/// The remote check's exit status becomes a message a person can act on, with the exact command.
+#[test]
+fn an_ssh_agent_check_names_the_command_to_run() {
+    let out = |code| craft_anything_platform::Output {
+        code,
+        success: code == Some(0),
+        stdout: Vec::new(),
+        stderr: Vec::new(),
+        stdout_tail: Vec::new(),
+        stderr_tail: Vec::new(),
+        stdout_truncated: false,
+        stderr_truncated: false,
+        duration: Duration::ZERO,
+    };
+    assert!(remote_check_outcome("pi5", "claude", Ok(out(Some(0)))).is_ok());
+    let missing = remote_check_outcome("pi5", "claude", Ok(out(Some(127)))).unwrap_err();
+    assert_eq!(missing.code, ErrorCode::EngineMissing);
+    assert!(missing.message.contains("claude wasn't found on pi5"), "{}", missing.message);
+    assert!(missing.remediation.unwrap().contains("Install it there"));
+    // A program that ran and exited non-zero is installed: a `--version` may exit 1 or 126.
+    for code in [1, 126] {
+        assert!(remote_check_outcome("pi5", "claude", Ok(out(Some(code)))).is_ok(), "exit {code} without a launch failure isn't a missing agent");
+    }
+    // A shell's 126 for a file it found but couldn't execute is a launch failure, not the
+    // program's own exit status.
+    let not_executable = craft_anything_platform::Output {
+        stderr: b"/opt/claude: Permission denied\n".to_vec(),
+        stderr_tail: b"/opt/claude: Permission denied\n".to_vec(),
+        ..out(Some(126))
+    };
+    let not_executable = remote_check_outcome("pi5", "/opt/claude", Ok(not_executable)).unwrap_err();
+    assert!(not_executable.message.contains("couldn't be run"), "{}", not_executable.message);
+    assert!(not_executable.remediation.unwrap().contains("executable"));
+    let wrong_format = craft_anything_platform::Output {
+        stderr: b"/bin/sh: 1: /opt/claude: Exec format error\n".to_vec(),
+        stderr_tail: b"/bin/sh: 1: /opt/claude: Exec format error\n".to_vec(),
+        ..out(Some(126))
+    };
+    let wrong_format = remote_check_outcome("pi5", "/opt/claude", Ok(wrong_format)).unwrap_err();
+    assert!(wrong_format.message.contains("couldn't be run"), "{}", wrong_format.message);
+    let own_126 = craft_anything_platform::Output { stderr: b"claude: bad option\n".to_vec(), stderr_tail: b"claude: bad option\n".to_vec(), ..out(Some(126)) };
+    assert!(remote_check_outcome("pi5", "claude", Ok(own_126)).is_ok(), "the program itself exited 126");
+    // ssh's own failures say what to fix, and show ssh's message rather than guessing.
+    let refused = craft_anything_platform::Output {
+        stderr: b"me@pi5: Permission denied (publickey).\n".to_vec(),
+        stderr_tail: b"me@pi5: Permission denied (publickey).\n".to_vec(),
+        ..out(Some(255))
+    };
+    let refused = remote_check_outcome("pi5", "claude", Ok(refused)).unwrap_err();
+    assert!(refused.message.contains("login was refused"), "{}", refused.message);
+    assert!(refused.remediation.unwrap().contains("ssh key"));
+    let unreachable = remote_check_outcome("pi5", "claude", Ok(out(Some(255)))).unwrap_err();
+    assert!(unreachable.message.contains("Couldn't reach pi5"), "a connection failure isn't read as a missing agent: {}", unreachable.message);
+    let timed_out = remote_check_outcome("pi5", "claude", Err(ToolError::new(ErrorCode::TimedOut, "timed out"))).unwrap_err();
+    assert!(timed_out.remediation.unwrap().contains("didn't answer within 15 seconds"));
+    // A missing local ssh keeps the platform's own remediation; the remote host isn't the fault.
+    let missing_ssh = remote_check_outcome(
+        "pi5",
+        "claude",
+        Err(ToolError::new(ErrorCode::EngineMissing, "ssh isn't installed or isn't on your PATH.").with_remediation("Install OpenSSH.")),
+    )
+    .unwrap_err();
+    assert_eq!(missing_ssh.remediation.as_deref(), Some("Install OpenSSH."));
+}
+
+/// The check itself runs the ssh program it is given, so its wiring is covered with a stand-in
+/// for ssh: its exit status and message are what the person's error is built from.
+#[cfg(unix)]
+#[test]
+fn the_remote_check_runs_the_ssh_program_and_reads_its_exit() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let ssh = |name: &str, code: i32, message: &str| {
+        let path = dir.path().join(name);
+        std::fs::write(&path, format!("#!/bin/sh\nprintf '%s\\n' {} >&2\nexit {code}\n", crate::ssh::shell_quote(message))).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        path
+    };
+    assert!(crate::verify_remote_agent_with(&ssh("ok", 0, ""), "pi5", "claude", &CancelToken::default()).is_ok());
+    let missing = crate::verify_remote_agent_with(&ssh("missing", 127, "sh: claude: command not found"), "pi5", "claude", &CancelToken::default()).unwrap_err();
+    assert!(missing.message.contains("claude wasn't found on pi5"), "{}", missing.message);
+    let refused =
+        crate::verify_remote_agent_with(&ssh("refused", 255, "me@pi5: Permission denied (publickey)."), "pi5", "claude", &CancelToken::default()).unwrap_err();
+    assert!(refused.message.contains("login was refused"), "{}", refused.message);
+    let installed = crate::verify_remote_agent_with(&ssh("version-failed", 1, "claude: unknown option"), "pi5", "claude", &CancelToken::default());
+    assert!(installed.is_ok(), "a program that ran and exited 1 is installed");
+    // A missing program on this computer isn't blamed on the remote host.
+    let no_ssh = crate::verify_remote_agent_with(std::path::Path::new("definitely-not-ssh-xyz"), "pi5", "claude", &CancelToken::default()).unwrap_err();
+    assert_eq!(no_ssh.code, ErrorCode::EngineMissing);
+    assert!(no_ssh.message.contains("definitely-not-ssh-xyz"), "{}", no_ssh.message);
+    assert!(!no_ssh.remediation.unwrap_or_default().contains("remote host"), "the local install remediation is kept");
+}
+
 /// #48: a coding agent's test only runs `--version`, and its report says so.
 #[test]
 fn a_coding_agent_test_says_it_only_checked_the_version() {
@@ -719,7 +932,14 @@ fn claude_codes_folder_is_set_per_ai() {
     };
     h.add_backend(claude("Claude Code", None), None).unwrap();
     h.add_backend(claude("Claude Code 2", None), None).unwrap();
-    h.add_backend(claude("Claude on box", Some("box")), None).unwrap();
+    // An SSH host is checked on adding; this test is about config folders, so the check stands in.
+    h.add_backend_with_check(
+        BackendEntry { config: claude("Claude on box", Some("box")), options: BackendOptions::default() },
+        None,
+        &CancelToken::default(),
+        |_, _, _| Ok(()),
+    )
+    .unwrap();
     h.add_backend(BackendConfig { model: "codex".into(), ..claude("Codex", None) }, None).unwrap();
     let folder = |h: &AiHub, name: &str| h.options().get(name).and_then(|o| o.config_dir.clone());
     assert!(h.set_config_dir("Claude Code 2", Some(" ~/.claude-work ")).unwrap());
