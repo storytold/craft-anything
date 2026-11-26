@@ -310,6 +310,17 @@ pub struct AiConfig {
     /// prompt caching survives restarts (and tests stay inside their own settings file).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub install_id: Option<String>,
+    /// When on, a role with no backend chosen goes to a local OpenAI-compatible server (this
+    /// computer or its network), never implicitly to a cloud API or an agent app. Those run only
+    /// when named in `roles` or `fallback_chain`. Off by default.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub local_first: bool,
+}
+
+/// Whether a backend is an OpenAI-compatible server on this computer or its local network (no
+/// address means the local default, Ollama on 127.0.0.1:11434).
+pub fn is_local(b: &BackendEntry) -> bool {
+    b.config.kind == BackendKind::OpenaiCompatible && b.config.base_url.as_deref().is_none_or(crate::detect::on_this_network)
 }
 
 pub fn role_key(r: Role) -> &'static str {
@@ -379,6 +390,12 @@ impl AiConfig {
         if let Some(b) = self.roles.get(role_key(role)).and_then(|n| self.get(n)).filter(|b| b.config.enabled) {
             return Some(b);
         }
+        if self.local_first {
+            return match role {
+                Role::Lead | Role::Worker | Role::Builder => self.enabled().find(|b| is_local(b)),
+                Role::Reviewer | Role::Extractor => None,
+            };
+        }
         let lead = || self.enabled().find(|b| b.config.kind != BackendKind::AgentCli).or_else(|| self.enabled().next());
         match role {
             Role::Lead => lead(),
@@ -386,6 +403,21 @@ impl AiConfig {
             Role::Reviewer | Role::Extractor => None,
             Role::Builder => self.enabled().find(|b| b.config.kind == BackendKind::AgentCli).or_else(lead),
         }
+    }
+
+    /// Builders to try, in order, when none is named and `local_first` is on: the Builder role's
+    /// choice (or the first local server), then `fallback_chain` (agent apps included, such as
+    /// Grok Build), skipping duplicates and backends that are off.
+    pub fn builder_candidates(&self) -> Vec<&BackendEntry> {
+        let mut out: Vec<&BackendEntry> = self.backend_for(Role::Builder).into_iter().collect();
+        for n in &self.fallback_chain {
+            if let Some(b) = self.get(n).filter(|b| b.config.enabled)
+                && !out.iter().any(|o| o.config.name == b.config.name)
+            {
+                out.push(b);
+            }
+        }
+        out
     }
 
     /// The chain to try for a conversation started on `first`: `first`, then the configured
@@ -565,5 +597,94 @@ mod tests {
         assert_eq!(one("model = \"claude-code\""), ("claude-code".into(), None));
         // Maki named by its program runs Maki's own adapter, not `maki <prompt>` (its terminal interface).
         assert_eq!(one("model = \"anthropic/claude-sonnet-4-6\"\ncommand = \"maki\""), ("maki".into(), Some("anthropic/claude-sonnet-4-6".into())));
+    }
+}
+
+#[cfg(test)]
+mod local_first_tests {
+    use super::*;
+
+    fn entry(name: &str, kind: BackendKind, model: &str, base_url: Option<&str>) -> BackendEntry {
+        BackendEntry {
+            config: BackendConfig { name: name.into(), kind, model: model.into(), base_url: base_url.map(str::to_string), ssh_host: None, enabled: true },
+            options: BackendOptions::default(),
+        }
+    }
+
+    fn mixed() -> AiConfig {
+        AiConfig {
+            backends: vec![
+                entry("Claude", BackendKind::Anthropic, "claude-x", None),
+                entry("Claude Code", BackendKind::AgentCli, "claude-code", None),
+                entry("OpenRouter", BackendKind::OpenaiCompatible, "m", Some("https://openrouter.ai/api/v1")),
+                entry("Lemonade", BackendKind::OpenaiCompatible, "qwen", Some("http://127.0.0.1:13305/v1")),
+                entry("LM Studio", BackendKind::OpenaiCompatible, "gemma", Some("http://127.0.0.1:1234/v1")),
+                entry("Grok Build", BackendKind::AgentCli, "grok", None),
+            ],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn off_by_default_and_the_usual_choices_are_unchanged() {
+        let cfg = mixed();
+        assert!(!cfg.local_first);
+        assert_eq!(cfg.backend_for(Role::Lead).unwrap().config.name, "Claude");
+        assert_eq!(cfg.backend_for(Role::Builder).unwrap().config.name, "Claude Code");
+        assert!(!cfg.to_table().unwrap().contains_key("local_first"), "not written while off");
+    }
+
+    #[test]
+    fn local_first_picks_a_local_server_and_never_a_cloud_one_implicitly() {
+        let mut cfg = mixed();
+        cfg.local_first = true;
+        for role in [Role::Lead, Role::Worker, Role::Builder] {
+            assert_eq!(cfg.backend_for(role).unwrap().config.name, "Lemonade", "{role:?}");
+        }
+        assert!(cfg.backend_for(Role::Reviewer).is_none());
+        // A hosted OpenAI-compatible service is not local.
+        cfg.backends.retain(|b| b.config.name != "Lemonade" && b.config.name != "LM Studio");
+        assert!(cfg.backend_for(Role::Lead).is_none(), "no local server: nothing, not Claude or OpenRouter");
+        assert!(cfg.backend_for(Role::Builder).is_none(), "nor an agent app");
+        // Named on purpose, a cloud backend is used.
+        cfg.roles.insert("lead".into(), "Claude".into());
+        assert_eq!(cfg.backend_for(Role::Lead).unwrap().config.name, "Claude");
+    }
+
+    #[test]
+    fn local_first_round_trips_through_config_toml() {
+        let mut cfg = mixed();
+        cfg.local_first = true;
+        cfg.fallback_chain = vec!["LM Studio".into(), "Grok Build".into()];
+        let back = AiConfig::from_table(&cfg.to_table().unwrap()).unwrap();
+        assert!(back.local_first);
+        let names: Vec<&str> = back.builder_candidates().iter().map(|b| b.config.name.as_str()).collect();
+        assert_eq!(names, ["Lemonade", "LM Studio", "Grok Build"]);
+    }
+
+    #[test]
+    fn a_version_3_ai_section_without_the_new_key_still_reads() {
+        let old: toml::Table = toml::from_str(
+            r#"
+            [[backends]]
+            name = "Claude Code"
+            kind = "agent_cli"
+            model = "claude-code"
+            enabled = true
+            "#,
+        )
+        .unwrap();
+        let cfg = AiConfig::from_table(&old).unwrap();
+        assert!(!cfg.local_first);
+        assert_eq!(cfg.backend_for(Role::Builder).unwrap().config.name, "Claude Code");
+    }
+
+    #[test]
+    fn local_means_this_computer_or_its_network() {
+        assert!(is_local(&entry("a", BackendKind::OpenaiCompatible, "m", None)));
+        assert!(is_local(&entry("a", BackendKind::OpenaiCompatible, "m", Some("http://192.168.1.20:1234/v1"))));
+        assert!(!is_local(&entry("a", BackendKind::OpenaiCompatible, "m", Some("https://api.together.xyz/v1"))));
+        assert!(!is_local(&entry("a", BackendKind::Openai, "m", None)));
+        assert!(!is_local(&entry("a", BackendKind::AgentCli, "grok", None)));
     }
 }

@@ -278,11 +278,15 @@ pub enum Done {
     Created {
         ws: Box<craft_anything_engine::workspace::Workspace>,
         request: String,
-        backend: String,
+        backend: Option<String>,
         /// Why the pictures couldn't be copied, if they couldn't.
         pictures: Option<String>,
         /// The folder already held a project: the request is its follow-up, not a new project's.
         attached: bool,
+    },
+    /// A builder was chosen on a worker. The window applies it; see `pending_builder`.
+    BuilderChosen {
+        name: String,
     },
     /// A message's pictures were copied into its project (see `CraftApp::deliver`).
     Attached {
@@ -523,6 +527,8 @@ pub struct CraftApp {
     pub server_form: ServerForm,
     /// Every project's rebuild in this window: working, waiting their turn, or finished.
     pub runs: craft_anything_ai::rebuild::RunSet,
+    /// Builds whose builder is being chosen on a worker, so the window never waits on a port or an SSH tunnel.
+    pub(crate) pending_builder: Vec<project::PendingBuilder>,
     /// What was typed for each note still waiting for a builder, by note id, to put back in the
     /// prompt box when the note is taken back.
     pub drafts: std::collections::HashMap<u64, project::Draft>,
@@ -687,6 +693,7 @@ impl CraftApp {
             key_inputs: Default::default(),
             server_form: ServerForm::default(),
             runs: craft_anything_ai::rebuild::RunSet::new(craft_anything_engine::settings::BuildSettings::default().parallel),
+            pending_builder: Vec::new(),
             drafts: Default::default(),
             pending_paste: None,
             pending_attach_checks: Default::default(),
@@ -1703,6 +1710,16 @@ impl CraftApp {
     /// Apply a completed background job, reporting failures and accepting picker results only for matching requests.
     fn handle_done(&mut self, done: jobs::Finished<Done>) {
         let job = done.job;
+        if let Some(i) = self.pending_builder.iter().position(|p| p.job == job) {
+            let pending = self.pending_builder.remove(i);
+            let outcome = match done.result {
+                Ok(Done::BuilderChosen { name }) => Ok(name),
+                Ok(_) => Err(tr("Choosing a builder stopped before a builder was chosen.")),
+                Err(e) => Err(e),
+            };
+            self.finish_builder_choice(pending, outcome);
+            return;
+        }
         let checked_agent = self.agent_connection_jobs.remove(&job);
         let model_save = self.model_save_jobs.iter().find_map(|(name, id)| (*id == job).then(|| name.clone()));
         if let Some(name) = &model_save {
@@ -1783,6 +1800,7 @@ impl CraftApp {
             Done::Facts(f) => self.facts_read(job, Some(f)),
             Done::PicturesAdded(added) => self.pictures_added(added),
             Done::Created { ws, request, backend, pictures, attached } => self.created(*ws, request, backend, pictures, attached),
+            Done::BuilderChosen { .. } => {}
             Done::Thumb { path, image } => self.thumb_ready(path, image),
             Done::Preview { path, image } => self.preview_ready(path, image),
             Done::Tool { tool, params, route, result } => self.tool_done(tool, params, route, result),

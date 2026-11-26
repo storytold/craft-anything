@@ -2250,3 +2250,41 @@ fn openrouter_asks_again_for_an_answer_the_key_can_afford() {
     assert!(other.turn(&request, &mut |_| {}, &Stop::default()).is_err());
     assert_eq!(seen.lock().unwrap().len(), 1);
 }
+
+/// An OpenAI-compatible backend with `ssh_host` is judged through the tunnel, not by whether
+/// `base_url` answers on this computer. A blank host stays a local port probe.
+#[test]
+fn an_ssh_openai_backend_is_not_probed_on_this_computer() {
+    let remote = super::openai_remote(Some("http://10.1.2.3:11434/v1")).unwrap();
+    assert_eq!((remote.host.as_str(), remote.port, remote.path.as_str()), ("10.1.2.3", 11434, "/v1"));
+    let plain = super::openai_remote(None).unwrap();
+    assert_eq!((plain.host.as_str(), plain.port, plain.path.as_str()), ("127.0.0.1", 11434, "/v1"));
+    assert_eq!(super::openai_remote(Some("http://127.0.0.1:11434")).unwrap().path, "");
+    assert_eq!(super::local_openai_url(None), "http://127.0.0.1:11434/v1");
+    assert_eq!(super::local_openai_url(Some("")), "http://127.0.0.1:11434/v1");
+    assert_eq!(super::local_openai_url(Some("  ")), "http://127.0.0.1:11434/v1");
+    assert_eq!(super::local_openai_url(Some(" http://127.0.0.1:9/v1 ")), "http://127.0.0.1:9/v1");
+    assert_eq!(super::openai_remote(Some("")).unwrap().port, 11434);
+    assert_eq!(super::openai_remote(Some("   ")).unwrap().port, 11434);
+
+    let mut saw = None;
+    let open = super::openai_reachable(Some("box"), Some("http://127.0.0.1:1/v1"), |host, remote_host, port| {
+        saw = Some((host.to_string(), remote_host.to_string(), port));
+        true
+    });
+    assert!(open);
+    assert_eq!(saw.as_ref().map(|(h, r, p)| (h.as_str(), r.as_str(), *p)), Some(("box", "127.0.0.1", 1)));
+
+    let mut tunneled = false;
+    let local = super::openai_reachable(None, Some("http://127.0.0.1:1/v1"), |_, _, _| {
+        tunneled = true;
+        true
+    });
+    assert!(!local && !tunneled, "a closed local port is unreachable, and no tunnel is opened");
+    tunneled = false;
+    let blank = super::openai_reachable(Some("  "), Some("http://127.0.0.1:1/v1"), |_, _, _| {
+        tunneled = true;
+        true
+    });
+    assert!(!blank && !tunneled, "a blank ssh host is still the local port");
+}

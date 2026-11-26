@@ -39,6 +39,17 @@ pub struct RunSet {
     watched: bool,
 }
 
+/// The builder this launch will use. One call per attempt: the run that starts receives it.
+fn chosen_builder(hub: &AiHub, ws: &Workspace, opts: &RunOptions) -> Result<crate::BackendEntry, ToolError> {
+    let cfg = hub.config();
+    builder_backend(&cfg, opts.backend.as_deref().or_else(|| super::project_builder(&cfg, ws)))
+}
+
+/// `opts` with the builder already chosen, so a later lookup does not pick again.
+fn with_builder(opts: RunOptions, name: &str) -> RunOptions {
+    RunOptions { backend: Some(name.to_string()), ..opts }
+}
+
 impl std::fmt::Debug for RunSet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RunSet").field("limit", &self.limit).field("running", &self.active()).field("queued", &self.queue.len()).finish()
@@ -74,15 +85,26 @@ impl RunSet {
                 ToolError::new(ErrorCode::BadInput, "This project is already building.").with_remediation("Add to it while it works, or stop it first.")
             );
         }
+        // The copy the caller holds may predate a builder saved since. `poll` reloads before it
+        // resolves; do the same here. An explicit `opts.backend` still wins over the saved one.
+        let ws = Workspace::open(&ws.root).unwrap_or(ws);
+        // Resolved once. A later reachability change cannot make the check and startup disagree.
+        // No builder at all still reaches the starter when a place is free: that is where a real
+        // run reports the error, and a stand-in run does not need one.
+        let resolved = chosen_builder(hub, &ws, &opts);
         if self.active() < self.limit && self.queue.is_empty() {
             let root = ws.root.clone();
-            let run = (self.starter)(hub, ws, opts)?;
+            let run_opts = match &resolved {
+                Ok(entry) => with_builder(opts, &entry.config.name),
+                Err(_) => opts,
+            };
+            let run = (self.starter)(hub, ws, run_opts)?;
             self.runs.insert(root, run);
             return Ok(Started::Running);
         }
-        // Fail now, not when its turn comes, when no coding agent is set up.
-        let cfg = hub.config();
-        builder_backend(&cfg, opts.backend.as_deref().or_else(|| super::project_builder(&cfg, &ws)))?;
+        // Fail now, not when its turn comes, when no coding agent is set up. A resolved run keeps
+        // its original options in the queue, so the turn that starts it resolves again, once.
+        resolved?;
         self.queue.push_back((ws, opts));
         Ok(Started::Queued { position: self.queue.len() })
     }
@@ -99,9 +121,22 @@ impl RunSet {
             // The project as it is now (its Builder may have been changed while it waited), the copy
             // `RebuildRun::start` reads too.
             let ws = Workspace::open(&ws.root).unwrap_or(ws);
+            // Resolve once for this turn, then start with that builder.
+            let entry = match chosen_builder(hub, &ws, &opts) {
+                Ok(entry) => entry,
+                Err(e) => {
+                    let root = ws.root.clone();
+                    let message = e.for_people();
+                    let mut keep = ws;
+                    let _ = keep.set_status(Status::NeedsYou, message.clone());
+                    out.push((root, RunEvent::Finished { ok: false, message, paused: false }));
+                    continue;
+                }
+            };
+            let pinned = with_builder(opts, &entry.config.name);
             let root = ws.root.clone();
             let mut keep = ws.clone();
-            match (self.starter)(hub, ws, opts) {
+            match (self.starter)(hub, ws, pinned) {
                 Ok(run) => {
                     self.runs.insert(root, run);
                 }
@@ -342,5 +377,85 @@ mod tests {
         let root = b.root.clone();
         assert!(set.start(&hub, b, RunOptions::default()).is_err());
         assert_eq!(set.position(&root), None);
+    }
+
+    /// An agent app and an API backend, so a saved builder name can be told apart from another.
+    fn two_backends() -> AiHub {
+        let mut s = craft_anything_engine::testing::session();
+        s.settings.ai = toml::from_str(
+            "[[backends]]\nname = \"Agent\"\nkind = \"agent_cli\"\nmodel = \"claude-code\"\n[[backends]]\nname = \"Key\"\nkind = \"openrouter\"\nmodel = \"m\"\n",
+        )
+        .unwrap();
+        AiHub::new(Arc::new(Engine::new(s)))
+    }
+
+    /// A builder saved after the caller loaded the project is the one an immediate start uses.
+    /// An explicit `opts.backend` is not replaced by that save.
+    #[test]
+    fn an_immediate_start_reads_the_builder_saved_since_the_workspace_was_loaded() {
+        let d = tempfile::tempdir().unwrap();
+        let mut ws = Workspace::create(d.path(), "A", "A game", TargetRef::None).unwrap();
+        ws.set_person(|m| m.builder = Some("Agent".into())).unwrap();
+        let loaded = Workspace::open(&ws.root).unwrap();
+        Workspace::open(&ws.root).unwrap().set_person(|m| m.builder = Some("Key".into())).unwrap();
+        assert_eq!(loaded.manifest.builder.as_deref(), Some("Agent"));
+
+        let hub = two_backends();
+        let fake = StandIns::new();
+        let seen = Arc::new(Mutex::new(None));
+        let seen_in = seen.clone();
+        let mut inner = fake.starter();
+        let starter: Starter = Box::new(move |hub, ws, opts| {
+            *seen_in.lock().unwrap() = opts.backend.clone();
+            inner(hub, ws, opts)
+        });
+        let mut set = RunSet::new(1).with_starter(starter);
+        assert_eq!(set.start(&hub, loaded, RunOptions::default()).unwrap(), Started::Running);
+        assert_eq!(seen.lock().unwrap().as_deref(), Some("Key"));
+
+        let mut other = Workspace::create(d.path(), "B", "A game", TargetRef::None).unwrap();
+        other.set_person(|m| m.builder = Some("Key".into())).unwrap();
+        let loaded_other = Workspace::open(&other.root).unwrap();
+        let mut set = RunSet::new(1).with_starter({
+            let seen_in = seen.clone();
+            let mut inner = StandIns::new().starter();
+            Box::new(move |hub, ws, opts| {
+                *seen_in.lock().unwrap() = opts.backend.clone();
+                inner(hub, ws, opts)
+            })
+        });
+        let explicit = RunOptions { backend: Some("Agent".into()), ..RunOptions::default() };
+        assert_eq!(set.start(&hub, loaded_other, explicit).unwrap(), Started::Running);
+        assert_eq!(seen.lock().unwrap().as_deref(), Some("Agent"));
+    }
+
+    /// An unnamed local_first choice is made once: the run that starts is given that name, and a
+    /// queued run is given the name resolved on its own turn, not looked up again inside startup.
+    #[test]
+    fn an_automatic_builder_is_resolved_once_for_admission_and_startup() {
+        let d = tempfile::tempdir().unwrap();
+        let ws = |n: &str| Workspace::create(d.path(), n, "A game", TargetRef::None).unwrap();
+        let (a, b) = (ws("A"), ws("B"));
+        let mut session = craft_anything_engine::testing::session();
+        session.settings.ai = toml::from_str(
+            "local_first = true\n[[backends]]\nname = \"Lemonade\"\nkind = \"openai_compatible\"\nmodel = \"qwen\"\nbase_url = \"http://127.0.0.1:9/v1\"\n",
+        )
+        .unwrap();
+        let hub = AiHub::new(Arc::new(Engine::new(session)));
+        let fake = StandIns::new();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let seen_in = seen.clone();
+        let mut inner = fake.starter();
+        let starter: Starter = Box::new(move |hub, ws, opts| {
+            seen_in.lock().unwrap().push(opts.backend.clone());
+            inner(hub, ws, opts)
+        });
+        let mut set = RunSet::new(1).with_starter(starter);
+        assert_eq!(set.start(&hub, a.clone(), RunOptions::default()).unwrap(), Started::Running);
+        assert_eq!(set.start(&hub, b.clone(), RunOptions::default()).unwrap(), Started::Queued { position: 1 });
+        fake.finish(&a.root);
+        set.poll(&hub);
+        assert!(set.is_running(&b.root));
+        assert_eq!(seen.lock().unwrap().as_slice(), [Some("Lemonade".to_string()), Some("Lemonade".to_string())]);
     }
 }

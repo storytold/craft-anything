@@ -138,6 +138,19 @@ impl CraftApp {
         self.default_builder().is_some()
     }
 
+    /// What a build is given. `None` means nothing can build. `Some(None)` means no available
+    /// choice was named and `local_first` is on: the build picks the first server that answers,
+    /// instead of being pinned to the name [`Self::default_builder`] shows. A choice the person
+    /// made that is still available is `Some(Some(name))`, as is any automatic choice while
+    /// `local_first` is off.
+    pub fn build_with(&mut self, wanted: Option<&str>) -> Option<Option<String>> {
+        let explicit = wanted.map(str::trim).filter(|name| !name.is_empty());
+        let local_first = self.hub.config().local_first;
+        let resolved = self.builder_backend(explicit)?;
+        let kept = explicit.is_some_and(|name| self.builder_choices().iter().any(|c| c.name == name));
+        if !kept && local_first { Some(None) } else { Some(Some(resolved)) }
+    }
+
     /// Resolve the saved choice or the default before a build commits it.
     pub(crate) fn resolve_builder(&self, wanted: Option<&str>) -> Option<String> {
         wanted.filter(|name| self.builder_choices().iter().any(|choice| choice.name == *name)).map(str::to_string).or_else(|| self.default_builder())
@@ -509,6 +522,33 @@ pub fn need_builder_modal(app: &mut CraftApp, ui: &mut Ui, start: bool, close: &
             }
         });
     });
+}
+
+#[cfg(test)]
+mod local_first_tests {
+    use crate::demo;
+    use craft_anything_ai::{BackendConfig, BackendKind};
+
+    fn backend(name: &str, kind: BackendKind, model: &str, base_url: Option<&str>) -> BackendConfig {
+        BackendConfig { name: name.into(), kind, model: model.into(), base_url: base_url.map(str::to_string), ssh_host: None, enabled: true }
+    }
+
+    #[test]
+    fn an_automatic_local_first_build_is_not_pinned_before_it_starts() {
+        let mut app = demo::app(demo::engine(craft_anything_engine::Mode::Experienced, true));
+        app.hub.add_backend(backend("Claude Code", BackendKind::AgentCli, "claude-code", None), None).unwrap();
+        app.hub.add_backend(backend("Lemonade", BackendKind::OpenaiCompatible, "qwen", Some("http://127.0.0.1:13305/v1")), None).unwrap();
+        app.backends = app.hub.backends();
+        assert_eq!(app.build_with(None), Some(Some("Claude Code".into())));
+
+        let mut cfg = app.hub.config();
+        cfg.local_first = true;
+        cfg.fallback_chain = vec!["Claude Code".into()];
+        app.hub.save_config(&cfg).unwrap();
+        assert_eq!(app.build_with(None), Some(None), "nothing chosen: the build selects a server that answers");
+        assert_eq!(app.build_with(Some("Claude Code")), Some(Some("Claude Code".into())));
+        assert_eq!(app.build_with(Some("Gone")), Some(None), "a saved name that is not available is chosen when the build starts");
+    }
 }
 
 #[cfg(test)]

@@ -357,6 +357,90 @@ pub fn default_builder<'a>(backends: &'a [BackendConfig], chosen: Option<&str>) 
         .or_else(|| on().find(|b| b.kind != BackendKind::AgentCli))
 }
 
+/// Host, port and URL path of an OpenAI-compatible `base_url`, as [`AiHub::build_model`] forwards
+/// them through ssh. An empty address is the local default (Ollama on port 11434).
+struct OpenAiRemote {
+    host: String,
+    port: u16,
+    path: String,
+}
+
+/// A blank address is the local default, the same one [`openai_remote`] and [`AiHub::build_model`] use.
+fn local_openai_url(base_url: Option<&str>) -> &str {
+    match base_url.map(str::trim).filter(|url| !url.is_empty()) {
+        Some(url) => url,
+        None => "http://127.0.0.1:11434/v1",
+    }
+}
+
+fn openai_remote(base_url: Option<&str>) -> Result<OpenAiRemote, ToolError> {
+    let b = local_openai_url(base_url);
+    let after = b.split("://").nth(1).unwrap_or(b);
+    let hostport = after.split('/').next().unwrap_or_default();
+    let path = after.get(hostport.len()..).unwrap_or("/v1");
+    let (host, port_text) = hostport.rsplit_once(':').unwrap_or((hostport, "80"));
+    let port = port_text.parse().map_err(|_| ToolError::invalid(format!("Bad port in {b}")))?;
+    Ok(OpenAiRemote { host: host.to_string(), port, path: path.to_string() })
+}
+
+/// A local OpenAI-compatible server is probed on this computer. One reached through `ssh_host`
+/// is probed through the same tunnel [`AiHub::build_model`] opens, not at `base_url` here.
+fn openai_reachable(ssh_host: Option<&str>, base_url: Option<&str>, mut probe_tunnel: impl FnMut(&str, &str, u16) -> bool) -> bool {
+    if let Some(host) = ssh_host.map(str::trim).filter(|h| !h.is_empty()) {
+        return openai_remote(base_url).is_ok_and(|remote| probe_tunnel(host, &remote.host, remote.port));
+    }
+    detect::port_open(local_openai_url(base_url), Duration::from_millis(500))
+}
+
+fn probe_tunneled_openai(ssh_host: &str, remote_host: &str, remote_port: u16) -> bool {
+    match ssh::open_tunnel(ssh_host, remote_host, remote_port) {
+        Ok(tunnel) => forwarded_service_answers(tunnel.local_port),
+        Err(_) => false,
+    }
+}
+
+/// The ssh forward accepts as soon as `ssh` is listening. A byte back means the server on the far
+/// side answered; a refusal or a timeout does not.
+fn forwarded_service_answers(port: u16) -> bool {
+    use std::io::{Read, Write};
+    use std::net::{SocketAddr, TcpStream};
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    let Ok(mut stream) = TcpStream::connect_timeout(&addr, Duration::from_millis(800)) else { return false };
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+    let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
+    if stream.write_all(b"GET /v1/models HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n").is_err() {
+        return false;
+    }
+    let mut buf = [0u8; 1];
+    matches!(stream.read(&mut buf), Ok(1))
+}
+
+/// Whether a backend can start right now, without sending it anything: a local server's port
+/// answers, an agent app's program is found, a cloud API is switched on. Used to pick the first
+/// working builder from the fallback chain.
+pub fn backend_reachable(b: &BackendEntry) -> bool {
+    if !b.config.enabled {
+        return false;
+    }
+    match b.config.kind {
+        BackendKind::OpenaiCompatible => openai_reachable(b.config.ssh_host.as_deref(), b.config.base_url.as_deref(), probe_tunneled_openai),
+        BackendKind::AgentCli => {
+            if b.config.ssh_host.as_deref().is_some_and(|h| !h.trim().is_empty()) {
+                return true;
+            }
+            cli_agents::program_of(&b.config, &b.options).is_ok_and(|p| {
+                let path = std::path::Path::new(&p);
+                if path.components().count() > 1 {
+                    path.is_file()
+                } else {
+                    !craft_anything_platform::which::which_in(&p, craft_anything_platform::which::search_path()).is_empty()
+                }
+            })
+        }
+        _ => true,
+    }
+}
+
 /// Whether `name` is a saved AI that is switched on. One saved but switched off is not set up:
 /// it's offered again when found, so it can be turned on (#423).
 pub fn is_on(backends: &[BackendConfig], name: &str) -> bool {
@@ -1271,14 +1355,9 @@ impl AiHub {
         // Over ssh: forward a local port to the server as seen from the remote host.
         let tunneled_base = match (&c.ssh_host, c.kind) {
             (Some(host), BackendKind::OpenaiCompatible) if !host.trim().is_empty() => {
-                let b = base.unwrap_or("http://127.0.0.1:11434/v1");
-                let after = b.split("://").nth(1).unwrap_or(b);
-                let hostport = after.split('/').next().unwrap_or_default();
-                let path = after.get(hostport.len()..).unwrap_or("/v1");
-                let (rh, rp) = hostport.rsplit_once(':').unwrap_or((hostport, "80"));
-                let rp: u16 = rp.parse().map_err(|_| ToolError::invalid(format!("Bad port in {b}")))?;
-                let t = ssh::open_tunnel(host, rh, rp)?;
-                let url = format!("http://127.0.0.1:{}{path}", t.local_port);
+                let remote = openai_remote(base)?;
+                let t = ssh::open_tunnel(host, &remote.host, remote.port)?;
+                let url = format!("http://127.0.0.1:{}{}", t.local_port, remote.path);
                 tunnel = Some(t);
                 Some(url)
             }
