@@ -710,6 +710,9 @@ been run live.
       the picture. Test several live and resumed pictures interleaved with text too, since the
       content array keeps their order. The 1,600-token estimate per picture isn't every model's
       cost (review of #1175)
+- [ ] With `[ai] local_first` on, a build that names no builder uses the first enabled local
+      server that answers, chosen off the window thread, and never a cloud backend on its own
+      (#2460, in PR #2256). Not yet run against a live local server
 
 ### R5.5 API-key builds fail in words people can use
 Owner: open · Status: todo

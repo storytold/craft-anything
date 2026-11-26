@@ -102,10 +102,11 @@ impl RunSet {
             self.runs.insert(root, run);
             return Ok(Started::Running);
         }
-        // Fail now, not when its turn comes, when no coding agent is set up. A resolved run keeps
-        // its original options in the queue, so the turn that starts it resolves again, once.
-        resolved?;
-        self.queue.push_back((ws, opts));
+        // Fail now, not when its turn comes, when no coding agent is set up. The queued run keeps
+        // the builder chosen here, so its turn in `poll` (the window calls it every frame) names
+        // it and never checks which local server answers.
+        let entry = resolved?;
+        self.queue.push_back((ws, with_builder(opts, &entry.config.name)));
         Ok(Started::Queued { position: self.queue.len() })
     }
 
@@ -121,7 +122,7 @@ impl RunSet {
             // The project as it is now (its Builder may have been changed while it waited), the copy
             // `RebuildRun::start` reads too.
             let ws = Workspace::open(&ws.root).unwrap_or(ws);
-            // Resolve once for this turn, then start with that builder.
+            // A queued run already names its builder (`start` chose it), so this does not probe.
             let entry = match chosen_builder(hub, &ws, &opts) {
                 Ok(entry) => entry,
                 Err(e) => {
@@ -457,5 +458,39 @@ mod tests {
         set.poll(&hub);
         assert!(set.is_running(&b.root));
         assert_eq!(seen.lock().unwrap().as_slice(), [Some("Lemonade".to_string()), Some("Lemonade".to_string())]);
+    }
+
+    /// A queued run keeps the builder chosen when it was queued: its turn in `poll` uses that name
+    /// and does not choose again (choosing can open connections, and `poll` runs on the window).
+    #[test]
+    fn a_queued_run_keeps_the_builder_chosen_when_it_was_queued() {
+        let d = tempfile::tempdir().unwrap();
+        let ws = |n: &str| Workspace::create(d.path(), n, "A game", TargetRef::None).unwrap();
+        let (a, b) = (ws("A"), ws("B"));
+        let mut session = craft_anything_engine::testing::session();
+        session.settings.ai = toml::from_str(
+            "local_first = true\n[[backends]]\nname = \"Lemonade\"\nkind = \"openai_compatible\"\nmodel = \"qwen\"\nbase_url = \"http://127.0.0.1:9/v1\"\n",
+        )
+        .unwrap();
+        let hub = AiHub::new(Arc::new(Engine::new(session)));
+        let fake = StandIns::new();
+        let mut set = RunSet::new(1).with_starter(fake.starter());
+        assert_eq!(set.start(&hub, a.clone(), RunOptions::default()).unwrap(), Started::Running);
+        assert_eq!(set.start(&hub, b.clone(), RunOptions::default()).unwrap(), Started::Queued { position: 1 });
+        let mut cfg = hub.config();
+        for entry in &mut cfg.backends {
+            entry.config.enabled = false;
+        }
+        hub.save_config(&cfg).unwrap();
+        fake.finish(&a.root);
+        let events = set.poll(&hub);
+        let message = events
+            .iter()
+            .find_map(|(root, e)| match e {
+                RunEvent::Finished { ok: false, message, .. } if *root == b.root => Some(message.clone()),
+                _ => None,
+            })
+            .expect("the queued run reports why it could not start");
+        assert!(message.contains("is turned off"), "the queued run kept its builder: {message}");
     }
 }

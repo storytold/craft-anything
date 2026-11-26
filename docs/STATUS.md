@@ -6,6 +6,15 @@ workspace clippy, layers, fmt and the secret scan of all history were clean. Chi
 
 ## What works, and how it was checked
 
+### Local server first when no builder is named (R5.4, PR #2256)
+
+With `[ai] local_first` on (off by default) and no builder named by the request or the project,
+a build uses the first enabled local server that answers, then `fallback_chain`; it never picks
+a cloud backend on its own. On Start the window asks a worker for the choice, and a queued run
+keeps the builder chosen when it was queued, so the window thread does not check servers.
+Checked by unit tests in `craft-anything-ai` (`config.rs`, `rebuild/runs.rs`) with a stand-in
+server address; not run against a live Lemonade or LM Studio.
+
 ### Local Codex discovery and sign-in (R2.2)
 
 macOS Dock launches can find an executable Codex CLI bundled with ChatGPT.app or

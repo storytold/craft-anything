@@ -1846,9 +1846,8 @@ pub fn builder_backend(cfg: &crate::AiConfig, named: Option<&str>) -> Result<cra
         // The first builder that can start now, then the fallback chain.
         let candidates = cfg.builder_candidates();
         return candidates.iter().find(|b| crate::backend_reachable(b)).or_else(|| candidates.first()).map(|b| (*b).clone()).ok_or_else(|| {
-            ToolError::new(ErrorCode::BadSettings, "local_first is on and no local AI server is set up to build with.").with_remediation(
-                "Start Lemonade or LM Studio and run `craft-anything-cli ai use-local`, or name a builder in [ai.roles] or [ai] fallback_chain.",
-            )
+            ToolError::new(ErrorCode::BadSettings, "local_first is on and no local AI server is set up to build with.")
+                .with_remediation("Add a local server (Lemonade, LM Studio) in Settings → AI, or name a builder in [ai.roles] or [ai] fallback_chain.")
         });
     }
     cfg.backend_for(Role::Builder)
