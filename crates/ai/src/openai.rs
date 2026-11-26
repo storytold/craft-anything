@@ -56,8 +56,6 @@ pub const LOCAL_SERVERS: &[(&str, &str)] = &[
     ("LM Studio", "http://127.0.0.1:1234/v1"),
     ("llama.cpp server", "http://127.0.0.1:8080/v1"),
     ("vLLM", "http://127.0.0.1:8000/v1"),
-    // Lemonade Server (lemond), on the port its local setup listens on.
-    ("Lemonade", "http://127.0.0.1:13305/v1"),
 ];
 
 #[derive(Debug, Clone)]

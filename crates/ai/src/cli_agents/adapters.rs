@@ -20,7 +20,7 @@ pub use antigravity::Antigravity;
 pub use copilot::Copilot;
 pub use devin::Devin;
 pub use dsh::DeepSeekHarness;
-pub use grok::{Grok, require_grok_program};
+pub use grok::Grok;
 pub use hermes::Hermes;
 pub use kimi_code::KimiCode;
 pub use maki::Maki;

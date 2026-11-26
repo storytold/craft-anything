@@ -199,59 +199,9 @@ fn catalogue(metadata: &super::super::acp::ModelMetadata, options: &BackendOptio
     ordered.into_iter().map(|id| models::AgentModel { name: id.clone(), thinking: if id == active { thinking.clone() } else { Vec::new() }, id }).collect()
 }
 
-/// Grok Build's program must exist and say it is Grok. Cursor's command-line tool is also called `agent`.
-pub fn require_grok_program(program: &str) -> Result<(), ToolError> {
-    let path = resolve_grok_program(program)?;
-    let out = Process::new(&path).arg("--version").timeout(Duration::from_secs(8)).stdout_cap(64 * 1024).run().map_err(|e| {
-        ToolError::new(ErrorCode::EngineMissing, format!("Couldn't run {} --version ({})", path.display(), e.message))
-            .with_remediation("Pass Grok Build's program, for example ~/.grok/bin/agent. Cursor's command-line tool is also called agent.")
-    })?;
-    let text = format!("{}\n{}", out.stdout_text(), out.stderr_text());
-    grok_version_identity(&text, out.success).map_err(|message| {
-        ToolError::invalid(message).with_remediation("Pass Grok Build's program (it lives in ~/.grok/bin). Cursor's command-line tool is also called agent.")
-    })
-}
-
-fn resolve_grok_program(program: &str) -> Result<PathBuf, ToolError> {
-    let path = PathBuf::from(program);
-    let found = if path.components().count() > 1 {
-        path.is_file().then_some(path)
-    } else {
-        craft_anything_platform::which::which_in(program, craft_anything_platform::which::search_path()).into_iter().next()
-    };
-    found.ok_or_else(|| {
-        ToolError::new(ErrorCode::NotFound, format!("Grok Build's program {program:?} isn't on this computer."))
-            .with_remediation("Install Grok Build, or pass its program with --grok (for example ~/.grok/bin/agent).")
-    })
-}
-
-/// Whether `--version` output is Grok Build rather than another program of the same name.
-fn grok_version_identity(text: &str, success: bool) -> Result<(), String> {
-    if !success {
-        return Err("Grok Build's program exited without a version.".into());
-    }
-    let lower = text.to_ascii_lowercase();
-    if lower.contains("cursor") {
-        return Err("That program is Cursor's agent, not Grok Build.".into());
-    }
-    if !lower.contains("grok") {
-        return Err("That program's --version output doesn't say it is Grok Build.".into());
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn version_output_has_to_name_grok_and_not_cursor() {
-        assert!(grok_version_identity("grok version 1.2.3\n", true).is_ok());
-        assert!(grok_version_identity("Grok Build 0.4\n", true).is_ok());
-        assert!(grok_version_identity("Cursor Agent 2026.1.1\n", true).unwrap_err().contains("Cursor"));
-        assert!(grok_version_identity("2026.1.1\n", true).unwrap_err().contains("doesn't say"));
-        assert!(grok_version_identity("grok version 1\n", false).is_err());
-    }
 
     #[test]
     fn grok_is_acp_only_and_registered() {

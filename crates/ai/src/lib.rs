@@ -30,7 +30,6 @@ pub mod ssh;
 pub mod window;
 
 pub use agent::FULL_TOOLS_BUDGET;
-pub use cli_agents::adapters::require_grok_program;
 pub use cli_agents::models::{AgentModel, ModelContext};
 pub use config::{AiConfig, BackendEntry, BackendOptions, Price, ToolList};
 pub use failure::{FailureKind, TurnFailure};
@@ -748,29 +747,6 @@ impl AiHub {
             }
         }
         self.save_config(&cfg)
-    }
-
-    /// Make local AI the default. `servers` (already added, in order of preference)
-    /// become lead, worker and builder; the rest of them, then `fallback` (say Grok Build), form
-    /// the fallback chain; `local_first` is turned on so nothing cloud is chosen implicitly.
-    pub fn use_local(&self, servers: &[String], fallback: &[String]) -> Result<AiConfig, ToolError> {
-        let mut cfg = self.config_to_change()?;
-        let Some(first) = servers.first() else {
-            return Err(ToolError::new(ErrorCode::BadSettings, "No local AI server answered.")
-                .with_remediation("Start Lemonade (lemond) or LM Studio's server, then run this again."));
-        };
-        for n in servers.iter().chain(fallback) {
-            if cfg.get(n).is_none() {
-                return Err(ToolError::invalid(format!("No AI backend named {n:?}")));
-            }
-        }
-        cfg.local_first = true;
-        for role in ["lead", "worker", "builder"] {
-            cfg.roles.insert(role.into(), first.clone());
-        }
-        cfg.fallback_chain = servers.iter().skip(1).chain(fallback).cloned().collect();
-        self.save_config(&cfg)?;
-        Ok(cfg)
     }
 
     /// Add (or replace) a backend, storing its key in the keychain when given.

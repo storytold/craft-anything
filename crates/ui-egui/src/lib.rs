@@ -508,9 +508,6 @@ pub struct CraftApp {
     pub folder_inputs: std::collections::BTreeMap<String, String>,
     /// The backend the person chose to build with (Settings → AI), if any.
     pub builder: Option<String>,
-    /// With `[ai] local_first` on, the builders to try in order (the Builder role or
-    /// the first local server, then the fallback chain); `None` while it's off.
-    pub local_builders: Option<Vec<String>>,
     /// The backend chosen to take a game's files out in Deep mode, if any.
     pub extractor: Option<String>,
     pub detected: Option<Vec<Detected>>,
@@ -685,7 +682,6 @@ impl CraftApp {
             picking_program_for: None,
             folder_inputs: Default::default(),
             builder: None,
-            local_builders: None,
             extractor: None,
             detected: None,
             detect_hints: Vec::new(),
@@ -1708,8 +1704,6 @@ impl CraftApp {
         });
         // Settings shows which backends have a saved key; the list may have changed.
         self.check_backend_keys();
-        // With local_first on, Make names these builders; a stale snapshot must not refresh them.
-        self.local_builders = local_builders(&self.hub.config());
         true
     }
 
@@ -2563,11 +2557,6 @@ impl Drop for CraftApp {
     fn drop(&mut self) {
         self.updates.finish();
     }
-}
-
-/// The builders `[ai] local_first` would try, in order; `None` while it's off.
-pub fn local_builders(cfg: &craft_anything_ai::AiConfig) -> Option<Vec<String>> {
-    cfg.local_first.then(|| cfg.builder_candidates().into_iter().map(|b| b.config.name.clone()).collect())
 }
 
 #[cfg(test)]

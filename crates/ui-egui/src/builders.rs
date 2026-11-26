@@ -130,11 +130,6 @@ impl CraftApp {
     /// What builds when the person doesn't choose: the default from Settings → AI, else an agent
     /// app found on this computer.
     pub fn default_builder(&self) -> Option<String> {
-        // With local_first on, only a local server or the fallback chain builds: an agent app that
-        // is merely set up or found is not offered implicitly (the same rule the build itself uses).
-        if let Some(local) = &self.local_builders {
-            return local.first().cloned();
-        }
         craft_anything_ai::default_builder(&self.backends, self.builder.as_deref()).or_else(|| self.found_agents().next()).map(|b| b.name.clone())
     }
 
@@ -539,32 +534,20 @@ mod local_first_tests {
     }
 
     #[test]
-    fn the_build_hint_names_the_local_server_not_an_agent_app_when_local_first_is_on() {
+    fn an_automatic_local_first_build_is_not_pinned_before_it_starts() {
         let mut app = demo::app(demo::engine(craft_anything_engine::Mode::Experienced, true));
         app.hub.add_backend(backend("Claude Code", BackendKind::AgentCli, "claude-code", None), None).unwrap();
         app.hub.add_backend(backend("Lemonade", BackendKind::OpenaiCompatible, "qwen", Some("http://127.0.0.1:13305/v1")), None).unwrap();
         app.backends = app.hub.backends();
-        app.local_builders = crate::local_builders(&app.hub.config());
-        assert_eq!(app.default_builder().as_deref(), Some("Claude Code"), "the usual rule while local_first is off");
         assert_eq!(app.build_with(None), Some(Some("Claude Code".into())));
 
         let mut cfg = app.hub.config();
         cfg.local_first = true;
         cfg.fallback_chain = vec!["Claude Code".into()];
         app.hub.save_config(&cfg).unwrap();
-        app.local_builders = crate::local_builders(&app.hub.config());
-        assert_eq!(app.default_builder().as_deref(), Some("Lemonade"));
         assert_eq!(app.build_with(None), Some(None), "nothing chosen: the build selects a server that answers");
         assert_eq!(app.build_with(Some("Claude Code")), Some(Some("Claude Code".into())));
         assert_eq!(app.build_with(Some("Gone")), Some(None), "a saved name that is not available is chosen when the build starts");
-        assert_eq!(app.default_builder().as_deref(), Some("Lemonade"), "the hint still names the default");
-        assert!(app.can_build());
-
-        cfg.backends.retain(|b| b.config.name != "Lemonade");
-        cfg.fallback_chain.clear();
-        app.hub.save_config(&cfg).unwrap();
-        app.local_builders = crate::local_builders(&app.hub.config());
-        assert_eq!(app.default_builder(), None, "no local server and nothing named: nothing builds implicitly");
     }
 }
 

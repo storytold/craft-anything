@@ -4,7 +4,7 @@ use crate::output::Format;
 use crate::{Cli, INTERRUPTED, emit, fail, make_engine, out};
 use clap::{Args, Subcommand};
 use craft_anything_ai::{AgentEvent, AiHub, BackendConfig, BackendEntry, BackendKind, BackendOptions, Effort};
-use craft_anything_evidence::{ErrorCode, ToolError};
+use craft_anything_evidence::ToolError;
 use serde_json::{Value, json};
 use std::io::{Read as _, Write as _};
 use std::sync::atomic::Ordering;
@@ -56,24 +56,6 @@ pub enum AiCommand {
         /// Talk to this agent app over ACP (`agent_cli` kind; the agent must speak it, e.g. devin).
         #[arg(long)]
         acp: bool,
-    },
-    /// Make local AI the default: add Lemonade and LM Studio if they answer, use
-    /// them for every role, turn on `local_first` (no cloud backend is picked implicitly), and
-    /// optionally add Grok Build as the builder to fall back to.
-    UseLocal {
-        /// Lemonade Server's OpenAI-compatible address.
-        #[arg(long, default_value = "http://127.0.0.1:13305/v1")]
-        lemonade: String,
-        /// LM Studio's OpenAI-compatible address.
-        #[arg(long, default_value = "http://127.0.0.1:1234/v1")]
-        lmstudio: String,
-        /// Grok Build's program (for example ~/.grok/bin/agent), added last in the fallback chain.
-        /// It's checked with `--version` first: Cursor's CLI is also called `agent`.
-        #[arg(long)]
-        grok: Option<String>,
-        /// Only report what was found; change nothing.
-        #[arg(long)]
-        dry_run: bool,
     },
     /// Remove a backend.
     Remove { name: String },
@@ -135,15 +117,9 @@ pub enum AiCommand {
 }
 
 fn hub(cli: &Cli) -> Result<AiHub, ToolError> {
-    hub_with(cli, true)
-}
-
-/// `persist_session` saves an OpenCode Go session id when one is missing. A dry run leaves the
-/// settings file alone, so that save is skipped.
-fn hub_with(cli: &Cli, persist_session: bool) -> Result<AiHub, ToolError> {
     let hub = AiHub::new(make_engine(cli.project.as_deref(), cli.deep_for_run())?);
     // Before any command runs, while no session lock is held (#1225).
-    if persist_session && let Err(e) = hub.ensure_session_id() {
+    if let Err(e) = hub.ensure_session_id() {
         log::warn!("couldn't save the OpenCode Go session id: {e}");
     }
     Ok(hub)
@@ -261,8 +237,7 @@ fn read_key(key_env: &Option<String>, key_stdin: bool) -> Result<Option<String>,
 /// Dispatch AI configuration, discovery and model-selection commands through the shared hub.
 /// Render results in the requested format and return an exit status for success or failure.
 pub fn ai(cli: &Cli, c: &AiCommand, f: Format) -> u8 {
-    let persist_session = !matches!(c, AiCommand::UseLocal { dry_run: true, .. });
-    let hub = match hub_with(cli, persist_session) {
+    let hub = match hub(cli) {
         Ok(h) => h,
         Err(e) => return fail(&e, f),
     };
@@ -322,7 +297,6 @@ pub fn ai(cli: &Cli, c: &AiCommand, f: Format) -> u8 {
                 Err(e) => fail(&e, f),
             }
         }
-        AiCommand::UseLocal { lemonade, lmstudio, grok, dry_run } => use_local(&hub, lemonade, lmstudio, grok.as_deref(), *dry_run, f),
         AiCommand::Remove { name } => match hub.remove_backend(name) {
             Ok(removed) => {
                 emit(&json!({"removed": removed, "name": name}), f);
@@ -550,57 +524,4 @@ pub fn doctor_checks() -> Vec<craft_anything_setup::Check> {
                 .fix(format!("Run `craft-anything-cli ai test {name}` for details.")),
         })
         .collect()
-}
-
-/// `ai use-local`: see [`AiCommand::UseLocal`].
-fn use_local(hub: &AiHub, lemonade: &str, lmstudio: &str, grok: Option<&str>, dry_run: bool, f: Format) -> u8 {
-    let mut found = Vec::new();
-    for (name, url) in [("Lemonade", lemonade), ("LM Studio", lmstudio)] {
-        if craft_anything_ai::detect::port_open(url, Duration::from_millis(700)) {
-            found.push((name, url));
-        } else {
-            eprintln!("note: {name} doesn't answer at {url}; skipped");
-        }
-    }
-    // Checked before anything is saved, including a dry run that would otherwise report success.
-    if let Some(program) = grok
-        && let Err(e) = craft_anything_ai::require_grok_program(program)
-    {
-        return fail(&e, f);
-    }
-    if dry_run {
-        emit(&json!({"found": found.iter().map(|(n, u)| json!({"name": n, "base_url": u})).collect::<Vec<_>>(), "grok": grok, "changed": false}), f);
-        return 0;
-    }
-    let mut servers = Vec::new();
-    for (name, url) in found {
-        match hub.add_server(name, url, None, None) {
-            Ok(_) => servers.push(name.to_string()),
-            Err(e) => eprintln!("note: {name} at {url} answered but couldn't be added: {}", e.message),
-        }
-    }
-    // Grok Build is only a fallback. With no local server it must not be saved on the way to the error.
-    if servers.is_empty() {
-        return fail(
-            &ToolError::new(ErrorCode::BadSettings, "No local AI server answered.")
-                .with_remediation("Start Lemonade (lemond) or LM Studio's server, then run this again."),
-            f,
-        );
-    }
-    let mut fallback = Vec::new();
-    if let Some(program) = grok {
-        let cfg = BackendConfig { name: "Grok Build".into(), kind: BackendKind::AgentCli, model: "grok".into(), base_url: None, ssh_host: None, enabled: true };
-        let options = BackendOptions { command: Some(program.to_string()), acp: Some(true), ..Default::default() };
-        if let Err(e) = hub.add_backend_with(BackendEntry { config: cfg, options }, None) {
-            return fail(&e, f);
-        }
-        fallback.push("Grok Build".to_string());
-    }
-    match hub.use_local(&servers, &fallback) {
-        Ok(cfg) => {
-            emit(&json!({"local_first": cfg.local_first, "roles": cfg.roles, "fallback_chain": cfg.fallback_chain}), f);
-            0
-        }
-        Err(e) => fail(&e, f),
-    }
 }
