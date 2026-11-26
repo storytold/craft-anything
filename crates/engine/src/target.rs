@@ -1,5 +1,3 @@
-// Modifications (c) 2026 SuperSfera LLC, MIT OR Apache-2.0.
-
 //! Targets: what we're looking at, loaded once, identified by content hash.
 
 use craft_anything_evidence::{ErrorCode, Subject, ToolError, sha256_hex};
@@ -7,33 +5,40 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-/// Upstream's fixed cap (2 GiB). No longer the default: each session applies its own
-/// `[limits] max_target_bytes`, and `CRAFT_ANYTHING_MAX_TARGET_BYTES` overrides that (slava/local).
-pub const LEGACY_MAX_TARGET_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+/// Default cap, and the cap when `[limits] max_target_bytes` is omitted or zero.
+/// A setting may raise or lower it. The result is the upper bound on every OS:
+/// it does not depend on available memory, and it is never unlimited.
+pub const MAX_TARGET_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
-/// The environment variable that overrides `[limits] max_target_bytes` (bytes, 0 = no cap).
-pub const TARGET_LIMIT_ENV: &str = "CRAFT_ANYTHING_MAX_TARGET_BYTES";
-
-/// Biggest file one session may open, in bytes (`u64::MAX` when `configured` is unset or 0).
-/// A whole number in `CRAFT_ANYTHING_MAX_TARGET_BYTES` wins. The limit belongs to the settings a
-/// session was given: there is no process-wide cap for another session to overwrite.
+/// The cap for one session, in bytes. `None` and `Some(0)` are [`MAX_TARGET_BYTES`].
+/// `Some(u64::MAX)` is the same: a setting cannot turn the cap off.
+/// The value belongs to the settings a session was given.
 pub fn effective_max_target_bytes(configured: Option<u64>) -> u64 {
-    limit_from(std::env::var(TARGET_LIMIT_ENV).ok().as_deref(), configured.unwrap_or(0))
+    match configured {
+        Some(n) if n > 0 && n < u64::MAX => n,
+        _ => MAX_TARGET_BYTES,
+    }
 }
 
-/// [`max_target_bytes`] from the environment value and the configured one: a whole number in the
-/// environment wins; 0 means no cap.
-fn limit_from(env: Option<&str>, configured: u64) -> u64 {
-    let n = env.and_then(|v| v.trim().replace('_', "").parse::<u64>().ok()).unwrap_or(configured);
-    if n == 0 { u64::MAX } else { n }
+/// Bytes a reader may take. A reported length of zero is not an empty file and not
+/// permission to ignore `limit`: a virtual file that keeps producing data still stops.
+/// `u64::MAX` is not a limit, so it is the default cap.
+pub(crate) fn read_cap(reported: u64, limit: u64) -> u64 {
+    let limit = if limit == u64::MAX { MAX_TARGET_BYTES } else { limit };
+    if reported == 0 { limit } else { reported.min(limit) }
 }
 
-/// Whether a file of `len` bytes may be opened as a target: under `limit` (`u64::MAX` = none) and
-/// within the `available` memory (`None` = unknown, not checked).
+/// Whether a file of `len` bytes may be opened as a target: under `limit`, on every OS,
+/// and within `available` memory when that figure is known. A reported length of zero
+/// has not been measured, so only the read cap bounds it. Unknown memory does not drop the cap.
 pub fn admit(path: &Path, len: u64, limit: u64, available: Option<u64>) -> Result<(), ToolError> {
+    let limit = if limit == u64::MAX { MAX_TARGET_BYTES } else { limit };
     if len > limit {
         return Err(ToolError::new(ErrorCode::OverLimit, format!("{} is {len} bytes; the limit is {limit}", path.display()))
-            .with_remediation(format!("Raise `max_target_bytes` under [limits] in config.toml (0 = no limit), or set {TARGET_LIMIT_ENV}.")));
+            .with_remediation("Raise `max_target_bytes` under [limits] in config.toml."));
+    }
+    if len == 0 {
+        return Ok(());
     }
     memory_fits(path, len, available)
 }
@@ -42,9 +47,9 @@ pub fn admit(path: &Path, len: u64, limit: u64, available: Option<u64>) -> Resul
 const MEMORY_MARGIN: u64 = 512 * 1024 * 1024;
 
 /// Loading a file of `len` bytes holds it twice for a moment (the read buffer, then the shared
-/// copy every tool reads). Refuse, with a clear error, when this computer doesn't have that much
-/// memory available, rather than letting the system kill the program. Only Linux reports
-/// available memory here; elsewhere the check passes.
+/// copy every tool reads). Refuse, with a clear error, when this computer reports that it
+/// doesn't have that much memory available. This is extra: the size cap applies on every OS,
+/// including where available memory cannot be read.
 pub fn check_memory_for(path: &Path, len: u64) -> Result<(), ToolError> {
     let available = std::fs::read_to_string("/proc/meminfo").ok().as_deref().and_then(mem_available);
     memory_fits(path, len, available)
@@ -81,12 +86,12 @@ pub fn read_admitted(path: &Path, limit: u64) -> Result<Vec<u8>, ToolError> {
 
 pub(crate) fn read_admitted_with(path: &Path, limit: u64, available: Option<u64>) -> Result<Vec<u8>, ToolError> {
     let (mut file, metadata) = craft_anything_platform::fs::open_regular_file(path)?;
-    // An uncapped limit (`u64::MAX`) is not admission: the file still has to fit in memory.
-    admit(path, metadata.len(), limit, available)?;
-    // A reported size of zero can still be a readable virtual file, so the read keeps `limit`.
-    // Any other file is read only up to the length just admitted on this descriptor.
-    let cap = if metadata.len() == 0 { limit } else { metadata.len() };
-    craft_anything_platform::fs::read_opened_capped(path, &mut file, metadata.len(), cap)
+    let reported = metadata.len();
+    admit(path, reported, limit, available)?;
+    // A reported size of zero can still be a readable virtual file. The cap stays finite either way,
+    // and a known size is read only up to the length just admitted on this descriptor.
+    let cap = read_cap(reported, limit);
+    craft_anything_platform::fs::read_opened_capped(path, &mut file, reported, cap)
 }
 
 /// `MemAvailable` from `/proc/meminfo`, in bytes.
@@ -352,7 +357,7 @@ pub struct RawSpec {
 }
 
 impl Target {
-    /// Load a file or directory with no configured cap (the environment variable still applies).
+    /// Load a file or directory with the default cap ([`MAX_TARGET_BYTES`]).
     pub fn load(path: &Path) -> Result<Target, ToolError> {
         Self::load_limited(path, effective_max_target_bytes(None))
     }
@@ -448,32 +453,54 @@ mod limit_tests {
     const GIB: u64 = 1024 * 1024 * 1024;
 
     #[test]
-    fn the_limit_comes_from_the_environment_then_the_config_and_zero_means_none() {
-        assert_eq!(limit_from(None, 0), u64::MAX, "no setting: no fixed limit");
-        assert_eq!(limit_from(None, 5 * GIB), 5 * GIB);
-        assert_eq!(limit_from(Some("3_221_225_472"), 5 * GIB), 3 * GIB, "the environment wins");
-        assert_eq!(limit_from(Some("0"), 5 * GIB), u64::MAX, "0 in the environment: no limit");
-        assert_eq!(limit_from(Some("lots"), 5 * GIB), 5 * GIB, "a non-number is ignored");
+    fn the_default_cap_holds_on_every_system_and_a_setting_can_move_it() {
+        assert_eq!(effective_max_target_bytes(None), MAX_TARGET_BYTES);
+        assert_eq!(effective_max_target_bytes(Some(0)), MAX_TARGET_BYTES);
+        assert_eq!(effective_max_target_bytes(Some(u64::MAX)), MAX_TARGET_BYTES);
+        assert!(effective_max_target_bytes(Some(8)) < MAX_TARGET_BYTES);
+        let raised = MAX_TARGET_BYTES + GIB;
+        assert!(effective_max_target_bytes(Some(raised)) > MAX_TARGET_BYTES);
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("disk.img");
+        let over = MAX_TARGET_BYTES + 1;
+        std::fs::File::create(&path).unwrap().set_len(over).unwrap();
+        let unset = admit(&path, over, effective_max_target_bytes(None), None).unwrap_err();
+        assert_eq!(unset.code, ErrorCode::OverLimit);
+        assert!(unset.remediation.as_deref().unwrap_or_default().contains("max_target_bytes"), "{unset:?}");
+        // Plenty of memory, and unknown memory, both still stop at the default cap.
+        assert_eq!(admit(&path, over, u64::MAX, Some(64 * GIB)).unwrap_err().code, ErrorCode::OverLimit);
+        assert_eq!(admit(&path, over, u64::MAX, None).unwrap_err().code, ErrorCode::OverLimit);
+        admit(&path, over, raised, None).expect("a raised setting is the bound when memory cannot be read");
+        admit(&path, over, raised, Some(64 * GIB)).expect("a raised setting admits the file when memory allows");
     }
 
     #[test]
-    fn a_sparse_file_over_2_gib_is_admitted_when_memory_allows() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("disk.qcow2");
-        let f = std::fs::File::create(&path).unwrap();
-        f.set_len(10_168_041_472).unwrap(); // the size of haos_ova-18.3.qcow2, sparse
-        let len = std::fs::metadata(&path).unwrap().len();
-        assert!(len > LEGACY_MAX_TARGET_BYTES);
-        admit(&path, len, u64::MAX, Some(64 * GIB)).expect("no fixed limit any more");
-        admit(&path, len, u64::MAX, None).expect("unknown memory is not checked");
-        let small = admit(&path, len, LEGACY_MAX_TARGET_BYTES, Some(64 * GIB)).unwrap_err();
-        assert_eq!(small.code, ErrorCode::OverLimit, "a limit set in config.toml still applies");
-        assert!(small.remediation.as_deref().unwrap_or_default().contains("max_target_bytes"), "{small:?}");
+    fn a_reported_length_of_zero_does_not_drop_the_cap() {
+        assert_eq!(read_cap(0, u64::MAX), MAX_TARGET_BYTES);
+        assert_eq!(read_cap(0, 0), 0, "an explicit empty budget stays empty");
+        assert_eq!(read_cap(0, 64), 64);
+        assert!(read_cap(100, 64) <= 64);
+        assert_eq!(read_cap(100, MAX_TARGET_BYTES), 100);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_virtual_file_that_reports_zero_bytes_stops_at_the_cap() {
+        let path = Path::new("/proc/self/status");
+        let meta = std::fs::metadata(path).expect("status");
+        assert_eq!(meta.len(), 0);
+        assert!(meta.is_file());
+        let err = read_admitted_with(path, 16, None).unwrap_err();
+        assert_eq!(err.code, ErrorCode::OverLimit);
+        let bytes = read_admitted_with(path, u64::MAX, None).unwrap();
+        assert!(bytes.len() > 16);
+        assert!((bytes.len() as u64) < MAX_TARGET_BYTES);
     }
 
     #[test]
     fn a_file_this_computer_cannot_hold_is_refused_with_a_clear_error_not_a_crash() {
-        let e = admit(Path::new("/x/disk.qcow2"), 10 * GIB, u64::MAX, Some(8 * GIB)).unwrap_err();
+        let e = admit(Path::new("/x/disk.qcow2"), 10 * GIB, 16 * GIB, Some(8 * GIB)).unwrap_err();
         assert_eq!(e.code, ErrorCode::OverLimit);
         assert!(e.message.contains("free memory"), "{}", e.message);
         assert!(e.remediation.as_deref().unwrap_or_default().contains("qemu-img"), "{e:?}");
@@ -493,30 +520,34 @@ mod limit_tests {
         let capped = Settings { limits: LimitSettings { max_target_bytes: Some(8) }, ..Settings::default() };
         let open = Session::new(Settings::default());
         let tight = Session::new(capped);
-        assert_eq!(open.max_target_bytes(), effective_max_target_bytes(None));
-        assert_eq!(tight.max_target_bytes(), effective_max_target_bytes(Some(8)));
-        // Building the uncapped session does not loosen the capped one.
-        assert_eq!(tight.max_target_bytes(), effective_max_target_bytes(Some(8)));
+        assert_eq!(open.max_target_bytes(), MAX_TARGET_BYTES);
+        assert_eq!(tight.max_target_bytes(), 8);
+        // Building the default session does not loosen the capped one.
+        assert_eq!(tight.max_target_bytes(), 8);
 
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("f.bin");
         std::fs::write(&path, b"0123456789").unwrap();
         assert_eq!(Target::load_limited(&path, 8).unwrap_err().code, ErrorCode::OverLimit);
-        assert_eq!(Target::load_limited(&path, u64::MAX).unwrap().bytes.len(), 10);
+        assert_eq!(Target::load_limited(&path, 1024).unwrap().bytes.len(), 10);
     }
 
     #[test]
-    fn an_uncapped_explicit_read_is_still_refused_when_memory_cannot_hold_it() {
+    fn a_raised_limit_still_refuses_a_file_memory_cannot_hold() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("big.bin");
         // Logical size only: admission must fail before the file is read into memory.
         std::fs::File::create(&path).unwrap().set_len(3 * GIB).unwrap();
-        let err = read_admitted_with(&path, u64::MAX, Some(4 * GIB)).unwrap_err();
+        let err = read_admitted_with(&path, 8 * GIB, Some(4 * GIB)).unwrap_err();
         assert_eq!(err.code, ErrorCode::OverLimit);
         assert!(err.message.contains("free memory"), "{}", err.message);
+        let by_cap = read_admitted_with(&path, MAX_TARGET_BYTES, Some(64 * GIB)).unwrap_err();
+        assert_eq!(by_cap.code, ErrorCode::OverLimit);
+        assert!(!by_cap.message.contains("free memory"), "{}", by_cap.message);
+        assert_eq!(read_admitted_with(&path, u64::MAX, None).unwrap_err().code, ErrorCode::OverLimit);
         let small = dir.path().join("small.bin");
         std::fs::write(&small, b"ok").unwrap();
-        assert_eq!(read_admitted_with(&small, u64::MAX, Some(4 * GIB)).unwrap(), b"ok");
+        assert_eq!(read_admitted_with(&small, MAX_TARGET_BYTES, Some(4 * GIB)).unwrap(), b"ok");
     }
 
     #[test]
@@ -526,18 +557,5 @@ mod limit_tests {
         let bytes: Vec<u8> = (0..3_000_000u32).map(|i| (i % 251) as u8).collect();
         std::fs::write(&path, &bytes).unwrap();
         assert_eq!(sha256_file(&path).unwrap(), sha256_hex(&bytes));
-    }
-
-    /// Opens a real 3 GiB sparse file end to end (needs ~7 GiB free memory and a few seconds):
-    /// `cargo test -p craft-anything-engine --release -- --ignored a_3_gib_target`.
-    #[test]
-    #[ignore = "reads 3 GiB"]
-    fn a_3_gib_target_opens() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("big.img");
-        std::fs::File::create(&path).unwrap().set_len(3 * GIB).unwrap();
-        let t = Target::load(&path).expect("a 3 GiB file opens");
-        assert_eq!(t.bytes.len() as u64, 3 * GIB);
-        t.check_unchanged().expect("hashed in pieces");
     }
 }

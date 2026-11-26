@@ -1,5 +1,3 @@
-// Modifications (c) 2026 SuperSfera LLC, MIT OR Apache-2.0.
-
 //! The session: open targets, the evidence ledger, unknowns, annotations and caches.
 
 use crate::project::Project;
@@ -105,7 +103,7 @@ impl Session {
         Session { settings, ..Default::default() }
     }
 
-    /// The size cap for files this session opens (`u64::MAX` when this session sets no fixed cap).
+    /// The size cap for files this session opens. An omitted setting is 2 GiB.
     /// Another session's settings do not change it.
     pub fn max_target_bytes(&self) -> u64 {
         crate::target::effective_max_target_bytes(self.settings.limits.max_target_bytes)

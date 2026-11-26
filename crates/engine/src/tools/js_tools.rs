@@ -1,5 +1,3 @@
-// Modifications (c) 2026 SuperSfera LLC, MIT OR Apache-2.0.
-
 //! JavaScript applications: static analysis of Electron apps (ASAR or unpacked), web bundles and
 //! Node packages into an application graph, and reconciling that graph with runtime captures.
 

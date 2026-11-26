@@ -1,5 +1,3 @@
-// Modifications (c) 2026 SuperSfera LLC, MIT OR Apache-2.0.
-
 //! Artifacts: content-addressed inventories of archives and app bundles, safe extraction, and
 //! comparison. Also hosts the filesystem and evidence-input helpers the JavaScript, web and
 //! application tool modules share.

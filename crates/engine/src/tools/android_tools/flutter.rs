@@ -1,5 +1,3 @@
-// Modifications (c) 2026 SuperSfera LLC, MIT OR Apache-2.0.
-
 //! Flutter builds: which Flutter libraries an APK ships per ABI, the Dart snapshot version hash,
 //! stated Dart versions and toolchains (`android_flutter_identify`), and a look inside a Dart AOT
 //! library: snapshot symbols and headers plus the app's package URIs and identifier tokens

@@ -1,5 +1,3 @@
-// Modifications (c) 2026 SuperSfera LLC, MIT OR Apache-2.0.
-
 //! File safety: bounded regular-file reads and atomic writes (temp file, fsync, rename),
 //! optionally private (0600 on Unix).
 
@@ -41,7 +39,7 @@ pub fn read_file_capped(path: &Path, max: u64) -> Result<Vec<u8>, ToolError> {
 }
 
 /// Read `file`, already opened, enforcing `max`. `len` is that descriptor's size: admission and
-/// the read share it, so the path is not opened again.
+/// the read share it, so the path is not opened again. A reported length of zero still stops at `max`.
 pub fn read_opened_capped(path: &Path, file: &mut std::fs::File, len: u64, max: u64) -> Result<Vec<u8>, ToolError> {
     if len > max {
         return Err(ToolError::new(ErrorCode::OverLimit, format!("{} is {len} bytes; the limit is {max}", path.display()))
@@ -252,6 +250,19 @@ mod tests {
             assert_eq!(temporary, dir.path().join(format!(".craft-anything.tmp-{}-{}", std::process::id(), next_counter - 1)));
             assert_eq!(file.metadata().unwrap().len(), 0);
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_zero_length_report_still_stops_at_the_cap() {
+        let path = Path::new("/proc/self/status");
+        let (mut file, metadata) = open_regular_file(path).unwrap();
+        assert_eq!(metadata.len(), 0);
+        let err = read_opened_capped(path, &mut file, 0, 32).unwrap_err();
+        assert_eq!(err.code, ErrorCode::OverLimit);
+        let (mut file, _) = open_regular_file(path).unwrap();
+        let bytes = read_opened_capped(path, &mut file, 0, 1024 * 1024).unwrap();
+        assert!(bytes.len() > 32);
     }
 
     #[test]

@@ -1,5 +1,3 @@
-// Modifications (c) 2026 SuperSfera LLC, MIT OR Apache-2.0.
-
 //! User settings (`config.toml`). No environment variables are required for anything.
 
 use crate::versioned::{Step, upgrade};
@@ -142,7 +140,7 @@ pub struct Settings {
     /// saved, so code that rebuilds settings from their saved form carries it over.
     #[serde(skip)]
     pub not_loaded: Option<String>,
-    /// Size limits on what is opened (`[limits]`, slava/local).
+    /// Size limits on what is opened (`[limits]`).
     pub limits: LimitSettings,
 }
 
@@ -151,9 +149,10 @@ pub struct Settings {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct LimitSettings {
-    /// Biggest file opened as a target, in bytes. Unset or 0: no fixed limit; a file is still
-    /// refused when this computer hasn't the free memory to hold it ([`crate::target::check_memory_for`]).
-    /// Upstream's fixed limit was 2 GiB. `CRAFT_ANYTHING_MAX_TARGET_BYTES` overrides it.
+    /// Biggest file opened as a target, in bytes. Omitted or 0: 2 GiB. A positive value
+    /// lowers or raises that cap, and every OS enforces it. There is no unlimited setting.
+    /// A file can also be refused when available memory is known and too small
+    /// ([`crate::target::check_memory_for`]).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_target_bytes: Option<u64>,
 }
