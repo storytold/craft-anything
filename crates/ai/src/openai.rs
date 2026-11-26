@@ -95,6 +95,12 @@ const MIN_AFFORDABLE_ANSWER: u64 = 4096;
 /// 401 "Missing Authentication header", so say which key it takes (#1506).
 const OPENROUTER_KEY_HELP: &str = "OpenRouter takes its own key, which starts with sk-or- (make one at openrouter.ai/keys). A key from the model's maker, such as Kimi's own site, doesn't work here. Replace it in Settings → AI.";
 
+#[derive(Default)]
+pub(crate) struct ModelCatalog {
+    pub(crate) ids: Vec<String>,
+    pub(crate) rapid_mlx: bool,
+}
+
 impl OpenAi {
     pub fn official(base: Option<&str>, key: String, model: &str) -> Self {
         Self::compatible("OpenAI", base.unwrap_or(OPENAI_BASE), Some(key), if model.is_empty() { OPENAI_DEFAULT_MODEL } else { model })
@@ -268,6 +274,10 @@ impl OpenAi {
     /// its answer (`wait`): a server still starting or loading a model is reached at once but may
     /// take a while to answer, and an address nothing listens at shouldn't hold the person as long.
     pub fn list_models_within(&self, connect: std::time::Duration, wait: std::time::Duration) -> Result<Vec<String>, ToolError> {
+        self.model_catalog(connect, wait).map(|catalog| catalog.ids)
+    }
+
+    pub(crate) fn model_catalog(&self, connect: std::time::Duration, wait: std::time::Duration) -> Result<ModelCatalog, ToolError> {
         let agent = http::agent(connect, wait, wait);
         let v = http::get_json(&agent, &self.label, &self.url("models"), &self.headers()).map_err(|e| self.explain_key(e))?;
         let arr = v.get("data").or_else(|| v.get("models")).and_then(Value::as_array).cloned().unwrap_or_default();
@@ -275,7 +285,7 @@ impl OpenAi {
         // would fail on a chat-completions client, so skip it when the entry says which APIs it
         // serves (a null "api" says nothing). A catalogue that names the API as text ("chat") lists chat models. Empty and
         // repeated ids are dropped too, and so are ids with control characters.
-        let mut out: Vec<String> = Vec::new();
+        let mut catalog = ModelCatalog::default();
         for m in arr {
             if m.get("api")
                 .filter(|a| !a.is_null())
@@ -284,11 +294,12 @@ impl OpenAi {
                 continue;
             }
             let Some(id) = m.get("id").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty() && !s.chars().any(char::is_control)) else { continue };
-            if !out.iter().any(|seen| seen == id) {
-                out.push(id.to_string());
+            catalog.rapid_mlx |= m.get("owned_by").and_then(Value::as_str) == Some("rapid-mlx");
+            if !catalog.ids.iter().any(|seen| seen == id) {
+                catalog.ids.push(id.to_string());
             }
         }
-        Ok(out)
+        Ok(catalog)
     }
 
     fn stream_once(&self, req: &TurnRequest<'_>, on_delta: &mut dyn FnMut(Delta), stop: &Stop) -> Result<TurnResult, ToolError> {
@@ -493,9 +504,8 @@ impl ChatStream {
             let msg = err.get("message").and_then(Value::as_str).unwrap_or("unknown error");
             let provider = err.get("code").and_then(Value::as_str).or_else(|| err.get("type").and_then(Value::as_str));
             let status = err.get("code").and_then(Value::as_u64);
-            return Err(
-                ToolError::new(ErrorCode::ProgramFailed, format!("Stream error: {msg}")).with_details(json!({"provider_error": provider, "status": status}))
-            );
+            return Err(ToolError::new(ErrorCode::ProgramFailed, format!("Stream error: {msg}"))
+                .with_details(json!({"provider_error": provider, "status": status, "request_too_large": http::request_too_large(msg)})));
         }
         if let Some(m) = v.get("model").and_then(Value::as_str) {
             self.model = m.to_string();

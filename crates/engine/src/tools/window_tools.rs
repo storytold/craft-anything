@@ -21,6 +21,8 @@ const MAX_INLINE: usize = 8 * 1024 * 1024;
 const LATE_WINDOW: Duration = Duration::from_secs(10);
 /// Pause between those looks.
 const LOOK_AGAIN: Duration = Duration::from_millis(250);
+/// How long the program gets to quit when asked before it's killed.
+const CLOSE_GRACE: Duration = Duration::from_secs(3);
 /// Most UI elements saved to `ui_tree`.
 const UI_TREE_NODES: usize = 1000;
 
@@ -131,8 +133,12 @@ fn native_window_capture(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput,
     // Read while it still runs; a tree that can't be read is only left out.
     let tree = shot.as_ref().ok().and_then(|(pid, _)| p.ui_tree.as_ref().map(|_| super::apple_runtime::ui_tree(ctx, *pid, UI_TREE_NODES)));
     // Always closed again, picture or not, and confirmed before we return (a caller such as the
-    // CLI may exit right after, before a background kill would happen).
-    if !running.kill_and_wait(Duration::from_secs(10)) {
+    // CLI may exit right after, before a background kill would happen). Asked first, so it can
+    // stop helpers that aren't in its process group and let go of its files. The window's owner
+    // is asked: a launcher's child found among its descendants, or the program itself (never a
+    // same-named program found outside them, which isn't ours).
+    let owner = shot.as_ref().ok().map(|(pid, _)| *pid);
+    if !running.close_and_wait(owner, CLOSE_GRACE, Duration::from_secs(10)) {
         log::warn!("{} may still be running", p.program.display());
     }
     let (_, shot) = shot?;

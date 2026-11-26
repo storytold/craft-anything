@@ -76,6 +76,8 @@ const SSH_FAILURES: &[(&str, &str, &str)] = &[
 const SSH_FAILED: i32 = 255;
 /// A POSIX shell's exit code for "command not found".
 const NOT_FOUND: i32 = 127;
+/// A POSIX shell's exit code for a file it found but couldn't execute (or a program's own 126).
+const NOT_EXECUTABLE: i32 = 126;
 
 /// Why running `program` on `host` failed, when the failure says. A git server comes first because
 /// it fails in many ways.
@@ -93,6 +95,18 @@ pub fn diagnose(host: &str, program: &str, git_server: bool, code: Option<i32>, 
                 "Install it there. If it's already installed, ssh sessions may not load your shell's PATH: set the full path in Settings → AI, or add it to the PATH in your shell's startup file on {host}."
             ),
         }),
+        Some(NOT_EXECUTABLE) => {
+            let text = stderr.to_ascii_lowercase();
+            let launch_failed = ["permission denied", "cannot execute", "not executable", "is a directory", "text file busy", "exec format error"]
+                .iter()
+                .any(|needle| text.contains(needle));
+            launch_failed.then(|| SshFailure {
+                what: format!("{program} was found on {host} but couldn't be run"),
+                fix: format!(
+                    "Check that {program} is executable there (not a folder or a broken script), or set the full path of a working program in Settings → AI."
+                ),
+            })
+        }
         Some(SSH_FAILED) => {
             let text = stderr.to_ascii_lowercase();
             let (_, what, fix) = SSH_FAILURES.iter().find(|(needle, _, _)| text.contains(needle))?;
@@ -309,7 +323,13 @@ mod tests {
         assert!(refused.what.contains("wouldn't start the program"));
         assert!(diagnose("gpu", "claude", false, Some(255), "me@gpu: Permission denied (publickey).").unwrap().fix.contains("ssh key"));
         assert!(diagnose("gpu", "claude", false, Some(127), "sh: claude: command not found").unwrap().what.contains("wasn't found on gpu"));
-        // The remote program's own failure, or ssh's unknown one, isn't guessed at.
+        let not_executable = diagnose("gpu", "/opt/claude", false, Some(126), "/opt/claude: Permission denied").unwrap();
+        assert!(not_executable.what.contains("couldn't be run"), "{}", not_executable.what);
+        assert!(not_executable.fix.contains("executable"));
+        let wrong_format = diagnose("gpu", "/opt/claude", false, Some(126), "/bin/sh: 1: /opt/claude: Exec format error").unwrap();
+        assert!(wrong_format.what.contains("couldn't be run"), "{}", wrong_format.what);
+        // The remote program's own 126 failure, or ssh's unknown one, isn't guessed at.
+        assert!(diagnose("gpu", "claude", false, Some(126), "claude: bad option").is_none());
         assert!(diagnose("gpu", "claude", false, Some(1), "Permission denied").is_none());
         assert!(diagnose("gpu", "claude", false, Some(255), "something new").is_none());
         assert_eq!(check_command("gpu", "claude"), "ssh -o BatchMode=yes -T gpu -- claude --version");

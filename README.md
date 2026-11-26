@@ -279,7 +279,6 @@ On GitHub, the [latest release](https://github.com/storytold/craft-anything/rele
 |---|---|---|
 | x64 (64-bit Intel/AMD) | `craft-anything-<ver>-windows-x64.msi` | `craft-anything-<ver>-windows-x64-portable.zip` |
 | arm64 (Snapdragon and other ARM PCs) | `craft-anything-<ver>-windows-arm64.msi` | `craft-anything-<ver>-windows-arm64-portable.zip` |
-| x86 (32-bit) | `craft-anything-<ver>-windows-x86.msi` | `craft-anything-<ver>-windows-x86-portable.zip` |
 
 Installers and executables are code-signed. The portable zip keeps its settings next to the app.
 
@@ -345,7 +344,7 @@ run the file; report it with the output and the release tag.
 | Fedora/RHEL/openSUSE | `craft-anything-<ver>-linux-x86_64.rpm` | `craft-anything-<ver>-linux-aarch64.rpm` | |
 | Tarball | `craft-anything-<ver>-linux-x86_64.tar.gz` | `craft-anything-<ver>-linux-aarch64.tar.gz` | Unpack anywhere |
 
-RISC-V (riscv64): `craft-anything-<ver>-linux-riscv64.tar.gz`, a tarball only.
+RISC-V (riscv64) builds are available as `craft-anything-<ver>-linux-riscv64.tar.gz`, `craft-anything-<ver>-linux-riscv64.deb`, and `craft-anything-<ver>-linux-riscv64.rpm`.
 
 The AppImage carries the CLI too: run `<AppImage> --cli <command>` (for example
 `<AppImage> --cli mcp` for an MCP client), or make a link to the AppImage named
@@ -356,6 +355,7 @@ The AppImage carries the CLI too: run `<AppImage> --cli <command>` (for example
 | Build | File |
 |---|---|
 | x86_64 | `craft-anything-<ver>-freebsd-x86_64.tar.gz` |
+| aarch64 (ARM64) | `craft-anything-<ver>-freebsd-aarch64.tar.gz` |
 
 ### Web (WebAssembly)
 

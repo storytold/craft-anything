@@ -95,12 +95,17 @@ pub fn status_error(what: &str, status: u16, body: &str) -> ToolError {
     // request is among them, a Qwen 3.8 model refuses what's left with this, and no retry fits (#1245).
     let lower = full.as_deref().unwrap_or(body).to_ascii_lowercase();
     let dropped_request = overflow.is_none() && lower.contains("no user query found in messages");
+    let too_large = status == 413 || request_too_large(&lower);
     let detail: String = full.unwrap_or_else(|| body.chars().take(300).collect()).chars().take(1000).collect();
     let (code, remediation) = match status {
         _ if dropped_request => (ErrorCode::BadSettings, ""),
         401 | 403 => (ErrorCode::NoPermission, "The API key was rejected. Check it in Settings → AI."),
         404 => (ErrorCode::BadSettings, "The model or address wasn't found. Check the model name and base URL."),
         408 | 504 => (ErrorCode::TimedOut, "The service took too long. Try again."),
+        413 | 429 if too_large => (
+            ErrorCode::OverLimit,
+            "The request is larger than this service accepts, so waiting doesn't help. Use a plan with a higher limit or another model, or set a lower context_tokens for this AI in Settings → AI.",
+        ),
         429 => (ErrorCode::OverLimit, "You've hit a rate or spending limit. Wait a moment or check your plan."),
         500..=599 => (ErrorCode::EngineMissing, "The service is having trouble. Try again soon, or use another backend."),
         _ => (ErrorCode::BadInput, "The request was rejected; see the message."),
@@ -124,8 +129,15 @@ pub fn status_error(what: &str, status: u16, body: &str) -> ToolError {
         "context_window": overflow.map(|o| o.0),
         "prompt_tokens": overflow.and_then(|o| o.1),
         "context_overflow": overflow.is_some() || dropped_request,
+        "request_too_large": too_large,
         "affordable_tokens": if status == 402 { affordable_tokens(&lower) } else { None },
     }))
+}
+
+/// Whether a service says one request is larger than its per-minute token limit. OpenAI answers that
+/// with the status and code of a rate limit, and Groq with its code, but it never fits (#2379).
+pub(crate) fn request_too_large(message: &str) -> bool {
+    message.to_ascii_lowercase().contains("request too large")
 }
 
 /// The answer length OpenRouter says a key can still pay for: "You requested up to 131072 tokens,

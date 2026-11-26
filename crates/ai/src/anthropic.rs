@@ -114,6 +114,7 @@ impl Anthropic {
         {
             m.insert("fallbacks".into(), json!("default"));
         }
+        mark_conversation_for_cache(&mut body);
         body
     }
 
@@ -125,6 +126,29 @@ impl Anthropic {
             .and_then(Value::as_array)
             .map(|a| a.iter().filter_map(|m| m.get("id").and_then(Value::as_str).map(str::to_string)).collect())
             .unwrap_or_default())
+    }
+}
+
+/// Put a cache breakpoint on the conversation's last block, so the next step of a tool loop reads
+/// everything up to here from the cache instead of paying for all of it again. With the tools' and
+/// the system prompt's, that's three of the four breakpoints a request may have. A thinking block
+/// can't carry one, and an empty text block can't be cached, so the last other block takes it.
+fn mark_conversation_for_cache(body: &mut Value) {
+    let cacheable = |b: &Value| match b.get("type").and_then(Value::as_str) {
+        Some("thinking" | "redacted_thinking") => false,
+        Some("text") => b.get("text").and_then(Value::as_str).is_some_and(|t| !t.is_empty()),
+        _ => true,
+    };
+    if let Some(block) = body
+        .get_mut("messages")
+        .and_then(Value::as_array_mut)
+        .and_then(|m| m.last_mut())
+        .and_then(|m| m.get_mut("content"))
+        .and_then(Value::as_array_mut)
+        .and_then(|c| c.iter_mut().rev().find(|b| cacheable(b)))
+        .and_then(Value::as_object_mut)
+    {
+        block.insert("cache_control".into(), json!({"type": "ephemeral"}));
     }
 }
 
@@ -403,6 +427,43 @@ mod tests {
         assert!(without.get("fallbacks").is_none());
         assert_eq!(without["thinking"]["block_binding"]["prefix_mismatch_behavior"], "drop_block");
         assert_eq!(betas(&off), THINKING_BINDING_BETA, "block_binding is refused without its beta header");
+    }
+
+    /// Each step of a tool loop sends the whole conversation again. A cache breakpoint on its last
+    /// block lets the next step read everything before it from the cache instead of paying for it.
+    #[test]
+    fn the_conversation_so_far_is_marked_for_the_cache() {
+        let a = Anthropic::new(None, "k".into(), "");
+        let tools = vec![ToolDef { name: "a".into(), description: "d".into(), schema: json!({"type": "object"}) }];
+        let body = |msgs: &[Msg]| a.body(&TurnRequest { system: "s", messages: msgs, tools: &tools, effort: Effort::High, max_tokens: 10 });
+        let marked = |b: &Value| -> Vec<String> {
+            let mut at = Vec::new();
+            for (i, m) in b["messages"].as_array().into_iter().flatten().enumerate() {
+                for (j, block) in m["content"].as_array().into_iter().flatten().enumerate() {
+                    if block.get("cache_control").is_some() {
+                        at.push(format!("{i}/{j}"));
+                    }
+                }
+            }
+            at
+        };
+        let thinking = || Block::Thinking { thinking: "plan".into(), signature: "SIG".into() };
+        let call = Msg { role: Speaker::Assistant, blocks: vec![thinking(), Block::ToolUse { id: "t1".into(), name: "a".into(), input: json!({}) }] };
+        let results = Msg {
+            role: Speaker::User,
+            blocks: vec![Block::ToolResult { tool_use_id: "t1".into(), content: "one".into(), is_error: false }, Block::Text { text: "and then".into() }],
+        };
+        let steps = vec![Msg::user_text("hi"), call, results];
+        let b = body(&steps);
+        assert_eq!(marked(&b), ["2/1"], "only the last block of the last message");
+        assert_eq!(b["messages"][2]["content"][1]["cache_control"]["type"], "ephemeral");
+        assert!(b["system"][0].get("cache_control").is_some() && b["tools"][0].get("cache_control").is_some());
+
+        // A thinking block can't carry a breakpoint: the one before it does.
+        let ends_thinking = vec![Msg::user_text("hi"), Msg { role: Speaker::Assistant, blocks: vec![Block::Text { text: "so".into() }, thinking()] }];
+        assert_eq!(marked(&body(&ends_thinking)), ["1/0"]);
+        // A request with no messages (the pace probe) is sent as before.
+        assert!(marked(&body(&[])).is_empty());
     }
 
     /// Every level goes to a model that has it; one that lacks it gets the nearest level below.

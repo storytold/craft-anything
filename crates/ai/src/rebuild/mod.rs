@@ -618,6 +618,15 @@ const USAGE_FLUSH: Duration = Duration::from_secs(60);
 /// How long a turn that ends early waits for the session to show what its finished tools wrote.
 const LEAVING_REFRESH_WAIT: Duration = Duration::from_secs(2);
 
+/// How often one turn is tried again at a rate limit before the build stops (#2379). Each try of a
+/// coding agent can cost tokens, so it ends even when the service never says the limit can't lift.
+const RATE_LIMIT_TRIES: u64 = 15;
+/// Tries at a rate limit that wait only as long as the service asks; later ones wait at least as
+/// long as without its advice, so a service asking for a second doesn't use the tries up at once.
+const RATE_LIMIT_ADVISED: u64 = 3;
+/// The longest wait, in seconds, between tries at a rate limit unless the service asks for more.
+const RATE_LIMIT_WAIT: u64 = 5 * 60;
+
 /// Record `e` in the feed, send it and wake the window, under one lock.
 fn emit_event(feed: &Mutex<feed::FeedLog>, tx: &Sender<RunEvent>, wake: &Wake, e: RunEvent) {
     let mut feed = feed.lock().unwrap_or_else(PoisonError::into_inner);
@@ -1122,6 +1131,9 @@ impl Worker {
             let checking = if ws.manifest.target == TargetRef::None { "Checking the build…" } else { "Checking the build against the original…" };
             self.step(ws, Step::Check, Status::Checking, checking)?;
             let checks = self.checks_with_a_retry(ws, kind, round)?;
+            // A pause the last check didn't notice, or took for a failure: the round doesn't count,
+            // and the build still awaits its check (#2430).
+            self.stop.check()?;
             ws.manifest.checks.extend(checks.iter().cloned());
             ws.manifest.awaiting_check = false;
             // A round in which every check works (built and served) ends the streak; any other
@@ -1352,7 +1364,7 @@ impl Worker {
         mut wait_for: impl FnMut(&CancelToken, u64) -> Result<(), ToolError>,
     ) -> Result<String, ToolError> {
         let mut prompt = prompt.to_string();
-        let mut tries = 0u64;
+        let (mut tries, mut limited) = (0u64, 0u64);
         let mut retry = false;
         // Kept across retries and the fresh start: whichever conversation is lost, every note
         // taken in this turn so far is one the feed already shows as delivered.
@@ -1383,21 +1395,48 @@ impl Worker {
                 // A missing session can only start fresh above, never resume. Only backend
                 // Error events become ProgramFailed here; a simultaneous backend failure must
                 // not make an inbox or workspace write failure retryable.
-                Err(e) if !lost && e.code == ErrorCode::ProgramFailed && tries < 3 && agent.last_failure().is_some_and(crate::TurnFailure::retryable) => {
-                    tries += 1;
+                // A rate limit usually lifts by itself, so it gets more tries than other retryable
+                // failures' three (#2379).
+                Err(e)
+                    if !lost
+                        && e.code == ErrorCode::ProgramFailed
+                        && let Some(failure) = agent.last_failure().filter(|f| f.retryable())
+                        && (tries < 3 || failure.kind == crate::FailureKind::RateLimited) =>
+                {
+                    let rate_limited = failure.kind == crate::FailureKind::RateLimited;
+                    if rate_limited && limited >= RATE_LIMIT_TRIES {
+                        let m = format!("The AI's rate limit hadn't lifted after {RATE_LIMIT_TRIES} more tries, so the build stopped. {}", e.message);
+                        return Err(ToolError::new(e.code, m)
+                            .with_remediation("Check the limits of this AI's account or plan, or choose another AI, then press Try again."));
+                    }
+                    let count = if rate_limited { &mut limited } else { &mut tries };
+                    *count += 1;
+                    let n = *count;
                     let why = e.message.chars().take(160).collect::<String>();
                     // Typed status decides whether to retry. A display-only wait remains a
                     // compatibility hint, and never overrides a structured provider delay.
-                    let delay = agent.last_failure().and_then(|f| f.retry_after_secs).or_else(|| crate::failure::retry_after(&e.message));
+                    let delay = failure.retry_after_secs.or_else(|| crate::failure::retry_after(&e.message));
                     let seconds = match delay {
+                        _ if rate_limited => {
+                            let own = (30 * n).min(RATE_LIMIT_WAIT);
+                            let secs = match delay.map(|secs| secs.saturating_add(1).min(crate::failure::MAX_RETRY_WAIT)) {
+                                Some(asked) if n <= RATE_LIMIT_ADVISED => asked,
+                                asked => asked.unwrap_or(0).max(own),
+                            };
+                            let note = format!(
+                                "The AI's rate limit was reached. Trying again in {secs} s (try {n} of {RATE_LIMIT_TRIES}; the build stops if the limit hasn't lifted by the last one). It said: {why}"
+                            );
+                            self.step(ws, Step::Build, Status::Building, &note)?;
+                            secs
+                        }
                         Some(secs) => {
-                            let note = format!("The AI service is busy or its rate limit was reached, and asked to wait {secs} s. Trying again then…");
+                            let note = format!("The AI service is busy, and asked to wait {secs} s. Trying again then…");
                             self.step(ws, Step::Build, Status::Building, &note)?;
                             secs.saturating_add(1).min(crate::failure::MAX_RETRY_WAIT)
                         }
                         None => {
                             self.step(ws, Step::Build, Status::Building, &format!("The builder stopped ({why}). Picking up where it left off…"))?;
-                            30 * tries
+                            30 * n
                         }
                     };
                     wait_for(&self.stop, seconds)?;

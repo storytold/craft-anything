@@ -20,10 +20,9 @@
 
 use crate::common::FormatError;
 use crate::pixels::Layout;
+use crate::unreal_pak::Cur;
 use serde::Serialize;
 
-/// Longest string accepted.
-const MAX_STRING: usize = 4096;
 /// Package flag: properties are written without names.
 const UNVERSIONED_PROPERTIES: u32 = 0x2000;
 /// Package flag: editor-only data was left out (every cooked package).
@@ -86,60 +85,6 @@ pub struct Texture {
     pub mips: Vec<Mip>,
 }
 
-/// A bounds-checked little-endian cursor.
-pub(crate) struct Cur<'a> {
-    pub(crate) data: &'a [u8],
-    pub(crate) pos: usize,
-}
-
-impl<'a> Cur<'a> {
-    pub(crate) fn take(&mut self, n: usize, what: &str) -> Result<&'a [u8], FormatError> {
-        let end = self.pos.checked_add(n).filter(|e| *e <= self.data.len()).ok_or_else(|| FormatError::Truncated(what.to_string()))?;
-        let s = self.data.get(self.pos..end).ok_or_else(|| FormatError::Truncated(what.to_string()))?;
-        self.pos = end;
-        Ok(s)
-    }
-    fn arr<const N: usize>(&mut self, what: &str) -> Result<[u8; N], FormatError> {
-        let mut a = [0; N];
-        a.copy_from_slice(self.take(N, what)?);
-        Ok(a)
-    }
-    fn u8(&mut self, what: &str) -> Result<u8, FormatError> {
-        Ok(self.arr::<1>(what)?[0])
-    }
-    pub(crate) fn i32(&mut self, what: &str) -> Result<i32, FormatError> {
-        Ok(i32::from_le_bytes(self.arr(what)?))
-    }
-    fn u32(&mut self, what: &str) -> Result<u32, FormatError> {
-        Ok(u32::from_le_bytes(self.arr(what)?))
-    }
-    fn i64(&mut self, what: &str) -> Result<i64, FormatError> {
-        Ok(i64::from_le_bytes(self.arr(what)?))
-    }
-    /// A non-negative count that fits what's left (`min_each` bytes each).
-    fn count(&mut self, what: &str, min_each: usize) -> Result<usize, FormatError> {
-        let n = usize::try_from(self.i32(what)?).map_err(|_| FormatError::Malformed(format!("negative {what}")))?;
-        if n.saturating_mul(min_each.max(1)) > self.data.len().saturating_sub(self.pos) {
-            return Err(FormatError::Malformed(format!("{what} {n} doesn't fit")));
-        }
-        Ok(n)
-    }
-    /// An `FString`: a signed length with its terminating NUL; negative means UTF-16.
-    fn string(&mut self, what: &str) -> Result<String, FormatError> {
-        let n = self.i32(what)?;
-        let chars = n.unsigned_abs() as usize;
-        if chars > MAX_STRING {
-            return Err(FormatError::Malformed(format!("{what} is {chars} characters long")));
-        }
-        let s = if n >= 0 {
-            String::from_utf8_lossy(self.take(chars, what)?).into_owned()
-        } else {
-            String::from_utf16_lossy(&self.take(chars * 2, what)?.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect::<Vec<_>>())
-        };
-        Ok(s.trim_end_matches('\0').to_string())
-    }
-}
-
 /// A name-table entry by index (the name's number is ignored).
 pub(crate) fn name<'n>(names: &'n [String], c: &mut Cur, what: &str) -> Result<&'n str, FormatError> {
     let i = c.i32(what)?;
@@ -149,7 +94,7 @@ pub(crate) fn name<'n>(names: &'n [String], c: &mut Cur, what: &str) -> Result<&
 
 /// Read a cooked package's `.uasset`.
 pub fn package(uasset: &[u8]) -> Result<Package, FormatError> {
-    let mut c = Cur { data: uasset, pos: 0 };
+    let mut c = Cur::new(uasset);
     if c.u32("tag")? != 0x9E2A_83C1 {
         return Err(FormatError::Malformed("not an Unreal package".into()));
     }
@@ -181,20 +126,20 @@ pub fn package(uasset: &[u8]) -> Result<Package, FormatError> {
         usize::try_from(offset).ok().filter(|o| *o <= uasset.len()).ok_or_else(|| FormatError::Malformed(format!("{what} offset {offset}")))
     };
 
-    let mut c = Cur { data: uasset, pos: at(name_offset, "name")? };
+    let mut c = Cur::new(&uasset[at(name_offset, "name")?..]);
     let mut names = Vec::with_capacity(name_count);
     for _ in 0..name_count {
         names.push(c.string("name")?);
         c.take(4, "name hashes")?;
     }
-    let mut c = Cur { data: uasset, pos: at(import_offset, "import")? };
+    let mut c = Cur::new(&uasset[at(import_offset, "import")?..]);
     let mut imports = Vec::with_capacity(import_count);
     for _ in 0..import_count {
         c.take(16, "import class")?;
         c.i32("import outer")?;
         imports.push(name(&names, &mut c, "import name")?.to_string());
     }
-    let mut c = Cur { data: uasset, pos: at(export_offset, "export")? };
+    let mut c = Cur::new(&uasset[at(export_offset, "export")?..]);
     let mut exports = Vec::with_capacity(export_count);
     for _ in 0..export_count {
         let class = c.i32("export class")?;
@@ -239,7 +184,7 @@ pub(crate) fn skip_properties(c: &mut Cur, names: &[String]) -> Result<(), Forma
 
 /// Read a Texture2D export's data (`data`: its `serial_size` bytes).
 pub fn texture(data: &[u8], names: &[String]) -> Result<Texture, FormatError> {
-    let mut c = Cur { data, pos: 0 };
+    let mut c = Cur::new(data);
     skip_properties(&mut c, names)?;
     if c.i32("guid flag")? != 0 {
         c.take(16, "guid")?;
@@ -275,7 +220,7 @@ pub fn texture(data: &[u8], names: &[String]) -> Result<Texture, FormatError> {
         let elsewhere = flags & (PAYLOAD_AT_END | SEPARATE_FILE | UNUSED) != 0;
         let mut data = MipData::Missing;
         if !elsewhere {
-            let start = c.pos;
+            let start = c.position();
             c.take(on_disk as usize, "mip pixels")?;
             if flags & ZLIB == 0 {
                 data = MipData::Inline(start, on_disk as usize);
@@ -341,6 +286,21 @@ mod tests {
         assert_eq!((t.mips[1].width, &uexp[start + s..start + s + n]), (2, &[1u8; 16][..]));
         assert_eq!(layout(&t.pixel_format), Some(Layout::Bgra32));
         assert_eq!((layout("PF_BC7"), layout("PF_BC6H"), layout("PF_ASTC_4x4")), (Some(Layout::Bc7), Some(Layout::Bc6h), None));
+    }
+
+    #[test]
+    fn rejects_unterminated_strings_in_cooked_textures() {
+        let (mut uasset, mut uexp) = unreal_texture_package("T_Icon", "PF_DXT1", 4, 4, &[0; 8], None);
+        let p = package(&uasset).unwrap();
+        let end = |bytes: &[u8], marker: &[u8]| bytes.windows(marker.len()).position(|w| w == marker).unwrap() + marker.len() - 1;
+
+        let name_end = end(&uasset, b"T_Icon\0");
+        uasset[name_end] = b'x';
+        assert!(matches!(package(&uasset), Err(FormatError::Malformed(m)) if m == "name has no terminating NUL"));
+
+        let format_end = end(&uexp, b"PF_DXT1\0");
+        uexp[format_end] = b'x';
+        assert!(matches!(texture(&uexp, &p.names), Err(FormatError::Malformed(m)) if m == "pixel format has no terminating NUL"));
     }
 
     #[test]

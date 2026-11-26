@@ -473,6 +473,9 @@ pub struct UiState {
     /// Settings → Plugins: the plugin being added.
     #[serde(default)]
     pub plugin_form: PluginForm,
+    /// The remote command being typed for an SSH agent suggestion, by suggestion name.
+    #[serde(default)]
+    pub remote_commands: BTreeMap<String, String>,
     /// The Game files screen.
     #[serde(default)]
     pub game: GameFiles,
@@ -675,6 +678,7 @@ impl Default for UiState {
             pin_draft: Default::default(),
             answers: BTreeMap::new(),
             plugin_form: PluginForm::default(),
+            remote_commands: BTreeMap::new(),
             game: GameFiles::default(),
         }
     }

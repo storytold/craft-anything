@@ -301,6 +301,14 @@ impl<'a> D<'a> {
         }
     }
 
+    /// Is a context a class type, so that `fD` reads as `__deallocating_deinit`?
+    /// Value types, protocols, metatypes and (extension) non-class bases read `deinit`.
+    fn is_class_context(n: &N) -> bool {
+        // Swift 6.1 accepts only an immediate Class nominal context; extension-wrapped,
+        // bound/generic and nested-entity contexts render `deinit`.
+        matches!(n, N::Nominal { kind: 'C', .. })
+    }
+
     fn pop_name(&mut self) -> R<String> {
         match self.pop()? {
             N::Ident(i) => Ok(i),
@@ -1426,6 +1434,7 @@ impl<'a> D<'a> {
                     b'm' => "metaclass for",
                     b'f' => "full type metadata for",
                     b'p' => "protocol descriptor for",
+                    b'S' => "protocol self-conformance descriptor for",
                     b'o' => "class metadata base offset for",
                     b'l' => "type metadata singleton initialization cache for",
                     b'L' => "lazy cache variable for type metadata for",
@@ -1467,7 +1476,7 @@ impl<'a> D<'a> {
                 {
                     return Err("metadata cache of a marker".into());
                 }
-                if p.starts_with("protocol descriptor")
+                if (p.starts_with("protocol descriptor") || p.starts_with("protocol self-conformance descriptor"))
                     && let Some(N::Ident(_) | N::Private(_) | N::Operator(_)) = self.stack.last()
                 {
                     let name = self.pop_decl_name()?;
@@ -1485,6 +1494,9 @@ impl<'a> D<'a> {
                         return Err("associated type descriptor of a non-type or outside a module".into());
                     }
                     return self.push(N::Global { prefix: p.into(), inner: Box::new(conf), suffix: String::new() });
+                }
+                if p.starts_with("protocol self-conformance descriptor") && !matches!(self.stack.last(), Some(N::Nominal { kind: 'P', .. })) {
+                    return Err("protocol self-conformance descriptor of a non-protocol".into());
                 }
                 self.global(p)
             }
@@ -1583,6 +1595,7 @@ impl<'a> D<'a> {
                     b'O' => "@nonobjc",
                     b'q' => "method descriptor for",
                     b'j' => "dispatch thunk of",
+                    b'S' => "protocol self-conformance witness for",
                     b'E' => {
                         if !matches!(self.stack.last(), Some(N::Entity { .. } | N::Global { .. })) {
                             return Err("distributed thunk of a non-function".into());
@@ -1631,6 +1644,27 @@ impl<'a> D<'a> {
                     b'I' => "dynamically replaceable thunk for",
                     _ => return Err("unsupported thunk or specialization".into()),
                 };
+                if k == b'S'
+                    && matches!(
+                        self.stack.last(),
+                        Some(
+                            N::EmptyList
+                                | N::FirstMarker
+                                | N::Throws
+                                | N::Async
+                                | N::FnMarker(_)
+                                | N::Requirement(_)
+                                | N::Sig { .. }
+                                | N::Ident(_)
+                                | N::Private(_)
+                                | N::Operator(_)
+                                | N::Module(_)
+                                | N::Global { .. }
+                        )
+                    )
+                {
+                    return Err("protocol self-conformance witness of a non-entity".into());
+                }
                 if matches!(k, b'x' | b'X' | b'I') {
                     if matches!(self.stack.last(), Some(N::FirstMarker)) {
                         return Err("dynamically replaceable operand is a parser marker".into());
@@ -1646,6 +1680,26 @@ impl<'a> D<'a> {
                 match k {
                     b'Z' => self.one_time_init("one-time initialization function for"),
                     b'z' => self.one_time_init("one-time initialization token for"),
+                    b'S' => {
+                        if let Some(N::Ident(_) | N::Private(_) | N::Operator(_)) = self.stack.last() {
+                            let name = self.pop_decl_name()?;
+                            let ctx = self.pop_context()?;
+                            let proto = N::Nominal { kind: 'P', ctx: Box::new(ctx), name };
+                            return self.push(N::Global {
+                                prefix: "protocol self-conformance witness table for".into(),
+                                inner: Box::new(proto),
+                                suffix: String::new(),
+                            });
+                        }
+                        if matches!(self.stack.last(), Some(N::Global { .. } | N::Entity { .. } | N::Conformance { .. } | N::Extension { .. })) {
+                            return Err("witness operand is not a type".into());
+                        }
+                        let ty = self.pop_type()?;
+                        if !matches!(ty, N::Nominal { kind: 'P', .. }) {
+                            return Err("protocol self-conformance witness table for a non-protocol".into());
+                        }
+                        self.push(N::Global { prefix: "protocol self-conformance witness table for".into(), inner: Box::new(ty), suffix: String::new() })
+                    }
                     b'P' | b'p' | b'a' | b'G' => {
                         let conf = self.conformance()?;
                         let p = match k {
@@ -1742,7 +1796,7 @@ impl<'a> D<'a> {
             }
             b'f' => {
                 let k = self.next()?;
-                let kind = match k {
+                let mut kind = match k {
                     b'C' => EKind::AllocInit,
                     b'c' => EKind::Init,
                     b'D' => EKind::DeallocDeinit,
@@ -1807,6 +1861,9 @@ impl<'a> D<'a> {
                             },
                             _ => self.pop_context()?,
                         };
+                        if matches!(kind, EKind::DeallocDeinit) && !Self::is_class_context(&ctx) {
+                            kind = EKind::Deinit;
+                        }
                         self.push(N::Entity { kind, ctx: Box::new(ctx), name: None, labels: Vec::new(), ty: None, accessor: None, is_static: false })
                     }
                 }

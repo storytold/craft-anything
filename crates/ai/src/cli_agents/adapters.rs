@@ -612,7 +612,8 @@ impl AgentAdapter for ClaudeCode {
                         .get("input_tokens")
                         .and_then(Value::as_u64)
                         .unwrap_or(0)
-                        .saturating_add(u.get("cache_read_input_tokens").and_then(Value::as_u64).unwrap_or(0));
+                        .saturating_add(u.get("cache_read_input_tokens").and_then(Value::as_u64).unwrap_or(0))
+                        .saturating_add(u.get("cache_creation_input_tokens").and_then(Value::as_u64).unwrap_or(0));
                     p.output_tokens = u.get("output_tokens").and_then(Value::as_u64).unwrap_or(0);
                 }
                 if v.get("is_error").and_then(Value::as_bool).unwrap_or(false) && no_such_session(v) {

@@ -43,6 +43,10 @@ pub enum AiCommand {
         base_url: Option<String>,
         #[arg(long)]
         ssh_host: Option<String>,
+        /// The agent's program or path (on that SSH host, or on this computer), instead of its
+        /// usual name. It is checked before the backend is saved.
+        #[arg(long)]
+        program: Option<String>,
         /// Read the API key from this environment variable (keys are never taken on the command line).
         #[arg(long)]
         key_env: Option<String>,
@@ -262,7 +266,7 @@ pub fn ai(cli: &Cli, c: &AiCommand, f: Format) -> u8 {
             }
             0
         }
-        AiCommand::Add { name, kind, model, base_url, ssh_host, key_env, key_stdin, acp } => {
+        AiCommand::Add { name, kind, model, base_url, ssh_host, program, key_env, key_stdin, acp } => {
             let kind: BackendKind = match serde_json::from_value(json!(kind)) {
                 Ok(k) => k,
                 Err(_) => return crate::usage_error("--kind must be one of anthropic, openai, openrouter, openai_compatible, agent_cli"),
@@ -283,7 +287,8 @@ pub fn ai(cli: &Cli, c: &AiCommand, f: Format) -> u8 {
             }
             let model = model.clone().or_else(|| kind.suggested_models().first().map(|m| m.to_string())).unwrap_or_default();
             let cfg = BackendConfig { name: name.clone(), kind, model, base_url: base_url.clone(), ssh_host: ssh_host.clone(), enabled: true };
-            let entry = BackendEntry { config: cfg.clone(), options: BackendOptions { acp: acp.then_some(true), ..Default::default() } };
+            let entry =
+                BackendEntry { config: cfg.clone(), options: BackendOptions { acp: acp.then_some(true), command: program.clone(), ..Default::default() } };
             match hub.add_backend_with(entry, key) {
                 Ok(()) => {
                     emit(&json!({"added": cfg}), f);

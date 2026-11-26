@@ -296,7 +296,7 @@ pub fn ghidra_modal(app: &mut CraftApp, ui: &mut Ui, close: &mut bool) {
 
 /// The memory the person set for Ghidra (GB), or `None` for the automatic amount.
 pub fn ghidra_memory(app: &CraftApp) -> Option<u64> {
-    app.settings.engines.ghidra.memory_gb.map(|g| g.clamp(*ghidra::HEAP_GB.start(), *ghidra::HEAP_GB.end()))
+    app.settings.engines.ghidra.memory_gb.map(|g| g.clamp(*ghidra::SET_HEAP_GB.start(), *ghidra::SET_HEAP_GB.end()))
 }
 
 /// "Ghidra will use …": the automatic amount in words, or the set one.
@@ -349,7 +349,7 @@ pub fn ghidra_memory_setting(app: &mut CraftApp, ui: &mut Ui) {
                         ui.spacing_mut().slider_width = 180.0;
                         ui.visuals_mut().widgets.inactive.bg_fill = t.field_border;
                         ui.visuals_mut().selection.bg_fill = t.accent;
-                        ui.add(egui::Slider::new(&mut gb, ghidra::HEAP_GB).suffix(" GB").trailing_fill(true))
+                        ui.add(egui::Slider::new(&mut gb, ghidra::SET_HEAP_GB).suffix(" GB").trailing_fill(true))
                     })
                     .inner;
                 let r = widgets::named(r, "Memory for Ghidra");

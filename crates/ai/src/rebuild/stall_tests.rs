@@ -184,11 +184,14 @@ fn try_again_does_not_restart_a_build_that_never_works() {
 struct BuildOnlyKind {
     editor: PathBuf,
     check_runs: Arc<std::sync::atomic::AtomicUsize>,
+    pause: Option<craft_anything_engine::CancelToken>,
 }
 
 struct StandinBuildCheck {
     editor: PathBuf,
     check_runs: Arc<std::sync::atomic::AtomicUsize>,
+    /// Cancelled once the build has been checked, as Pause pressed then does.
+    pause: Option<craft_anything_engine::CancelToken>,
 }
 
 impl Check for StandinBuildCheck {
@@ -197,7 +200,10 @@ impl Check for StandinBuildCheck {
     }
     fn run(&self, cx: &mut CheckCx) -> Result<CheckResult, ToolError> {
         self.check_runs.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        let (passed, note) = super::super::check::build_check(&cx.ws.app_dir(), cx.ws.app_place(), "Godot", None, Some(&self.editor), &cx.stop())?;
+        let (passed, note) = super::super::check::build_check(&cx.ws.app_dir(), cx.ws.app_place(), "Godot", None, Some(&self.editor), &cx.stop(), &[])?;
+        if let Some(stop) = &self.pause {
+            stop.cancel();
+        }
         Ok(CheckResult::new(self.id(), cx.round, passed, note))
     }
 }
@@ -219,7 +225,7 @@ impl TargetKind for BuildOnlyKind {
         "a Godot project"
     }
     fn checks(&self, _ws: &Workspace) -> Vec<Box<dyn Check>> {
-        vec![Box::new(StandinBuildCheck { editor: self.editor.clone(), check_runs: Arc::clone(&self.check_runs) })]
+        vec![Box::new(StandinBuildCheck { editor: self.editor.clone(), check_runs: Arc::clone(&self.check_runs), pause: self.pause.clone() })]
     }
 }
 
@@ -277,7 +283,21 @@ fn run_build_only(
     kept: super::super::KeptHistory,
     max_rounds: u32,
 ) -> Result<String, ToolError> {
+    run_build_only_pausing(ws, (editor, false), prompts, check_runs, message, kept, max_rounds)
+}
+
+/// As [`run_build_only`]; with `pause`, Pause is pressed as the check finishes.
+fn run_build_only_pausing(
+    ws: &mut Workspace,
+    (editor, pause): (PathBuf, bool),
+    prompts: &Arc<Mutex<Vec<String>>>,
+    check_runs: &Arc<std::sync::atomic::AtomicUsize>,
+    message: Option<&str>,
+    kept: super::super::KeptHistory,
+    max_rounds: u32,
+) -> Result<String, ToolError> {
     let mut worker = check_worker(ws, false);
+    let pause = pause.then(|| worker.stop.clone());
     let model = WriteOnceBuilder { app: ws.app_dir(), prompts: Arc::clone(prompts) };
     let slot =
         ModelSlot { name: "WriteOnce".into(), model: Box::new(model), local: true, effort: None, max_turns: 10, context_tokens: 0, tools: Default::default() };
@@ -294,7 +314,7 @@ fn run_build_only(
         options: Default::default(),
     };
     let mut kinds = KindRegistry::built_in();
-    kinds.register(Arc::new(BuildOnlyKind { editor, check_runs: Arc::clone(check_runs) }));
+    kinds.register(Arc::new(BuildOnlyKind { editor, check_runs: Arc::clone(check_runs), pause }));
     let opts = RunOptions { message: message.map(str::to_string), continuing: message.is_none(), kinds, max_rounds, ..RunOptions::default() };
     worker.run(ws, entry, Some(api), None, kept, &opts)
 }
@@ -346,6 +366,36 @@ fn missing_build_tool_stops_without_refining_or_blaming_unchanged_app_files() {
     assert!(done.starts_with("Ready:"), "{done}");
     assert_eq!(prompts.lock().unwrap().len(), 1, "no extra builder turn when check succeeds on Try again");
     assert!(!ws.manifest.awaiting_check);
+}
+
+/// #2430: Pause pressed while the last check runs ends the run paused, not Ready, and carrying on
+/// checks the build again.
+#[test]
+fn a_pause_during_the_last_check_doesnt_end_in_ready() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut ws = Workspace::create(dir.path(), "Paused check", "Build a Godot game", TargetRef::None).unwrap();
+    ws.manifest.stack = "Scripted stack".into();
+    ws.save().unwrap();
+    let prompts = Arc::new(Mutex::new(Vec::new()));
+    let check_runs = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    // One that fails as well: a check the pause cut short isn't counted against the build.
+    for code in [0, 1] {
+        let editor = write_standin_tool(dir.path(), &format!("paused-godot-{code}"), "", code);
+        let (message, kept) = match code {
+            0 => (Some("Build the game"), super::super::KeptHistory::default()),
+            _ => (None, super::super::KeptHistory { in_mode: true, elsewhere: false }),
+        };
+        let paused = run_build_only_pausing(&mut ws, (editor, true), &prompts, &check_runs, message, kept, 4).unwrap_err();
+        assert_eq!(paused.code, ErrorCode::Cancelled, "{paused:?}");
+        assert_ne!(ws.manifest.status, Status::Ready);
+        assert!(ws.manifest.awaiting_check && ws.manifest.checks.is_empty(), "the paused round isn't kept");
+        assert_eq!(ws.manifest.not_working_checks, 0);
+    }
+    let working = write_standin_tool(dir.path(), "resumed-godot", "", 0);
+    let kept = super::super::KeptHistory { in_mode: true, elsewhere: false };
+    let done = run_build_only(&mut ws, working, &prompts, &check_runs, None, kept, 4).unwrap();
+    assert!(done.starts_with("Ready:"), "{done}");
+    assert_eq!(prompts.lock().unwrap().len(), 1, "only the check runs again");
 }
 
 /// Companion to #2178: a genuine compile/build failure (the tool ran and failed) still enters a

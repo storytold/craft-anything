@@ -1966,8 +1966,8 @@ fn questions_switch(app: &mut CraftApp, ui: &mut Ui) {
     ui.add_space(theme::space::XS);
     let (sending, asking) = (["Change it", "Just ask"], ["Ask me", "Decide yourself"]);
     let title = widgets::label_galley(ui, &tr(QUESTIONS_TITLE), theme::SMALL, t.text_dim).size().x;
-    // The approvals menu's link, the space before it and one more item gap.
-    let approvals = widgets::label_galley(ui, &tr("Approvals"), theme::BODY, t.text).size().x + 8.0;
+    // The approvals menu's link, the space after it and one more item gap.
+    let approvals = widgets::label_galley(ui, &tr("Approvals"), theme::BODY, t.text).size().x + theme::space::SM;
     // Room for the gaps and for enough of the hint to read: squeezed to nothing it sat on the title.
     let gaps = ui.spacing().item_spacing.x * 4.0 + theme::space::XXL;
     let title = title + approvals;
@@ -1980,6 +1980,10 @@ fn questions_switch(app: &mut CraftApp, ui: &mut Ui) {
     };
     let right = egui::Layout::right_to_left(egui::Align::Center);
     ui.horizontal(|ui| {
+        // The approvals menu starts the row, at the end away from Send: under Send, a click a
+        // little low opened it instead of sending (#2435).
+        crate::approvals::menu(app, ui, &root);
+        ui.add_space(theme::space::SM);
         // What sending does: ask for a change, or just ask about the build.
         if let Some(i) = widgets::segmented(ui, &sending, usize::from(app.state.just_ask), theme::ControlSize::Small) {
             app.state.just_ask = i == 1;
@@ -2003,9 +2007,6 @@ const QUESTIONS_TITLE: &str = "Builder's questions:";
 
 fn questions_controls(app: &mut CraftApp, ui: &mut Ui, now: craft_anything_engine::workspace::Questions, root: &Path, t: &Tokens) {
     use craft_anything_engine::workspace::Questions;
-    // Right to left: the approvals menu at the end of the row.
-    crate::approvals::menu(app, ui, root);
-    ui.add_space(theme::space::SM);
     {
         let sel = usize::from(now == Questions::Decide);
         if let Some(i) = widgets::segmented(ui, &["Ask me", "Decide yourself"], sel, theme::ControlSize::Small) {

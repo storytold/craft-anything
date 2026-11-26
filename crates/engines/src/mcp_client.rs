@@ -314,6 +314,8 @@ struct Http {
     initialized: bool,
     #[cfg(test)]
     tls: Option<ureq::tls::TlsConfig>,
+    #[cfg(test)]
+    agent: Option<ureq::Agent>,
 }
 
 impl Http {
@@ -335,6 +337,8 @@ impl Http {
             initialized: false,
             #[cfg(test)]
             tls: None,
+            #[cfg(test)]
+            agent: None,
         })
     }
 
@@ -359,6 +363,8 @@ impl Http {
             builder = builder.proxy(None).tls_config(tls.clone());
         }
         let agent = builder.build().new_agent();
+        #[cfg(test)]
+        let agent = self.agent.clone().unwrap_or(agent);
         let body = msg.to_string();
         let home = origin(&self.url);
         let mut url = self.url.clone();
@@ -404,6 +410,12 @@ impl Http {
                         format!("The {} plugin sent an HTTP answer that couldn't be read, such as a malformed redirect.", self.name),
                     )
                     .with_remediation("Check its url in config.toml ([[plugins.mcp]]) and the server's redirects.");
+                }
+                if matches!(&e, ureq::Error::Io(io) if io.kind() == std::io::ErrorKind::Interrupted) {
+                    // The JSON-RPC POST may have changed the program already. Do not replay it or
+                    // invalidate the MCP session as though the plugin had gone missing.
+                    return ToolError::new(ErrorCode::ProgramFailed, format!("The call to the {} plugin was interrupted before it answered.", self.name))
+                        .with_remediation("The plugin may already have handled this request. Check its result before sending it again.");
                 }
                 let code = if timed_out(&e) { ErrorCode::TimedOut } else { ErrorCode::EngineMissing };
                 ToolError::new(code, format!("Couldn't reach the {} plugin: {e}", self.name))
@@ -993,6 +1005,95 @@ mod tests {
     fn http_to(url: &str) -> Http {
         let headers = BTreeMap::from([("Authorization".to_string(), "Bearer t".to_string())]);
         Http::new("local", &ServerUrl { url: url.to_string(), headers }).unwrap()
+    }
+
+    /// Fail while reading the answer, after recording the POST bytes. No signals or sockets are
+    /// needed to exercise an interrupted response to a request the plugin may have acted on.
+    fn failed_http_post(kind: std::io::ErrorKind) -> (ToolError, usize, String) {
+        use craft_anything_platform::sync::Mutex;
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+        use ureq::unversioned::{
+            resolver::DefaultResolver,
+            transport::{Buffers, ConnectionDetails, Connector, LazyBuffers, NextTimeout, Transport as HttpTransport},
+        };
+
+        #[derive(Debug)]
+        struct FailResponse {
+            buffers: LazyBuffers,
+            sent: Arc<Mutex<Vec<u8>>>,
+            kind: std::io::ErrorKind,
+        }
+
+        impl HttpTransport for FailResponse {
+            fn buffers(&mut self) -> &mut dyn Buffers {
+                &mut self.buffers
+            }
+
+            fn transmit_output(&mut self, amount: usize, _: NextTimeout) -> Result<(), ureq::Error> {
+                self.sent.lock().unwrap().extend_from_slice(&self.buffers.output()[..amount]);
+                Ok(())
+            }
+
+            fn await_input(&mut self, _: NextTimeout) -> Result<bool, ureq::Error> {
+                Err(ureq::Error::Io(std::io::Error::from(self.kind)))
+            }
+
+            fn is_open(&mut self) -> bool {
+                true
+            }
+        }
+
+        #[derive(Debug)]
+        struct FailConnector {
+            connects: Arc<AtomicUsize>,
+            sent: Arc<Mutex<Vec<u8>>>,
+            kind: std::io::ErrorKind,
+        }
+
+        impl Connector for FailConnector {
+            type Out = FailResponse;
+
+            fn connect(&self, _: &ConnectionDetails<'_>, _: Option<()>) -> Result<Option<Self::Out>, ureq::Error> {
+                self.connects.fetch_add(1, Ordering::SeqCst);
+                Ok(Some(FailResponse { buffers: LazyBuffers::new(4096, 4096), sent: self.sent.clone(), kind: self.kind }))
+            }
+        }
+
+        let connects = Arc::new(AtomicUsize::new(0));
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let connector = FailConnector { connects: connects.clone(), sent: sent.clone(), kind };
+        let mut http = http_to("http://127.0.0.1/mcp");
+        http.session = Some("existing-session".to_string());
+        http.initialized = true;
+        http.agent = Some(ureq::Agent::with_parts(ureq::Agent::config_builder().proxy(None).max_redirects(0).build(), connector, DefaultResolver::default()));
+        let msg = json!({"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "rename", "arguments": {"name": "new_name"}}});
+        let err = http.post(&msg, soon(Duration::from_secs(5)), &|| false).unwrap_err();
+        assert_eq!(http.session.as_deref(), Some("existing-session"));
+        let sent = String::from_utf8(sent.lock().unwrap().clone()).unwrap();
+        (err, connects.load(Ordering::SeqCst), sent)
+    }
+
+    #[test]
+    fn interrupted_http_post_does_not_report_a_missing_plugin_or_replay_the_call() {
+        let (err, connects, sent) = failed_http_post(std::io::ErrorKind::Interrupted);
+        assert_eq!((err.code, err.retryable), (ErrorCode::ProgramFailed, false), "{err:?}");
+        assert!(err.message.contains("interrupted"), "{err:?}");
+        assert!(err.remediation.as_deref().is_some_and(|r| r.contains("may already have handled") && r.contains("before")), "{err:?}");
+        assert_eq!(connects, 1, "a mutating JSON-RPC call must not be replayed");
+        assert_eq!(sent.matches("POST /mcp HTTP/1.1").count(), 1, "{sent}");
+        assert!(sent.contains("tools/call") && sent.contains("new_name"), "the request was sent before the read was interrupted: {sent}");
+    }
+
+    #[test]
+    fn other_http_post_failures_keep_their_error_codes() {
+        for (kind, code) in [(std::io::ErrorKind::ConnectionReset, ErrorCode::EngineMissing), (std::io::ErrorKind::TimedOut, ErrorCode::TimedOut)] {
+            let (err, connects, _) = failed_http_post(kind);
+            assert_eq!(err.code, code, "{kind:?}: {err:?}");
+            assert_eq!(connects, 1);
+        }
     }
 
     fn soon(d: Duration) -> Instant {

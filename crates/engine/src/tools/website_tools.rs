@@ -1221,8 +1221,9 @@ fn truncate_utf8(s: &str, max: usize) -> &str {
 
 /// Drop everything a visitor can't see: the page's metadata, CSS variables and breakpoints, the
 /// stylesheets, scripts, fonts and requests it loaded, where its pictures come from (their sizes
-/// stay), its class names, and the query strings (deployment ids, tokens) on the addresses it
-/// shows (#156). Screenshots, visible text, the measured layout and styles, links and forms are kept.
+/// stay), its class names and element ids, and the query strings (deployment ids, tokens) on the
+/// addresses it shows (#156). Screenshots, visible text, the measured layout and styles, links and
+/// forms are kept.
 fn visitor_view(blueprint: &mut Value) {
     let Value::Object(b) = blueprint else { return };
     for k in ["meta", "breakpoints", "unreadable_stylesheets", "health"] {
@@ -1236,12 +1237,18 @@ fn visitor_view(blueprint: &mut Value) {
     if let Some(Value::Array(items)) = b.get_mut("outline") {
         for item in items.iter_mut().filter_map(Value::as_object_mut) {
             item.remove("class");
+            // The element's id, like its class names: the page's markup, not what a visitor sees.
+            item.remove("id");
             item.get_mut("src").map(bare);
             item.get_mut("href").map(bare);
         }
     }
     if let Some(Value::Array(links)) = b.get_mut("links") {
         links.iter_mut().filter_map(|l| l.get_mut("href")).for_each(bare);
+    }
+    // A form's action is an address too: its query string can carry a token, like the others (#156).
+    if let Some(Value::Array(forms)) = b.get_mut("forms") {
+        forms.iter_mut().filter_map(|f| f.get_mut("action")).for_each(bare);
     }
     // "button.btn-primary" → "button": the element, not the page's class for it.
     if let Some(Value::Array(examples)) = b.get_mut("a11y").and_then(|a| a.get_mut("unnamed_examples")) {
@@ -1664,8 +1671,9 @@ mod tests {
             "health": {"errors": [{"text": "boom"}]}, "design": {"fonts": [{"value": "Inter", "count": 9}], "css_variables": {"--brand": "#123"}, "font_faces": [{"family": "Inter"}]},
             "assets": {"images": [{"src": "https://cdn.test/a.png", "w": 40, "h": 30, "alt": "logo"}], "scripts": ["https://cdn.test/app.js"], "requests": [{"url": "https://api.test/x"}]},
             "headings": [{"level": 1, "text": "Plans"}], "text": "Plans Pricing", "layouts": [{"width": 1440, "page_w": 1440}],
-            "outline": [{"tag": "img", "class": "w-full rounded-xl", "src": "https://cdn.test/hero.webp?dpl=dpl_abc123#x"}, {"tag": "a", "class": "btn", "href": "https://shop.test/plans?ref=sk-test-123"}],
+            "outline": [{"tag": "img", "class": "w-full rounded-xl", "id": "hero-9f3a", "src": "https://cdn.test/hero.webp?dpl=dpl_abc123#x"}, {"tag": "a", "class": "btn", "href": "https://shop.test/plans?ref=sk-test-123"}],
             "links": [{"text": "Plans", "href": "https://shop.test/plans?session=abc"}],
+            "forms": [{"action": "/checkout?token=tok-secret-1", "method": "post", "fields": [{"tag": "input", "type": "text", "name": "email", "label": "Email"}]}],
             "a11y": {"unnamed_examples": ["button.icon-btn", "a"]}
         });
         visitor_view(&mut b);
@@ -1676,6 +1684,13 @@ mod tests {
         assert_eq!(b["links"][0]["href"], "https://shop.test/plans");
         assert_eq!(b["a11y"]["unnamed_examples"], json!(["button", "a"]));
         assert!(!b.to_string().contains("dpl_") && !b.to_string().contains("sk-test"));
+        // The element's id is the page's markup, like its class names.
+        assert!(b["outline"].as_array().unwrap().iter().all(|i| i.get("id").is_none()));
+        // A form's action is an address, so its query string goes like the others' (#156).
+        assert_eq!(b["forms"][0]["action"], "/checkout");
+        assert!(!b.to_string().contains("tok-secret"));
+        // The form's shape stays: a visitor sees the fields.
+        assert_eq!(b["forms"][0]["fields"][0]["name"], "email");
         for gone in [
             "/meta",
             "/breakpoints",

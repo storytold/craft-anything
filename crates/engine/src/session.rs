@@ -82,6 +82,10 @@ pub struct Session {
     /// Project records left on disk because the project holds more than [`MAX_LOADED_EVIDENCE`].
     /// They still resolve by id through [`Session::resolve_evidence`].
     unloaded_evidence: usize,
+    /// Raw-file digests for the last refresh's verified, budgeted records. They refer to the
+    /// corresponding ledger values, so replacing one locally invalidates its digest.
+    project_evidence_digests: HashMap<String, String>,
+    project_evidence_root: Option<std::path::PathBuf>,
     /// Session-wide caches not tied to a target (device lists, browser connections…).
     pub ext: Extensions,
     /// Where this session keeps config.toml and plugin caches, when not the usual folder
@@ -296,6 +300,9 @@ impl Session {
         if let Some(project) = &self.project {
             project.store_evidence(&ev)?;
         }
+        // An existing content-addressed file is not overwritten by store_evidence. The new
+        // in-memory record may have different display fields and is not that disk snapshot.
+        self.project_evidence_digests.remove(&ev.id);
         if !self.ledger.contains_key(&ev.id) {
             self.order.push(ev.id.clone());
         }
@@ -339,6 +346,8 @@ impl Session {
         self.order.clear();
         self.unknowns.clear();
         self.unloaded_evidence = 0;
+        self.project_evidence_digests.clear();
+        self.project_evidence_root = None;
     }
 
     // ---- unknowns ----
@@ -371,7 +380,9 @@ impl Session {
     /// Opening the same project again refreshes its stored records and keeps its targets in
     /// place. The newest stored records (by write time) are loaded into the ledger, up
     /// to [`MAX_LOADED_EVIDENCE`] records and a byte budget; the rest stay on disk and resolve by
-    /// id. Every loaded record passes its integrity check; tampered or unreadable ones are skipped.
+    /// id. New or changed records pass their integrity check; tampered or unreadable ones are
+    /// skipped. Unchanged records reuse the verified ledger value after checking a digest of the
+    /// entire file, including display fields. Refresh still scans and reads the stored files.
     pub fn open_project(&mut self, project: Project) -> Result<(), ToolError> {
         // Read the new project's questions first: a failed read leaves the current project as it was.
         let unknowns = project.load_unknowns()?;
@@ -383,6 +394,10 @@ impl Session {
             self.targets.clear();
             self.active = None;
         }
+        let root = crate::workspace::normalized(&project.root);
+        if self.project_evidence_root.as_ref() != Some(&root) {
+            self.project_evidence_digests.clear();
+        }
         // Recomputed below; an old count from a larger open must not survive this one.
         self.unloaded_evidence = 0;
         for u in unknowns {
@@ -392,16 +407,25 @@ impl Session {
         // Newest first, so the budget keeps the most recent work.
         stored.sort_by(|a, b| b.modified.cmp(&a.modified).then_with(|| a.id.cmp(&b.id)));
         let mut loaded = Vec::new();
+        let mut loaded_count = 0usize;
+        let mut digests = HashMap::new();
         let mut bytes = 0u64;
         for (i, f) in stored.iter().enumerate() {
-            if loaded.len() >= MAX_LOADED_EVIDENCE || bytes.saturating_add(f.bytes) > MAX_LOADED_EVIDENCE_BYTES {
+            if loaded_count >= MAX_LOADED_EVIDENCE || bytes.saturating_add(f.bytes) > MAX_LOADED_EVIDENCE_BYTES {
                 self.unloaded_evidence = stored.len().saturating_sub(i);
                 break;
             }
-            match project.load_evidence(&f.id) {
-                Ok(ev) => {
+            let previous = self.project_evidence_digests.get(&f.id).filter(|_| self.ledger.contains_key(&f.id)).map(String::as_str);
+            match project.refresh_evidence(&f.id, previous) {
+                Ok((evidence, digest)) => {
+                    // Reusing an allocation does not make the record free: it consumes the same
+                    // count and byte budgets as a fresh load, and only selected digests survive.
+                    loaded_count += 1;
                     bytes = bytes.saturating_add(f.bytes);
-                    loaded.push(ev);
+                    digests.insert(f.id.clone(), digest);
+                    if let Some(ev) = evidence {
+                        loaded.push(ev);
+                    }
                 }
                 Err(e) => log::warn!("skipping project evidence {}: {}", f.id, e.message),
             }
@@ -413,9 +437,10 @@ impl Session {
             }
             self.ledger.insert(ev.id.clone(), ev);
         }
+        self.project_evidence_digests = digests;
+        self.project_evidence_root = Some(root);
         self.project = Some(project);
-        let investigation = crate::tools::investigation_tools::load(self);
-        crate::tools::investigation_tools::cache(self, investigation);
+        crate::tools::investigation_tools::refresh(self);
         Ok(())
     }
 }

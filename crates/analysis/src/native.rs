@@ -128,11 +128,11 @@ pub fn triage_beside(bin: &Binary, data: &[u8], file_name: &str, beside: &[(Flut
             None => hints.push(Hint { id: "flutter", category: "framework", label: "Flutter (Dart)".into(), strength: "strong", evidence: seen }),
         }
     }
-    let mut r = triage_hints(bin, data, file_name, &hints);
+    let dart = beside.iter().find(|(f, _)| f.role == FlutterRole::DartCode).map(|(_, p)| p.as_str());
+    let mut r = triage_hints(bin, data, file_name, &hints, dart);
     let Some(flutter) = hints.iter().find(|h| h.id == "flutter") else {
         return r;
     };
-    let dart = beside.iter().find(|(f, _)| f.role == FlutterRole::DartCode).map(|(_, p)| p.clone());
     let where_dart = match bin.format {
         Format::Pe => "data\\app.so beside the program",
         Format::Elf => "lib/libapp.so beside the program",
@@ -151,11 +151,8 @@ pub fn triage_beside(bin: &Binary, data: &[u8], file_name: &str, beside: &[(Flut
         "dart_code": dart,
         "files": beside.iter().map(|(f, p)| json!({"role": f.role.id(), "path": p})).collect::<Vec<_>>(),
     });
-    if let Some(p) = &dart {
-        if let Some(next) = r.result.get_mut("next_steps").and_then(Value::as_array_mut) {
-            next.insert(0, json!({"tool": "android_dart_snapshot_show", "args": {"path": p}, "why": "the app's own code is this Dart AOT snapshot: its packages and names"}));
-        }
-        r.locations.push(Location::new("path", p.clone()).with_label("compiled Dart code (Dart AOT snapshot)"));
+    if let Some(path) = dart {
+        r.locations.push(Location::new("path", path).with_label("compiled Dart code (Dart AOT snapshot)"));
     }
     r
 }
@@ -165,7 +162,7 @@ pub fn triage(bin: &Binary, data: &[u8], file_name: &str) -> Report {
     triage_beside(bin, data, file_name, &[])
 }
 
-fn triage_hints(bin: &Binary, data: &[u8], file_name: &str, hints: &[Hint]) -> Report {
+fn triage_hints(bin: &Binary, data: &[u8], file_name: &str, hints: &[Hint], dart_path: Option<&str>) -> Report {
     let os = match bin.format {
         Format::Elf => {
             if bin.libraries.iter().any(|l| l.contains("liblog.so") || l.contains("libandroid")) {
@@ -245,9 +242,15 @@ fn triage_hints(bin: &Binary, data: &[u8], file_name: &str, hints: &[Hint]) -> R
         toolsets.push("javascript");
         tools.insert(0, ("js_app_map", "the app's logic is JavaScript inside resources/app.asar, not in this file"));
     }
-    if has("flutter") {
-        toolsets.push("android");
-        tools.insert(0, ("android_flutter_identify", "Flutter apps keep their Dart code in a snapshot (libapp.so)"));
+    if has("flutter") && dart_path.is_none() {
+        if matches!(os, "Windows" | "Mac") || (os == "Linux" && bin.kind == "executable") {
+            toolsets.push("formats");
+            tools
+                .insert(0, ("app_folder_explain", "pass the absolute path of the install folder or macOS app bundle to inspect its Flutter engine and assets"));
+        } else {
+            toolsets.push("android");
+            tools.insert(0, ("android_flutter_identify", "Flutter apps keep their Dart code in a snapshot (libapp.so)"));
+        }
     }
     if bin.format == Format::MachO || has("objc") || has("swift") {
         toolsets.push("apple");
@@ -271,9 +274,22 @@ fn triage_hints(bin: &Binary, data: &[u8], file_name: &str, hints: &[Hint]) -> R
     if !packers.is_empty() {
         tools.insert(0, ("core_overview_show", "check section entropy; packed code must be unpacked (run in a sandbox) before static analysis helps"));
     }
-    toolsets.dedup();
+    let mut next = Vec::new();
     let mut seen = BTreeSet::new();
-    let next: Vec<Value> = tools.into_iter().filter(|(t, _)| seen.insert(*t)).map(|(t, why)| json!({"tool": t, "why": why})).collect();
+    if let Some(path) = dart_path {
+        // The macOS App framework is Mach-O. The Dart snapshot reader accepts ELF libraries.
+        let (set, tool, why) = if bin.format == Format::MachO {
+            ("apple", "apple_macho_show", "inspect the Mach-O framework containing the app's compiled Dart code")
+        } else {
+            ("android", "android_dart_snapshot_show", "the app's own code is this Dart AOT snapshot: its packages and names")
+        };
+        toolsets.push(set);
+        seen.insert(tool);
+        next.push(json!({"tool": tool, "args": {"path": path}, "why": why}));
+    }
+    next.extend(tools.into_iter().filter(|(t, _)| seen.insert(*t)).map(|(t, why)| json!({"tool": t, "why": why})));
+    let mut seen_sets = BTreeSet::new();
+    toolsets.retain(|set| seen_sets.insert(*set));
     let result = json!({
         "plain_english": plain,
         "format": bin.format,
@@ -1317,6 +1333,34 @@ mod tests {
         let t = triage(&bin, &data, "Sample.dll");
         assert_eq!(t.result["dotnet_arch"], "anycpu");
         assert!(t.summary.contains("any CPU") && !t.summary.contains("32-bit"), "{}", t.summary);
+    }
+
+    #[test]
+    fn flutter_next_steps_accept_the_desktop_app_or_its_snapshot() {
+        let linux = tk::elf64(tk::ElfArch::X86_64, false).0;
+        for (data, engine, reader, set) in [
+            (tk::flutter::flutter_windows_exe(), "flutter_windows.dll", "android_dart_snapshot_show", "android"),
+            (linux, "libflutter_linux_gtk.so", "android_dart_snapshot_show", "android"),
+            (tk::macho64(), "@rpath/FlutterMacOS.framework/FlutterMacOS", "apple_macho_show", "apple"),
+        ] {
+            let mut bin = craft_anything_formats::parse_binary(&data).unwrap();
+            bin.libraries.push(engine.into());
+            let report = triage(&bin, &data, "runner");
+            assert_eq!(report.result["next_steps"][0]["tool"], "app_folder_explain");
+            assert!(report.result["recommended_toolsets"].as_array().unwrap().iter().any(|s| s == "formats"));
+
+            let file = flutter_files_beside(bin.format).iter().find(|f| f.role == FlutterRole::DartCode).unwrap();
+            let report = triage_beside(&bin, &data, "runner", &[(*file, file.path.into())]);
+            let step = &report.result["next_steps"][0];
+            assert_eq!(step["tool"], reader);
+            assert_eq!(step["args"]["path"], file.path);
+            assert!(report.result["recommended_toolsets"].as_array().unwrap().iter().any(|s| s == set));
+            assert!(!report.result["next_steps"].as_array().unwrap().iter().any(|s| s["tool"] == "android_flutter_identify"));
+        }
+
+        let data = tk::flutter::libapp_so(tk::flutter::SymbolTable::Sections);
+        let bin = craft_anything_formats::parse_binary(&data).unwrap();
+        assert_eq!(triage(&bin, &data, "libapp.so").result["next_steps"][0]["tool"], "android_flutter_identify");
     }
 
     #[test]

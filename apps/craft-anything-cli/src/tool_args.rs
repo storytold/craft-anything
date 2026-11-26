@@ -102,7 +102,8 @@ pub fn read_json_arg(raw: &str) -> Result<Value, String> {
             None => raw.to_string(),
         }
     };
-    serde_json::from_str(&text).map_err(|e| format!("params must be a JSON object: {e}"))
+    let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
+    serde_json::from_str(text).map_err(|e| format!("params must be a JSON object: {e}"))
 }
 
 /// Most bytes of parameters taken from standard input.
@@ -302,7 +303,7 @@ pub fn help(spec: &ToolSpec, schema: &Value) -> String {
     }
     let own_format = props.contains_key("format");
     s.push_str(&format!(
-        "\nOutput:\n  --output-format                json, jsonl, md or text{}\n",
+        "\nOutput:\n  --output-format                json, jsonl, md, text, csv or tsv{}\n",
         if own_format { " (--format after the tool name is this tool's own option)" } else { " (--format works too)" }
     ));
     s
@@ -337,6 +338,13 @@ mod tests {
             assert!(e.contains("expects a number"), "{e}");
         }
         assert_eq!(convert("number", "x", "1.5"), Ok(json!(1.5)));
+    }
+
+    #[test]
+    fn help_lists_csv_and_tsv_output_formats() {
+        let r = Registry::with_all_tools();
+        let h = help(r.get("core_journal_read").unwrap());
+        assert!(h.lines().any(|line| line.contains("--output-format") && line.contains("csv") && line.contains("tsv")), "{h}");
     }
 
     #[test]
@@ -431,10 +439,12 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("cany-cli-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("p.json");
-        std::fs::write(&f, r#"{"question":"q?"}"#).unwrap();
         let r = Registry::with_all_tools();
-        let inv = parse(r.get("core_brief_write").unwrap(), &[format!("@{}", f.display())]).unwrap();
-        assert_eq!(inv.params["question"], "q?");
+        for contents in [r#"{"question":"q?"}"#, "\u{feff}{\"question\":\"q?\"}"] {
+            std::fs::write(&f, contents).unwrap();
+            let inv = parse(r.get("core_brief_write").unwrap(), &[format!("@{}", f.display())]).unwrap();
+            assert_eq!(inv.params["question"], "q?");
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 

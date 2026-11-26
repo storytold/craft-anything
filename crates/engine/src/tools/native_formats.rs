@@ -561,6 +561,16 @@ fn core_target_triage(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, To
         Ok(Some(img)) => {
             let beside = flutter_files_beside(&t.path, img.bin.format);
             let mut r = an::triage_beside(&img.bin, &img.data, &t.name, &beside);
+            if let Some(step) = r.result["next_steps"].as_array_mut().and_then(|steps| steps.iter_mut().find(|step| step["tool"] == "app_folder_explain"))
+                && let Some(folder) = t.path.parent().filter(|p| p.is_absolute())
+            {
+                let install = if img.bin.format == Format::MachO {
+                    folder.ancestors().find(|p| p.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("app"))).unwrap_or(folder)
+                } else {
+                    folder
+                };
+                step["args"] = json!({"path": install.display().to_string()});
+            }
             if t.kind == TargetKind::Managed {
                 r.result["plain_english"] = json!(format!("{} This is a .NET assembly: use the .NET tools for readable C#-level results.", r.summary));
                 r.summary = r.result["plain_english"].as_str().unwrap_or_default().to_string();
@@ -822,6 +832,26 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn flutter_folder_step_opens_the_linux_install_or_enclosing_mac_app() {
+        let e = engine_with("craft.exe", &tk::pe64());
+        for (folder, runner, mut program) in
+            [("installed", "runner", tk::elf64(tk::ElfArch::X86_64, false).0), ("Sample.app", "Contents/MacOS/Runner", tk::macho64())]
+        {
+            let root = tempfile::tempdir().unwrap();
+            let install = root.path().join(folder);
+            let exe = install.join(runner);
+            std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+            program.extend_from_slice(b"flutter_assets");
+            std::fs::write(&exe, program).unwrap();
+            let r = call(&e, "core_target_triage", json!({"path": exe}));
+            let step = &r["result"]["next_steps"][0];
+            assert_eq!(step["tool"], "app_folder_explain");
+            assert_eq!(step["args"]["path"], install.display().to_string());
+            assert!(call(&e, "app_folder_explain", step["args"].clone())["result"].is_object());
+        }
+    }
+
+    #[test]
     fn triage_finds_a_flutter_build_beside_a_windows_program() {
         // #2227: data/flutter_assets and data/app.so beside the program are observed and point the
         // reader at app.so; the same program on its own is only inferred from its text.
@@ -834,6 +864,10 @@ mod tests {
         assert_eq!(r["result"]["flutter"]["confidence"], "inferred", "{}", r["result"]);
         assert_eq!(r["result"]["flutter"]["dart_code"], serde_json::Value::Null);
         assert_eq!(r["confidence"], "inferred");
+        let step = &r["result"]["next_steps"][0];
+        assert_eq!(step["tool"], "app_folder_explain");
+        assert_eq!(step["args"]["path"], alone.path().display().to_string());
+        assert!(call(&e, "app_folder_explain", step["args"].clone())["result"].is_object());
 
         let built = tempfile::tempdir().unwrap();
         let exe = built.path().join("localsend_app.exe");

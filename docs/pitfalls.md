@@ -307,6 +307,10 @@ the program it opened stayed open (and held the shell's pipe, so the command nev
 the caller may exit next, use `kill_and_wait`, and check after a live run that nothing was left
 running.
 
+**Killing the group isn't closing the program.** The pictured program was killed outright, so a
+helper it had launchd start (not in its group) kept running with the program's files open. Ask the
+program to close first and kill only after a short wait (`RunningProcess::close_and_wait`).
+
 **A turn's own process outlived its answer.** `run_cli` only sent `AgentEvent::TurnDone` once the
 whole coding-agent subprocess exited, never once its JSON stream said the turn was done (the
 `result` line). Claude Code can print that line and then linger (its own shutdown hook, logging)
@@ -1320,6 +1324,12 @@ answer, so a 512k-window build that called `web_search` stopped its turn after 3
 failed its check. Text recovery that only knows the formats seen so far ends a turn silently on
 the next one: read a model's own call format, and when it names a tool it doesn't have, tell it
 so and name the ones it has, rather than ending.
+
+**A focus check made after the library had let go of focus.** Esc on a project went home
+"unless Esc was meant for a text field", tested with `memory.focused().is_none()`. egui clears
+focus on Esc as the frame begins, before any app code runs, so the check always passed and Esc
+in the prompt box left the project (#2434). Ask about focus as the previous frame ended
+(`text_was_focused`), and test a key with a field focused, not only the key alone.
 
 **A view that asked to be scrolled on every frame.** The command palette called `scroll_to_me` on
 the selected row each frame, so the wheel's scroll was pulled back to it at once and the list

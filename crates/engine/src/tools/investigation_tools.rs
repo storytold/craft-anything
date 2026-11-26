@@ -208,18 +208,50 @@ pub struct Investigation {
     pub updated: Option<String>,
 }
 
-type Slot = Mutex<Investigation>;
+#[derive(Default)]
+struct CachedInvestigation {
+    value: Investigation,
+    /// Only a successful file read establishes this identity. Local writers invalidate it;
+    /// revision-checked updates always read the file again under their interprocess lock.
+    loaded: Option<(PathBuf, String)>,
+}
+
+type Slot = Mutex<CachedInvestigation>;
 
 /// The last loaded state, for clients that cannot read the project while drawing. Writers and
 /// project refreshes update this snapshot; an external writer is picked up by open_project.
 pub fn cached(session: &Session) -> Investigation {
-    session.ext.get::<Slot>().map(|slot| slot.lock().unwrap_or_else(PoisonError::into_inner).clone()).unwrap_or_default()
+    session.ext.get::<Slot>().map(|slot| slot.lock().unwrap_or_else(PoisonError::into_inner).value.clone()).unwrap_or_default()
 }
 
 pub(crate) fn cache(session: &mut Session, investigation: Investigation) {
+    let next = CachedInvestigation { value: investigation, loaded: None };
     match session.ext.get::<Slot>() {
-        Some(slot) => *slot.lock().unwrap_or_else(PoisonError::into_inner) = investigation,
-        None => session.ext.insert(Arc::new(Mutex::new(investigation))),
+        Some(slot) => *slot.lock().unwrap_or_else(PoisonError::into_inner) = next,
+        None => session.ext.insert(Arc::new(Mutex::new(next))),
+    }
+}
+
+/// Refresh the display snapshot without reparsing unchanged state. Compare the bytes, not a
+/// timestamp or a revision alone: another writer can preserve either while changing the file.
+pub(crate) fn refresh(session: &mut Session) {
+    let Some(directory) = dir(session) else { return };
+    let bytes = match std::fs::read(directory.join("state.json")) {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            cache(session, Investigation::default());
+            return;
+        }
+    };
+    let loaded = (directory, craft_anything_evidence::sha256_hex(&bytes));
+    if let Some(slot) = session.ext.get::<Slot>()
+        && slot.lock().unwrap_or_else(PoisonError::into_inner).loaded.as_ref() == Some(&loaded)
+    {
+        return;
+    }
+    cache(session, serde_json::from_slice(&bytes).unwrap_or_default());
+    if let Some(slot) = session.ext.get::<Slot>() {
+        slot.lock().unwrap_or_else(PoisonError::into_inner).loaded = Some(loaded);
     }
 }
 
@@ -232,7 +264,7 @@ pub fn load(session: &Session) -> Investigation {
     if let Some(d) = dir(session) {
         return std::fs::read(d.join("state.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
     }
-    session.ext.get::<Slot>().map(|s| s.lock().unwrap_or_else(PoisonError::into_inner).clone()).unwrap_or_default()
+    cached(session)
 }
 
 struct UpdateLock {

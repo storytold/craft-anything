@@ -46,7 +46,7 @@ pub mod usage;
 pub mod widgets;
 pub mod workbench;
 
-use craft_anything_ai::{AgentEvent, AiHub, BackendConfig, Conversation, Detected};
+use craft_anything_ai::{AgentEvent, AiHub, BackendConfig, BackendEntry, BackendOptions, Conversation, Detected};
 use craft_anything_engine::evidence::{ErrorCode, Evidence, ToolError, Unknown};
 use craft_anything_engine::tools::site_sign_in::{self, SIGN_IN_TOOL, SIGN_OUT_TOOL};
 use craft_anything_engine::{CallOptions, Caller, Consent, Engine, Mode, Settings, TargetKind, ToolOutput, clean_room};
@@ -268,6 +268,9 @@ pub enum Done {
         /// address. A list of models to choose from belongs to this address, not to whatever the
         /// form shows when the answer arrives.
         address: String,
+        /// The remote command submitted with the add, trimmed; `None` when it carried none. A
+        /// draft edited while the SSH check runs is newer than this and must not be cleared.
+        submitted_command: Option<String>,
     },
     /// The projects folder was listed.
     Projects(Vec<craft_anything_engine::workspace::Workspace>),
@@ -593,6 +596,9 @@ pub struct CraftApp {
     pub ghidra: engine_ui::GhidraFlow,
     /// When each toast appeared, in the same order (confirmations hide after a few seconds).
     toast_at: Vec<Instant>,
+    /// Whether a text field had keyboard focus as the last frame ended. egui lets go of focus on
+    /// Esc as a frame begins, before [`Self::shortcuts`] runs, so that frame can't ask (#2434).
+    text_was_focused: bool,
     /// Distinguish repeated error occurrences without changing the persisted toast representation.
     pub(crate) toast_error_revision: u64,
     settings_dirty: bool,
@@ -715,6 +721,7 @@ impl CraftApp {
             engine_flow: Default::default(),
             ghidra: Default::default(),
             toast_at: Vec::new(),
+            text_was_focused: false,
             toast_error_revision: 0,
             settings_dirty: false,
             save_due: None,
@@ -1476,12 +1483,19 @@ impl CraftApp {
     }
 
     pub fn add_backend(&mut self, config: BackendConfig, key: Option<String>) {
+        self.add_backend_with_options(config, BackendOptions::default(), key);
+    }
+
+    /// Add a backend with options (an SSH agent's remote command), cancellable with its job.
+    pub fn add_backend_with_options(&mut self, config: BackendConfig, options: BackendOptions, key: Option<String>) {
         let hub = self.hub.clone();
         let name = config.name.clone();
         let choices = self.backend_choices;
-        self.jobs.spawn(i18n::trf("Connect {name}", &[("name", &name)]), true, move |_| {
-            let result = hub.add_backend(config, key);
-            Ok(Done::BackendAdded { name, result, choices, address: String::new() })
+        let submitted_command = options.command.as_deref().map(str::trim).filter(|c| !c.is_empty()).map(str::to_string);
+        self.jobs.spawn(i18n::trf("Connect {name}", &[("name", &name)]), true, move |j| {
+            let entry = BackendEntry { config, options };
+            let result = hub.add_backend_with_until(entry, key, &j.cancel);
+            Ok(Done::BackendAdded { name, result, choices, address: String::new(), submitted_command })
         });
     }
 
@@ -1901,12 +1915,17 @@ impl CraftApp {
                     self.toast(error.for_people(), true);
                 }
             },
-            Done::BackendAdded { name, result, choices, address } => match result {
+            Done::BackendAdded { name, result, choices, address, submitted_command } => match result {
                 Ok(()) => {
                     if self.server_form.name.trim() == name {
                         self.server_form = ServerForm::default();
                     }
                     self.toast(i18n::trf("{name} is ready", &[("name", &name)]), false);
+                    // Clear only the draft this add sent: a command edited while the check ran is
+                    // newer and stays.
+                    if self.state.remote_commands.get(&name).is_some_and(|draft| draft.trim() == submitted_command.as_deref().unwrap_or("")) {
+                        self.state.remote_commands.remove(&name);
+                    }
                     // Picking another AI (or none) while this one connected wins.
                     if choices == self.backend_choices {
                         self.select_backend(Some(name));
@@ -2131,6 +2150,12 @@ impl CraftApp {
 
     /// Draw the whole interface.
     pub fn show(&mut self, ui: &mut egui::Ui) {
+        self.draw(ui);
+        // Read after drawing, on every path out of it: the next frame's Esc needs it.
+        self.text_was_focused = ui.ctx().text_edit_focused();
+    }
+
+    fn draw(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -2326,8 +2351,10 @@ impl CraftApp {
                 home::dismiss(self);
             } else if self.state.settings_open {
                 self.state.settings_open = false;
-            } else if !matches!(self.state.screen, Screen::Home | Screen::Workbench) && ctx.memory(|m| m.focused().is_none()) {
-                // Back to Home, unless Esc was meant for a text field.
+            } else if !matches!(self.state.screen, Screen::Home | Screen::Workbench) && !self.text_was_focused {
+                // Back to Home, unless Esc was meant for a text field. egui has already let go of
+                // the field's focus this frame, so ask the last one; the field keeps its text,
+                // and a second Esc, with nothing focused, goes home.
                 self.state.screen = Screen::Home;
             }
         }

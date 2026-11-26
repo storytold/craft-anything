@@ -751,8 +751,9 @@ pub fn godot_embedded(program: &[u8], pack: &[u8]) -> Vec<u8> {
 /// The shape of a test IL2CPP metadata file.
 pub struct Il2cppSample {
     pub version: i32,
+    /// 256 or 264; 380 for version 39, which also takes its other shapes from the version.
     pub header_size: u32,
-    /// 88 from version 27 on; 92 for later 24.x files.
+    /// 88 from version 27 on; 92 for later 24.x files; 82 for version 39.
     pub type_size: usize,
     /// 32, or 36 with a return-parameter token.
     pub method_size: usize,
@@ -762,6 +763,9 @@ pub struct Il2cppSample {
 /// Game.Enemy, Game.Player), four methods (Enemy.Update; Player..ctor, Player.Update,
 /// Player.TakeDamage), seven fields and three string literals ("Hello, player", "Game over", "").
 pub fn il2cpp_metadata(s: &Il2cppSample) -> Vec<u8> {
+    if s.version == 39 {
+        return il2cpp_metadata_39(s);
+    }
     let mut strings = Vec::new();
     let mut name = |text: &str| {
         let at = strings.len() as u32;
@@ -844,6 +848,95 @@ pub fn il2cpp_metadata(s: &Il2cppSample) -> Vec<u8> {
                 let offset = out.len() as u32;
                 out[at..at + 4].copy_from_slice(&offset.to_le_bytes());
             }
+        }
+    }
+    out
+}
+
+/// [`il2cpp_metadata`] in version 39's shape: a 31-section header that also counts each section's
+/// records, literals found by their start offsets, and two-byte type indexes.
+fn il2cpp_metadata_39(s: &Il2cppSample) -> Vec<u8> {
+    let mut strings = Vec::new();
+    let mut name = |text: &str| {
+        let at = strings.len() as u32;
+        strings.extend_from_slice(text.as_bytes());
+        strings.push(0);
+        at
+    };
+    let empty = name("");
+    let images_named = [name("mscorlib.dll"), name("Assembly-CSharp.dll")];
+    let game = name("Game");
+    let types_named = [(name("<Module>"), empty), (name("Enemy"), game), (name("Player"), game)];
+    let methods_named = [name("Update"), name(".ctor"), name("Update"), name("TakeDamage")];
+
+    let put = |rec: &mut [u8], at: usize, v: u32| rec[at..at + 4].copy_from_slice(&v.to_le_bytes());
+    let put16 = |rec: &mut [u8], at: usize, v: u16| rec[at..at + 2].copy_from_slice(&v.to_le_bytes());
+
+    // Each literal runs from its start to the next; the last start is where the data ends.
+    let (mut literals, mut literal_data) = (Vec::new(), Vec::new());
+    for text in ["Hello, player", "Game over", ""] {
+        literals.extend_from_slice(&(literal_data.len() as u32).to_le_bytes());
+        literal_data.extend_from_slice(text.as_bytes());
+    }
+    literals.extend_from_slice(&(literal_data.len() as u32).to_le_bytes());
+
+    // The declaring type is a two-byte index.
+    let mut methods = Vec::new();
+    for (i, (named, owner, params, flags)) in [(0usize, 1u16, 0u16, 0x81u16), (1, 2, 0, 0x1886), (2, 2, 0, 0x81), (3, 2, 2, 0x86)].iter().enumerate() {
+        let mut rec = vec![0u8; s.method_size];
+        put(&mut rec, 0, methods_named[*named]);
+        put16(&mut rec, 4, *owner);
+        put(&mut rec, 20, 0x0600_0001 + i as u32);
+        put16(&mut rec, 24, *flags);
+        put16(&mut rec, 30, *params);
+        methods.extend_from_slice(&rec);
+    }
+
+    let mut types = Vec::new();
+    for (i, (start, count, fields, flags)) in [(-1i32, 0u16, 0u16, 0u32), (0, 1, 2, 1), (1, 3, 5, 0x0010_0001)].iter().enumerate() {
+        let mut rec = vec![0u8; s.type_size];
+        put(&mut rec, 0, types_named[i].0);
+        put(&mut rec, 4, types_named[i].1);
+        put(&mut rec, 22, *flags);
+        put(&mut rec, 30, *start as u32);
+        put16(&mut rec, 58, *count);
+        put16(&mut rec, 62, *fields);
+        put(&mut rec, 78, 0x0200_0001 + i as u32);
+        types.extend_from_slice(&rec);
+    }
+
+    let mut images = Vec::new();
+    for (i, (start, count)) in [(0u16, 1u16), (1, 2)].iter().enumerate() {
+        let mut rec = vec![0u8; 36];
+        put(&mut rec, 0, images_named[i]);
+        put(&mut rec, 4, i as u32);
+        put16(&mut rec, 8, *start);
+        put16(&mut rec, 10, *count);
+        images.extend_from_slice(&rec);
+    }
+    let assemblies = vec![0u8; 2 * 68];
+
+    // (section, bytes, record size); those not read here stay empty.
+    let parts: [(usize, &[u8], usize); 7] = [
+        (0, &literals, 4),
+        (1, &literal_data, 1),
+        (2, &strings, 1),
+        (5, &methods, s.method_size),
+        (19, &types, s.type_size),
+        (20, &images, 36),
+        (21, &assemblies, 68),
+    ];
+    let mut out = vec![0u8; s.header_size as usize];
+    out[0..4].copy_from_slice(&0xFAB1_1BAFu32.to_le_bytes());
+    out[4..8].copy_from_slice(&s.version.to_le_bytes());
+    for i in 0..31 {
+        let at = 8 + i * 12;
+        let offset = out.len() as u32;
+        out[at..at + 4].copy_from_slice(&offset.to_le_bytes());
+        if let Some((_, bytes, record)) = parts.iter().find(|(which, _, _)| *which == i) {
+            out[at + 4..at + 8].copy_from_slice(&(bytes.len() as u32).to_le_bytes());
+            out[at + 8..at + 12].copy_from_slice(&((bytes.len() / record) as u32).to_le_bytes());
+            out.extend_from_slice(bytes);
         }
     }
     out

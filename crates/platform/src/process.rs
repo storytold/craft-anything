@@ -654,6 +654,20 @@ impl RunningProcess {
         self.result.is_some()
     }
 
+    /// Ask the program to close, wait at most `grace` for it to end, then kill the whole group and
+    /// wait as [`RunningProcess::kill_and_wait`] does. A helper the program had launchd start isn't
+    /// in its group, so only the program's own quit can stop it before it's left holding the
+    /// program's files. `owner` is the process in its group that should be asked, when that isn't
+    /// the one started (a launcher's child that owns the window); `None` asks the one started.
+    /// Only that process is asked, so a launcher waiting on it doesn't end first, which would
+    /// kill the group before its shutdown is done. Returns whether the end was confirmed in time.
+    pub fn close_and_wait(&mut self, owner: Option<u32>, grace: Duration, d: Duration) -> bool {
+        if !self.is_finished() && ask_to_close(owner.unwrap_or(self.pid)) {
+            self.pull(Some(grace));
+        }
+        self.kill_and_wait(d)
+    }
+
     fn pull(&mut self, block: Option<Duration>) {
         if self.result.is_some() {
             return;
@@ -699,6 +713,32 @@ impl RunningProcess {
         self.pull(Some(d));
         self.result.as_ref()
     }
+}
+
+/// An app quits as if the person chose Quit; anything else gets SIGTERM. Returns whether the
+/// request went out.
+#[cfg(target_os = "macos")]
+fn ask_to_close(pid: u32) -> bool {
+    let app = i32::try_from(pid).ok().and_then(objc2_app_kit::NSRunningApplication::runningApplicationWithProcessIdentifier);
+    app.is_some_and(|app| app.terminate()) || terminate(pid)
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn ask_to_close(pid: u32) -> bool {
+    terminate(pid)
+}
+
+/// Asking on Windows means posting WM_CLOSE to the program's windows, which needs `unsafe` and the
+/// workspace forbids it, so the program is killed straight away (ROADMAP R2.4).
+#[cfg(windows)]
+fn ask_to_close(_pid: u32) -> bool {
+    false
+}
+
+#[cfg(unix)]
+fn terminate(pid: u32) -> bool {
+    use nix::sys::signal::{Signal, kill};
+    i32::try_from(pid).is_ok_and(|pid| kill(nix::unistd::Pid::from_raw(pid), Signal::SIGTERM).is_ok())
 }
 
 impl Drop for RunningProcess {
@@ -1981,6 +2021,48 @@ mod tests {
         let out = Process::new("cat").timeout(Duration::from_secs(5)).run().unwrap();
         assert!(out.success);
         assert!(out.stdout.is_empty());
+    }
+
+    /// R2.4: a pictured program was killed outright, so it never got to stop what it started
+    /// outside its group. Asked to close, it runs its own shutdown before the kill.
+    #[test]
+    fn a_program_asked_to_close_runs_its_shutdown_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let tidied = dir.path().join("tidied");
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut p = Process::new("sh")
+            .args(["-c", "trap ': > tidied; exit 0' TERM; echo ready; while :; do sleep 1; done"])
+            .cwd(dir.path())
+            .on_stdout_line(move |l| {
+                let _ = tx.send(l.to_string());
+            })
+            .spawn()
+            .unwrap();
+        assert_eq!(rx.recv_timeout(Duration::from_secs(20)).ok().as_deref(), Some("ready"));
+        assert!(p.close_and_wait(None, Duration::from_secs(10), Duration::from_secs(5)));
+        assert!(tidied.exists(), "it was killed before it could run its shutdown");
+    }
+
+    /// The window's owner can be a launcher's child: it's the one asked, and the launcher, which
+    /// waits for it, doesn't end first and take the group (and the child's shutdown) with it.
+    #[test]
+    fn a_launchers_child_asked_to_close_runs_its_shutdown_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let tidied = dir.path().join("tidied");
+        let (tx, rx) = std::sync::mpsc::channel();
+        let child = "trap 'sleep 1; : > tidied; exit 0' TERM; echo \\$\\$; while :; do sleep 1; done";
+        let mut p = Process::new("sh")
+            .args(["-c", &format!("sh -c \"{child}\" & wait")])
+            .cwd(dir.path())
+            .on_stdout_line(move |l| {
+                let _ = tx.send(l.to_string());
+            })
+            .spawn()
+            .unwrap();
+        let owner: u32 = rx.recv_timeout(Duration::from_secs(20)).unwrap().trim().parse().unwrap();
+        assert_ne!(owner, p.pid(), "the child is another process");
+        assert!(p.close_and_wait(Some(owner), Duration::from_secs(10), Duration::from_secs(5)));
+        assert!(tidied.exists(), "it was killed before it could run its shutdown");
     }
 
     #[test]
