@@ -531,5 +531,4 @@ mod limit_tests {
         std::fs::write(&small, b"ok").unwrap();
         assert_eq!(read_admitted_with(&small, MAX_TARGET_BYTES, Some(4 * GIB)).unwrap(), b"ok");
     }
-
 }
