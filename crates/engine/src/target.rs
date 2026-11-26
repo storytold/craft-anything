@@ -101,23 +101,6 @@ fn mem_available(meminfo: &str) -> Option<u64> {
     kib.checked_mul(1024)
 }
 
-/// SHA-256 of a file, read in pieces so a big file isn't held in memory a second time.
-pub fn sha256_file(path: &Path) -> Result<String, ToolError> {
-    use sha2::Digest as _;
-    use std::io::Read as _;
-    let (mut file, _) = craft_anything_platform::fs::open_regular_file(path)?;
-    let mut hasher = sha2::Sha256::new();
-    let mut buf = vec![0u8; 1 << 20];
-    loop {
-        let n = file.read(&mut buf).map_err(|e| ToolError::io(path.display(), e))?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(buf.get(..n).unwrap_or_default());
-    }
-    Ok(hex::encode(hasher.finalize()))
-}
-
 pub type TargetId = String;
 
 /// Metadata handed to an agent's MCP session. No file contents or caches cross the command
@@ -397,9 +380,8 @@ impl Target {
         if self.kind == TargetKind::Directory {
             return Ok(());
         }
-        // Hashed in pieces: re-reading a big target whole would hold it in memory twice more.
-        match sha256_file(&self.path) {
-            Ok(h) if h == self.sha256 => Ok(()),
+        match craft_anything_platform::fs::read_file_capped(&self.path, MAX_TARGET_BYTES) {
+            Ok(b) if sha256_hex(&b) == self.sha256 => Ok(()),
             Ok(_) => Err(ToolError::new(ErrorCode::FileChanged, format!("{} changed on disk since it was opened", self.path.display()))
                 .with_remediation("Open it again to analyse the new version.")),
             Err(e) => Err(e),
@@ -550,12 +532,4 @@ mod limit_tests {
         assert_eq!(read_admitted_with(&small, MAX_TARGET_BYTES, Some(4 * GIB)).unwrap(), b"ok");
     }
 
-    #[test]
-    fn a_file_is_hashed_in_pieces_the_same_as_whole() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("f.bin");
-        let bytes: Vec<u8> = (0..3_000_000u32).map(|i| (i % 251) as u8).collect();
-        std::fs::write(&path, &bytes).unwrap();
-        assert_eq!(sha256_file(&path).unwrap(), sha256_hex(&bytes));
-    }
 }
