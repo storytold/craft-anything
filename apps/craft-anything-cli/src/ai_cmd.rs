@@ -1,5 +1,3 @@
-// Modifications (c) 2026 SuperSfera LLC, MIT OR Apache-2.0.
-
 //! `chat` and `ai list|detect|add|test`.
 
 use crate::output::Format;
@@ -59,7 +57,7 @@ pub enum AiCommand {
         #[arg(long)]
         acp: bool,
     },
-    /// Make local AI the default (slava/local): add Lemonade and LM Studio if they answer, use
+    /// Make local AI the default: add Lemonade and LM Studio if they answer, use
     /// them for every role, turn on `local_first` (no cloud backend is picked implicitly), and
     /// optionally add Grok Build as the builder to fall back to.
     UseLocal {

@@ -1,5 +1,3 @@
-// Modifications (c) 2026 SuperSfera LLC, MIT OR Apache-2.0.
-
 //! The `[ai]` table of `config.toml`: backends, roles, the fallback chain and price overrides.
 //!
 //! ```toml
@@ -312,10 +310,9 @@ pub struct AiConfig {
     /// prompt caching survives restarts (and tests stay inside their own settings file).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub install_id: Option<String>,
-    /// slava/local: when on, a role with no backend chosen goes to a local OpenAI-compatible
-    /// server (this computer or its network: Lemonade, LM Studio, Ollama…), never implicitly to a
-    /// cloud API or an agent app. Those run only when named in `roles` or `fallback_chain`.
-    /// Off by default, so upstream behaviour is unchanged until `ai use-local` turns it on.
+    /// When on, a role with no backend chosen goes to a local OpenAI-compatible server (this
+    /// computer or its network), never implicitly to a cloud API or an agent app. Those run only
+    /// when named in `roles` or `fallback_chain`. Off by default.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub local_first: bool,
 }
@@ -629,7 +626,7 @@ mod local_first_tests {
     }
 
     #[test]
-    fn off_by_default_and_upstream_choices_are_unchanged() {
+    fn off_by_default_and_the_usual_choices_are_unchanged() {
         let cfg = mixed();
         assert!(!cfg.local_first);
         assert_eq!(cfg.backend_for(Role::Lead).unwrap().config.name, "Claude");

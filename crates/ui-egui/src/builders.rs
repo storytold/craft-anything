@@ -1,5 +1,3 @@
-// Modifications (c) 2026 SuperSfera LLC, MIT OR Apache-2.0.
-
 //! Who builds: the AIs that can build, the one that builds by default, the choice on Make
 //! ("Built by"), and the dialog when nothing can build yet. One rule decides "can it build?"
 //! ([`craft_anything_ai::default_builder`]), so the Make screen's warning and Start agree.
@@ -145,14 +143,17 @@ impl CraftApp {
         self.default_builder().is_some()
     }
 
-    /// What a build is given. `None` means nothing can build. `Some(None)` means the person didn't
-    /// choose and `local_first` is on: the build picks the first server that answers, instead of
-    /// being pinned to the name [`Self::default_builder`] shows. Any other automatic choice, and
-    /// every choice the person made, is `Some(Some(name))`.
+    /// What a build is given. `None` means nothing can build. `Some(None)` means no available
+    /// choice was named and `local_first` is on: the build picks the first server that answers,
+    /// instead of being pinned to the name [`Self::default_builder`] shows. A choice the person
+    /// made that is still available is `Some(Some(name))`, as is any automatic choice while
+    /// `local_first` is off.
     pub fn build_with(&mut self, wanted: Option<&str>) -> Option<Option<String>> {
         let explicit = wanted.map(str::trim).filter(|name| !name.is_empty());
+        let local_first = self.hub.config().local_first;
         let resolved = self.builder_backend(explicit)?;
-        if explicit.is_none() && self.local_builders.is_some() { Some(None) } else { Some(Some(resolved)) }
+        let kept = explicit.is_some_and(|name| self.builder_choices().iter().any(|c| c.name == name));
+        if !kept && local_first { Some(None) } else { Some(Some(resolved)) }
     }
 
     /// Resolve the saved choice or the default before a build commits it.
@@ -544,7 +545,7 @@ mod local_first_tests {
         app.hub.add_backend(backend("Lemonade", BackendKind::OpenaiCompatible, "qwen", Some("http://127.0.0.1:13305/v1")), None).unwrap();
         app.backends = app.hub.backends();
         app.local_builders = crate::local_builders(&app.hub.config());
-        assert_eq!(app.default_builder().as_deref(), Some("Claude Code"), "upstream rule while local_first is off");
+        assert_eq!(app.default_builder().as_deref(), Some("Claude Code"), "the usual rule while local_first is off");
         assert_eq!(app.build_with(None), Some(Some("Claude Code".into())));
 
         let mut cfg = app.hub.config();
@@ -555,6 +556,7 @@ mod local_first_tests {
         assert_eq!(app.default_builder().as_deref(), Some("Lemonade"));
         assert_eq!(app.build_with(None), Some(None), "nothing chosen: the build selects a server that answers");
         assert_eq!(app.build_with(Some("Claude Code")), Some(Some("Claude Code".into())));
+        assert_eq!(app.build_with(Some("Gone")), Some(None), "a saved name that is not available is chosen when the build starts");
         assert_eq!(app.default_builder().as_deref(), Some("Lemonade"), "the hint still names the default");
         assert!(app.can_build());
 

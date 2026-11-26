@@ -20,6 +20,15 @@ use std::path::{Path, PathBuf};
 
 // ---- controller -------------------------------------------------------------------------------
 
+/// A build waiting for its builder to be chosen off the window thread.
+pub(crate) struct PendingBuilder {
+    pub job: u64,
+    pub ws: Workspace,
+    pub opts: RunOptions,
+    /// The open project: the screen moves to it when the choice comes back.
+    pub foreground: bool,
+}
+
 impl CraftApp {
     pub fn refresh_projects(&mut self) {
         let locations = self.settings.project_locations();
@@ -201,6 +210,10 @@ impl CraftApp {
     }
 
     fn start_run_with(&mut self, ws: Workspace, opts: RunOptions) {
+        if self.defers_builder_choice(&ws, &opts) {
+            self.choose_builder(ws, opts, true);
+            return;
+        }
         self.preview = None;
         self.state.screen = Screen::Project;
         match self.launch(ws.clone(), opts) {
@@ -210,6 +223,50 @@ impl CraftApp {
         }
         self.workspace = Some(ws);
         self.refresh_projects();
+    }
+
+    /// An unnamed local-first build has to see which server answers. That opens TCP connections,
+    /// and an SSH tunnel when the server is on another computer, so it runs on a worker. The
+    /// window reads the name and only then starts the run.
+    fn defers_builder_choice(&self, ws: &Workspace, opts: &RunOptions) -> bool {
+        opts.backend.is_none() && self.hub.config().local_first && rebuild::project_builder(&self.hub.config(), ws).is_none()
+    }
+
+    fn choose_builder(&mut self, ws: Workspace, opts: RunOptions, foreground: bool) {
+        let root = ws.root.clone();
+        if self.pending_builder.iter().any(|p| p.ws.root == root) {
+            return;
+        }
+        let cfg = self.hub.config();
+        let job = self.jobs.spawn(tr("Choose a builder"), false, move |_| {
+            let entry = rebuild::builder_backend(&cfg, None).map_err(|e| e.for_people())?;
+            Ok(Done::BuilderChosen { name: entry.config.name })
+        });
+        self.pending_builder.push(PendingBuilder { job, ws, opts, foreground });
+    }
+
+    pub(crate) fn finish_builder_choice(&mut self, pending: PendingBuilder, name: Result<String, String>) {
+        let PendingBuilder { ws, mut opts, foreground, .. } = pending;
+        match name {
+            Ok(name) => {
+                opts.backend = Some(name);
+                if foreground {
+                    self.start_run_with(ws, opts);
+                } else if let Err(e) = self.launch(ws, opts) {
+                    self.toast(e.message, true);
+                }
+            }
+            Err(message) => {
+                if foreground {
+                    self.preview = None;
+                    self.state.screen = Screen::Project;
+                    self.workspace = Some(ws);
+                    self.state.feed.push(FeedItem::Error { message, remediation: None, log: None });
+                } else {
+                    self.toast(message, true);
+                }
+            }
+        }
     }
 
     /// Show a project: a building one's conversation comes from its run, any other's from what
@@ -391,7 +448,9 @@ impl CraftApp {
                 let Ok(ws) = Workspace::open(&root) else { continue };
                 let Some(backend) = self.build_with(ws.manifest.builder.as_deref()) else { continue };
                 let opts = self.run_options(backend, Some(message), Some(shown), pictures);
-                if let Err(e) = self.launch(ws, opts) {
+                if self.defers_builder_choice(&ws, &opts) {
+                    self.choose_builder(ws, opts, false);
+                } else if let Err(e) = self.launch(ws, opts) {
                     self.toast(e.message, true);
                 }
             }
@@ -2658,6 +2717,45 @@ mod tests {
         assert!(saved.generate_assets, "the saved asset setting is kept");
         assert_eq!(saved.stack, "Godot", "the saved stack is kept");
         app.runs.stop_all();
+    }
+
+    /// Choosing which local server answers opens ports, so the click returns before the run starts.
+    #[test]
+    fn an_unnamed_local_builder_is_chosen_off_the_window_thread() {
+        let d = tempfile::tempdir().unwrap();
+        let ws = Workspace::create(d.path(), "Notes", "A notes app", TargetRef::None).unwrap();
+        let mut app = crate::demo::app(crate::demo::engine(craft_anything_engine::Mode::Beginner, true));
+        let local = craft_anything_ai::BackendConfig {
+            name: "Lemonade".into(),
+            kind: craft_anything_ai::BackendKind::OpenaiCompatible,
+            model: "qwen".into(),
+            base_url: Some("http://127.0.0.1:9/v1".into()),
+            ssh_host: None,
+            enabled: true,
+        };
+        app.backends = vec![local.clone()];
+        let mut cfg = craft_anything_ai::AiConfig { local_first: true, ..Default::default() };
+        cfg.upsert(craft_anything_ai::BackendEntry { config: local, options: Default::default() });
+        app.hub.save_config(&cfg).unwrap();
+        let seen = std::sync::Arc::new(craft_anything_platform::sync::Mutex::new(None));
+        let seen_in = seen.clone();
+        let mut inner = craft_anything_ai::rebuild::StandIns::new().starter();
+        app.runs = craft_anything_ai::rebuild::RunSet::new(1).with_starter(Box::new(move |hub, ws, opts| {
+            *seen_in.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = opts.backend.clone();
+            inner(hub, ws, opts)
+        }));
+        app.workspace = Some(ws.clone());
+        app.continue_build();
+        assert_eq!(app.pending_builder.len(), 1, "the choice is still running when the click returns");
+        assert!(seen.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_none(), "the run has not started on the window thread");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while app.pending_builder.len() == 1 && std::time::Instant::now() < deadline {
+            app.take_finished_jobs();
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(app.pending_builder.is_empty(), "the window read the worker's choice");
+        assert_eq!(seen.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_deref(), Some("Lemonade"));
+        assert!(app.runs.is_running(&ws.root));
     }
 }
 

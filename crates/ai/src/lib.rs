@@ -1,5 +1,3 @@
-// Modifications (c) 2026 SuperSfera LLC, MIT OR Apache-2.0.
-
 //! AI backends, the agent loop and crews.
 //!
 //! The UI talks to this crate only through [`AiHub`] and [`Conversation`]: start a conversation,
@@ -420,7 +418,7 @@ fn forwarded_service_answers(port: u16) -> bool {
 
 /// Whether a backend can start right now, without sending it anything: a local server's port
 /// answers, an agent app's program is found, a cloud API is switched on. Used to pick the first
-/// working builder from the fallback chain (slava/local).
+/// working builder from the fallback chain.
 pub fn backend_reachable(b: &BackendEntry) -> bool {
     if !b.config.enabled {
         return false;
@@ -752,7 +750,7 @@ impl AiHub {
         self.save_config(&cfg)
     }
 
-    /// slava/local: make local AI the default. `servers` (already added, in order of preference)
+    /// Make local AI the default. `servers` (already added, in order of preference)
     /// become lead, worker and builder; the rest of them, then `fallback` (say Grok Build), form
     /// the fallback chain; `local_first` is turned on so nothing cloud is chosen implicitly.
     pub fn use_local(&self, servers: &[String], fallback: &[String]) -> Result<AiConfig, ToolError> {

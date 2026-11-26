@@ -29,5 +29,3 @@ Rust crates are listed with their licences in the third-party licence bundle shi
 release (see docs/licences.md).
 
 Builds made with craft-fonts (CRAFT_FONTS_DIR) also embed the fonts listed in ATTRIBUTION.md.
-
-Modifications in branch slava/local: Copyright (c) 2026 SuperSfera LLC, licensed under MIT OR Apache-2.0.

@@ -1,5 +1,3 @@
-// Modifications (c) 2026 SuperSfera LLC, MIT OR Apache-2.0.
-
 //! OpenAI chat completions (and every OpenAI-compatible server: OpenRouter, Ollama, LM Studio,
 //! llama.cpp, vLLM…): streaming, function tools, and a ReAct text fallback for models without
 //! tool calling.
@@ -58,7 +56,7 @@ pub const LOCAL_SERVERS: &[(&str, &str)] = &[
     ("LM Studio", "http://127.0.0.1:1234/v1"),
     ("llama.cpp server", "http://127.0.0.1:8080/v1"),
     ("vLLM", "http://127.0.0.1:8000/v1"),
-    // slava/local: Lemonade Server (lemond); 13305 is the port this setup uses (8000 upstream).
+    // Lemonade Server (lemond), on the port its local setup listens on.
     ("Lemonade", "http://127.0.0.1:13305/v1"),
 ];
 
