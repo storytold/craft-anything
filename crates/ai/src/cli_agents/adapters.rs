@@ -1,5 +1,3 @@
-// Modifications (c) 2026 SuperSfera LLC, MIT OR Apache-2.0.
-
 //! How each agent CLI is driven: its arguments, the flags it must have, how its output stream
 //! reads, and anything it needs before a run (a sign-in check). Each is an [`AgentAdapter`]; an
 //! [`AgentAdapters`] registry maps agent ids to them, and an agent it doesn't know gets the plain

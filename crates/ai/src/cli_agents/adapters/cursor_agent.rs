@@ -1,10 +1,8 @@
-// Copyright (c) 2026 SuperSfera LLC. Licensed under MIT OR Apache-2.0.
-
-//! Cursor Agent (`cursor-agent acp`), ported from upstream PR #735 to v0.6.1 (slava/local).
+//! Cursor Agent (`cursor-agent acp`).
 //!
-//! Upstream registers it under the id and program `agent`. Grok Build also installs a program
-//! named `agent`, so here the id and default program are `cursor-agent` (Cursor installs both
-//! names), `command` may point at either, and [`AgentIdentity`] checks `--version` before start.
+//! Grok Build also installs a program named `agent`, so the id and default program are
+//! `cursor-agent` (the install provides both names). `command` may point at either, and
+//! [`AgentIdentity`] checks `--version` before start.
 
 use super::*;
 

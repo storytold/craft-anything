@@ -1,5 +1,3 @@
-// Modifications (c) 2026 SuperSfera LLC, MIT OR Apache-2.0.
-
 //! Agents that speak the Agent Client Protocol (ACP: JSON-RPC 2.0, one message per line on the
 //! agent's stdin/stdout) as one more [`Conversation`]. One agent process serves the whole chat:
 //! `initialize`, then `session/new` (or `session/load` to continue) with our MCP server, then one
@@ -1910,9 +1908,9 @@ printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt
     }
 }
 
-/// slava/local: Cursor over ACP (ported from #735) and telling `agent` binaries apart.
+/// Cursor over ACP, and telling `agent` binaries apart.
 #[cfg(test)]
-mod slava_cursor_tests {
+mod cursor_acp_tests {
     use super::*;
     use std::path::Path;
 

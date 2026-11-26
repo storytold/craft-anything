@@ -1,5 +1,3 @@
-// Modifications (c) 2026 SuperSfera LLC, MIT OR Apache-2.0.
-
 //! The person's installed Grok Build CLI, driven over ACP (`grok agent stdio`). Sign-in stays in
 //! `grok login`. Craft Anything checks that an auth file exists and does not read it.
 

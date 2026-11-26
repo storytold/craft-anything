@@ -1,5 +1,3 @@
-// Modifications (c) 2026 SuperSfera LLC, MIT OR Apache-2.0.
-
 //! Agent CLIs (Claude Code, Codex, Gemini CLI, OpenCode, Hermes…) run as owned subprocesses with
 //! our MCP server, optionally on another machine over ssh. Their JSON event streams become
 //! [`AgentEvent`]s.
