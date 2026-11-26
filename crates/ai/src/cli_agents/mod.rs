@@ -2485,7 +2485,7 @@ mod tests {
         let pos = |f: &str| a.iter().position(|x| x == f).unwrap();
         assert_eq!(a[pos("--output-format") + 1], "stream-json");
         assert!(a.contains(&"--verbose".to_string()));
-        assert_eq!(a[pos("--tools") + 1], "", "built-in tools are opt-in");
+        assert_eq!(a[pos("--tools") + 1], "ToolSearch", "built-in tools are opt-in; ToolSearch only defers our tools' schemas");
         for access in [Access::Build, Access::CleanRoomBuild] {
             let builder = build_args(adapter_for("claude-code").as_ref(), &BackendOptions::default(), "build it", "PRE", &mcp(), None, access);
             let builder_pos = builder.iter().position(|x| x == "--tools").unwrap();
@@ -2494,6 +2494,8 @@ mod tests {
             assert!(tools.split(',').any(|tool| tool == "Write"), "{access:?}: {tools}");
             // #1105: a Deep builder can start subagents; Clean room keeps them out.
             assert_eq!(tools.split(',').any(|tool| tool == "Agent"), access == Access::Build, "{access:?}: {tools}");
+            // Without ToolSearch, Claude Code puts every MCP tool's schema into every turn.
+            assert!(tools.split(',').any(|tool| tool == "ToolSearch"), "{access:?}: {tools}");
         }
         assert_eq!(a[pos("--resume") + 1], "sess-1");
         assert_eq!(a[pos("--allowedTools") + 1], "mcp__craft-anything__*");

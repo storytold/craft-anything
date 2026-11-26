@@ -501,10 +501,12 @@ impl AgentAdapter for ClaudeCode {
         }
         // Deep builders keep subagents (#1105): a subagent has only these tools and the session's
         // permissions. Clean room leaves them out, since its reads must all reach our approval tool.
+        // ToolSearch reads nothing and grants nothing: it lets Claude Code load our tools' schemas
+        // when they're needed. Left out, every schema goes into every turn's context.
         let tools = match (cx.builder, cx.reads_checked) {
-            (true, false) => "Bash,PowerShell,Read,Write,Edit,MultiEdit,Glob,Grep,TodoWrite,NotebookEdit,Agent",
-            (true, true) => "Bash,PowerShell,Read,Write,Edit,MultiEdit,Glob,Grep,TodoWrite,NotebookEdit",
-            (false, _) => "",
+            (true, false) => "Bash,PowerShell,Read,Write,Edit,MultiEdit,Glob,Grep,TodoWrite,NotebookEdit,Agent,ToolSearch",
+            (true, true) => "Bash,PowerShell,Read,Write,Edit,MultiEdit,Glob,Grep,TodoWrite,NotebookEdit,ToolSearch",
+            (false, _) => "ToolSearch",
         };
         a.extend(["--tools".into(), tools.into()]);
         if cx.builder {
