@@ -1031,7 +1031,7 @@ impl<'a> D<'a> {
     /// A whole type as the operand of a witness accessor. A module, a name, a member or another
     /// global (a metadata or witness symbol) before it is not one.
     fn witness_type(&mut self) -> R<N> {
-        if matches!(self.stack.last(), Some(N::Global { .. } | N::Entity { .. } | N::Conformance { .. } | N::Extension { .. })) {
+        if matches!(self.stack.last(), Some(N::Global { .. } | N::Entity { .. } | N::Conformance { .. } | N::Extension { .. } | N::OpaqueDecl(_))) {
             return Err("witness operand is not a type".into());
         }
         self.pop_type()
@@ -1083,6 +1083,20 @@ impl<'a> D<'a> {
     /// private name, then the `_` that ends it. Only the name is printed; the context is read and
     /// dropped, as `swift-demangle` prints it. A bare name, a type or module in place of the name,
     /// or any other context is rejected.
+    /// `Tb`: a type and the protocol it conforms to. `swift-demangle` prints "base conformance
+    /// descriptor for <type>: <protocol>". The type is a full type; the protocol is read with
+    /// `pop_protocol`, so a context plus a name with no `P` kind letter, or a standard
+    /// protocol such as `SH`, both work.
+    fn base_conformance_descriptor(&mut self) -> R<()> {
+        let proto = self.pop_protocol()?;
+        if !matches!(proto, N::Nominal { kind: 'P', .. }) {
+            return Err("base conformance descriptor protocol is not a protocol".into());
+        }
+        let ty = self.witness_type()?;
+        let text = format!("base conformance descriptor for {}: {}", render(&ty, 0), render(&proto, 0));
+        self.push(N::Global { prefix: text, inner: Box::new(N::EmptyList), suffix: String::new() })
+    }
+
     fn one_time_init(&mut self, what: &str) -> R<()> {
         if !matches!(self.pop()?, N::FirstMarker) {
             return Err("one-time initialization without a name marker".into());
@@ -1612,6 +1626,7 @@ impl<'a> D<'a> {
                     b'd' => "direct method reference to",
                     b'A' => "partial apply forwarder for",
                     b'm' => "merged",
+                    b'b' => return self.base_conformance_descriptor(),
                     b'W' => {
                         let entity = self.pop()?;
                         let conf = self.conformance()?;
@@ -2037,7 +2052,7 @@ fn weight(n: &N, depth: usize) -> usize {
         N::Generic { sig, ty } => weight(sig, d).saturating_add(weight(ty, d)),
         N::Entity { ctx, ty, .. } => weight(ctx, d).saturating_add(ty.as_ref().map_or(0, |t| weight(t, d))),
         N::Conformance { ty, proto, module } => weight(ty, d).saturating_add(weight(proto, d)).saturating_add(weight(module, d)),
-        N::Global { inner, .. } => weight(inner, d),
+        N::Global { inner, prefix, suffix } => weight(inner, d).saturating_add(prefix.len()).saturating_add(suffix.len()),
         _ => 0,
     };
     kids.saturating_add(1)

@@ -3919,6 +3919,9 @@ Owner: open · Status: in progress
 
 - [x] `fD` on a non-class Swift type now reads `deinit` instead of `__deallocating_deinit`: non-class contexts (structs, enums, protocols and their extensions) use `deinit`, while classes keep `__deallocating_deinit`. Example: `_$s13HomeDataModel8StreamedVfD` -> `HomeDataModel.Streamed.deinit`.
       — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-struct-deinit
+- [x] Decode Swift base conformance descriptors (`Tb`): a type and the protocol it conforms to, printed as "base conformance descriptor for <type>: <protocol>". The protocol is read with `pop_protocol`, so a context plus a name with no `P` kind letter or a standard protocol shorthand (such as `SQ` for `Swift.Equatable`) works. 3,448 symbols move from invalid to matching.
+      — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-base-conf-desc
+
 
 - [x] Take target file signatures from the shared craft-sniff table. The app still breaks ties
       that need its own parsers (managed PE, Java class versus a universal Mach-O, APK by name
