@@ -1923,6 +1923,7 @@ Gaps found while using the app for real projects.
       added, as a paste does (`workspace::attachable_picture`), before anything is copied
 - [ ] When the builder decides a question, show the question and its choice as an answered card
       in the feed (the run sees only the tool call today; the builder's words say what it chose)
+      — claimed: yasshhc, branch feature/r2.9-decided-question-cards
 - [x] A question's own cost: a forked Claude Code session reports the whole session's running
       total, so a forked answer shows none; count questions in the project's usage — a question's
       cost is what its total added since the builder's last turn, unknown without a kept total;
