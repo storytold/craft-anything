@@ -200,7 +200,7 @@ Build with {name} instead	สร้างด้วย {name} แทน
 Build without it	สร้างโดยไม่มีมัน
 Builder's questions:	คำถามของผู้สร้าง:
 Building	กำลังสร้าง
-Building needs a coding agent on this computer (Claude Code, Codex or Gemini CLI: install one and sign in to it once in its own window), or an AI with an API key. Craft Anything never sees your account.	การสร้างต้องมีเอเจนต์เขียนโค้ดบนเครื่องนี้ (Claude Code, Codex หรือ Gemini CLI: ติดตั้งและล็อกอินหนึ่งครั้งในหน้าต่างของมัน) หรือ AI ที่มี API key Craft Anything ไม่เห็นบัญชีของคุณ
+Building needs a coding agent on this computer (Claude Code, Codex or Gemini CLI: install one and sign in to it once in its own window). It uses your own subscription, so no API key is needed. Or add an AI with an API key. Craft Anything never sees your account.	การสร้างต้องมีเอเจนต์เขียนโค้ดบนเครื่องนี้ (Claude Code, Codex หรือ Gemini CLI: ติดตั้งตัวใดตัวหนึ่งแล้วล็อกอินหนึ่งครั้งในหน้าต่างของมันเอง) มันใช้แพ็กเกจที่คุณสมัครไว้เอง จึงไม่ต้องใช้ API key หรือเพิ่ม AI ที่มี API key ก็ได้ Craft Anything ไม่เคยเห็นบัญชีของคุณ
 Building needs a coding agent such as Claude Code, or an AI with an API key.	การสร้างต้องมีเอเจนต์เขียนโค้ด เช่น Claude Code หรือ AI ที่มี API key
 Builds	บิลด์
 Builds and answers may use it again.	บิลด์และคำตอบอาจใช้มันอีก
@@ -742,9 +742,9 @@ Not compared yet: {what}	ยังไม่ได้เปรียบเที�
 Not installed	ยังไม่ติดตั้ง
 Not now	ไม่ใช่ตอนนี้
 Nothing allowed yet.	ยังไม่อนุญาตอะไร
-Nothing can build yet: install Claude Code (and sign in to it once), or add an AI with an API key below.	ยังสร้างไม่ได้: ติดตั้ง Claude Code (และล็อกอินหนึ่งครั้ง) หรือเพิ่ม AI ที่มี API key ด้านล่าง
+Nothing can build yet: install Claude Code, Codex or Gemini CLI and sign in to it once (it uses your own subscription, no API key needed), or add an API key below.	ยังสร้างไม่ได้: ติดตั้ง Claude Code, Codex หรือ Gemini CLI แล้วล็อกอินหนึ่งครั้ง (ใช้แพ็กเกจที่คุณสมัครไว้เอง ไม่ต้องใช้ API key) หรือเพิ่ม API key ด้านล่าง
 Nothing found	ไม่พบสิ่งใด
-Nothing found yet. We look for API keys, local model servers (Ollama, LM Studio) and agent apps you already have. One on another port or computer can be added by its address below.	ยังไม่พบสิ่งใด เราค้นหา API key เซิร์ฟเวอร์โมเดลในเครื่อง (Ollama, LM Studio) และแอปเอเจนต์ที่มีอยู่ ตัวที่อยู่อีกพอร์ตหรืออีกเครื่องเพิ่มได้ด้วยที่อยู่ด้านล่าง
+Nothing found yet. We look for coding agents you're signed in to (Claude Code, Codex, Gemini CLI: no API key needed), API keys and local model servers (Ollama, LM Studio). One on another port or computer can be added by its address below.	ยังไม่พบสิ่งใด เราค้นหาเอเจนต์เขียนโค้ดที่คุณล็อกอินไว้ (Claude Code, Codex, Gemini CLI: ไม่ต้องใช้ API key) API key และเซิร์ฟเวอร์โมเดลในเครื่อง (Ollama, LM Studio) ตัวที่อยู่บนพอร์ตอื่นหรือคอมพิวเตอร์เครื่องอื่นเพิ่มได้ด้วยที่อยู่ด้านล่าง
 Nothing inside it is read.	ไม่มีการอ่านสิ่งใดข้างใน
 Nothing inside it is read; Craft Anything works from what you can see. Your version gets its own art.	ไม่มีการอ่านสิ่งใดข้างใน Craft Anything ทำงานจากสิ่งที่มองเห็น เวอร์ชันของคุณได้อาร์ตของตัวเอง
 Nothing inside the original is read: not its code, files or page source. Craft Anything works from what you can see: pictures, the page as a visitor sees it, and watching it run.	ไม่อ่านสิ่งใดภายในต้นฉบับ: ไม่ใช่โค้ด ไฟล์ หรือซอร์สหน้าเว็บ Craft Anything ทำงานจากสิ่งที่มองเห็น: รูป หน้าเว็บอย่างที่ผู้เยี่ยมชมเห็น และการเฝ้าดูขณะรัน
@@ -1295,7 +1295,7 @@ Write the brief	เขียนบรีฟ
 Write the handoff	เขียนเอกสารส่งต่อ
 Wrote {what} to {}	เขียน {what} ลง {}
 You answered: {a}	คุณตอบ: {a}
-You can add a Claude, ChatGPT or OpenRouter key, a local model (Ollama, LM Studio) or an agent you already use, later in Settings → AI.	เพิ่มคีย์ Claude, ChatGPT หรือ OpenRouter โมเดลในเครื่อง (Ollama, LM Studio) หรือเอเจนต์ที่ใช้อยู่ ทีหลังได้ในการตั้งค่า → AI
+Install Claude Code, Codex or Gemini CLI and sign in to it once, then press Look again: it uses your own subscription, no API key needed. Or add a Claude, ChatGPT or OpenRouter key, or a local model (Ollama, LM Studio), later in Settings → AI.	ติดตั้ง Claude Code, Codex หรือ Gemini CLI แล้วล็อกอินหนึ่งครั้ง จากนั้นกด ดูอีกครั้ง: ใช้แพ็กเกจที่คุณสมัครไว้เอง ไม่ต้องใช้ API key หรือเพิ่มคีย์ Claude, ChatGPT หรือ OpenRouter หรือโมเดลในเครื่อง (Ollama, LM Studio) ทีหลังได้ในการตั้งค่า → AI
 You chose:	คุณเลือก:
 You're all set	พร้อมแล้ว
 Your app is ready	แอปของคุณพร้อมแล้ว
@@ -1421,7 +1421,7 @@ your files there are the app, edited in place	ไฟล์ของคุณท�
 ← Back	← ย้อนกลับ
 ↑↓ to move · Enter to run · Esc to close	↑↓ เลื่อน · Enter รัน · Esc ปิด
 Providers	ผู้ให้บริการ
-Harnesses	ฮาร์เนส
+Coding agents	เอเจนต์เขียนโค้ด
 Nothing of this kind was found.	ไม่พบสิ่งชนิดนี้
 Another model	โมเดลอื่น
 Fold a project's plan	พับแผนของโปรเจกต์
@@ -1507,3 +1507,5 @@ Stop Ghidra's analysis	หยุดการวิเคราะห์ของ
 
 # Saved-builder notice: English until native-speaker review.
 The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.	The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.
+Uses the subscription you already have once you're signed in. No API key needed.	ใช้แพ็กเกจที่คุณสมัครไว้อยู่แล้วเมื่อล็อกอิน ไม่ต้องใช้ API key
+An API key, billed per use, or a model server such as Ollama.	API key ที่คิดเงินตามการใช้งาน หรือเซิร์ฟเวอร์โมเดลอย่าง Ollama

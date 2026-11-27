@@ -112,7 +112,7 @@ fn brain(app: &mut CraftApp, ui: &mut Ui, width: f32) {
             ui.horizontal_wrapped(|ui| {
                 icons::show(ui, "triangle-alert", theme::icon::MD, t.warning);
                 ui.label(
-                    RichText::new(tr("Nothing can build yet: install Claude Code (and sign in to it once), or add an AI with an API key below."))
+                    RichText::new(tr("Nothing can build yet: install Claude Code, Codex or Gemini CLI and sign in to it once (it uses your own subscription, no API key needed), or add an API key below."))
                         .color(t.text_dim),
                 );
             });
@@ -152,7 +152,7 @@ fn brain(app: &mut CraftApp, ui: &mut Ui, width: f32) {
                     icons::show(ui, "radar", theme::icon::XL, t.text_faint);
                     ui.vertical(|ui| {
                         ui.label(RichText::new(tr("We didn't find an AI on this computer yet")).font(theme::medium(theme::BODY)));
-                        ui.label(RichText::new(tr("You can add a Claude, ChatGPT or OpenRouter key, a local model (Ollama, LM Studio) or an agent you already use, later in Settings → AI.")).color(t.text_dim));
+                        ui.label(RichText::new(tr("Install Claude Code, Codex or Gemini CLI and sign in to it once, then press Look again: it uses your own subscription, no API key needed. Or add a Claude, ChatGPT or OpenRouter key, or a local model (Ollama, LM Studio), later in Settings → AI.")).color(t.text_dim));
                     });
                 });
             });

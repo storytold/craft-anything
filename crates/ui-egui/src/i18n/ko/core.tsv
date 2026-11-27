@@ -200,7 +200,7 @@ Build with {name} instead	대신 {name}에서 만들기
 Build without it	없이 만들기
 Builder's questions:	빌더의 질문:
 Building	만드는 중
-Building needs a coding agent on this computer (Claude Code, Codex or Gemini CLI: install one and sign in to it once in its own window), or an AI with an API key. Craft Anything never sees your account.	만들려면 이 컴퓨터에 코딩 에이전트(Claude Code, Codex, Gemini CLI 중 하나를 설치하고 그 창에서 한 번 로그인)나 API 키가 있는 AI가 필요합니다. Craft Anything은 계정 정보를 보지 않습니다.
+Building needs a coding agent on this computer (Claude Code, Codex or Gemini CLI: install one and sign in to it once in its own window). It uses your own subscription, so no API key is needed. Or add an AI with an API key. Craft Anything never sees your account.	만들려면 이 컴퓨터에 코딩 에이전트가 필요합니다(Claude Code, Codex, Gemini CLI 중 하나를 설치하고 그 창에서 한 번 로그인). 본인 구독으로 동작하므로 API 키가 필요 없습니다. API 키가 있는 AI를 추가할 수도 있습니다. Craft Anything은 계정을 보지 않습니다.
 Building needs a coding agent such as Claude Code, or an AI with an API key.	만들려면 Claude Code 같은 코딩 에이전트나 API 키가 있는 AI가 필요합니다.
 Builds	빌드
 Builds and answers may use it again.	빌드와 답변에서 다시 쓸 수 있습니다.
@@ -742,9 +742,9 @@ Not compared yet: {what}	아직 비교 안 함: {what}
 Not installed	설치 안 됨
 Not now	나중에
 Nothing allowed yet.	아직 허용한 것이 없습니다.
-Nothing can build yet: install Claude Code (and sign in to it once), or add an AI with an API key below.	아직 만들 수 있는 것이 없습니다. Claude Code를 설치하고 한 번 로그인하거나, 아래에서 API 키로 AI를 추가하세요.
+Nothing can build yet: install Claude Code, Codex or Gemini CLI and sign in to it once (it uses your own subscription, no API key needed), or add an API key below.	아직 만들 수 있는 것이 없습니다. Claude Code, Codex, Gemini CLI 중 하나를 설치하고 한 번 로그인하거나(본인 구독으로 동작하므로 API 키가 필요 없습니다), 아래에서 API 키를 추가하세요.
 Nothing found	찾은 것 없음
-Nothing found yet. We look for API keys, local model servers (Ollama, LM Studio) and agent apps you already have. One on another port or computer can be added by its address below.	아직 찾은 것이 없습니다. API 키, 로컬 모델 서버(Ollama, LM Studio), 이미 있는 에이전트 앱을 찾습니다. 다른 포트나 다른 컴퓨터에 있는 서버는 아래에서 주소로 추가할 수 있습니다.
+Nothing found yet. We look for coding agents you're signed in to (Claude Code, Codex, Gemini CLI: no API key needed), API keys and local model servers (Ollama, LM Studio). One on another port or computer can be added by its address below.	아직 찾은 것이 없습니다. 로그인되어 있는 코딩 에이전트(Claude Code, Codex, Gemini CLI: API 키 필요 없음), API 키, 로컬 모델 서버(Ollama, LM Studio)를 찾습니다. 다른 포트나 다른 컴퓨터에 있는 서버는 아래에서 주소로 추가할 수 있습니다.
 Nothing inside it is read.	안의 내용은 읽지 않습니다.
 Nothing inside it is read; Craft Anything works from what you can see. Your version gets its own art.	안의 내용은 읽지 않습니다. Craft Anything은 눈에 보이는 것만으로 작업합니다. 내가 만드는 버전에는 따로 그린 그림이 들어갑니다.
 Nothing inside the original is read: not its code, files or page source. Craft Anything works from what you can see: pictures, the page as a visitor sees it, and watching it run.	원본의 안쪽은 읽지 않습니다. 코드, 파일, 페이지 소스 모두 마찬가지입니다. Craft Anything은 눈에 보이는 것으로 작업합니다. 그림, 방문자가 보는 페이지, 실행하는 모습을 봅니다.
@@ -1295,7 +1295,7 @@ Write the brief	개요 쓰기
 Write the handoff	인계 문서 쓰기
 Wrote {what} to {}	{what} 저장 위치: {}
 You answered: {a}	내 답: {a}
-You can add a Claude, ChatGPT or OpenRouter key, a local model (Ollama, LM Studio) or an agent you already use, later in Settings → AI.	Claude, ChatGPT, OpenRouter 키나 로컬 모델(Ollama, LM Studio), 이미 쓰는 에이전트는 나중에 설정 → AI에서 추가할 수 있습니다.
+Install Claude Code, Codex or Gemini CLI and sign in to it once, then press Look again: it uses your own subscription, no API key needed. Or add a Claude, ChatGPT or OpenRouter key, or a local model (Ollama, LM Studio), later in Settings → AI.	Claude Code, Codex, Gemini CLI 중 하나를 설치하고 한 번 로그인한 다음 다시 살펴보기를 누르세요. 본인 구독으로 동작하므로 API 키가 필요 없습니다. Claude, ChatGPT, OpenRouter 키나 로컬 모델(Ollama, LM Studio)은 나중에 설정 → AI에서 추가할 수도 있습니다.
 You chose:	고른 항목:
 You're all set	준비를 마쳤습니다
 Your app is ready	앱이 완성되었습니다
@@ -1421,7 +1421,7 @@ your files there are the app, edited in place	그 파일이 곧 앱이며 그 �
 ← Back	← 뒤로
 ↑↓ to move · Enter to run · Esc to close	↑↓ 이동 · Enter 실행 · Esc 닫기
 Providers	제공자
-Harnesses	에이전트
+Coding agents	코딩 에이전트
 Nothing of this kind was found.	이런 종류는 찾지 못했습니다.
 Another model	다른 모델
 Fold a project's plan	프로젝트 계획 접기
@@ -1507,3 +1507,5 @@ Stop Ghidra's analysis	Ghidra 분석 중지
 
 # Saved-builder notice: English until native-speaker review.
 The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.	The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.
+Uses the subscription you already have once you're signed in. No API key needed.	로그인하면 이미 쓰고 있는 구독으로 동작합니다. API 키가 필요 없습니다.
+An API key, billed per use, or a model server such as Ollama.	사용한 만큼 요금이 나가는 API 키, 또는 Ollama 같은 모델 서버.

@@ -435,7 +435,7 @@ pub fn need_builder_modal(app: &mut CraftApp, ui: &mut Ui, start: bool, close: &
             ui.add(
                 egui::Label::new(
                     RichText::new(tr(
-                        "Building needs a coding agent on this computer (Claude Code, Codex or Gemini CLI: install one and sign in to it once in its own window), or an AI with an API key. Craft Anything never sees your account.",
+                        "Building needs a coding agent on this computer (Claude Code, Codex or Gemini CLI: install one and sign in to it once in its own window). It uses your own subscription, so no API key is needed. Or add an AI with an API key. Craft Anything never sees your account.",
                     ))
                     .color(t.text_dim),
                 )

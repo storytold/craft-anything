@@ -78,6 +78,79 @@ fn first_run_ai_step_can_add_a_server_by_its_address() {
     assert!(h.query_by_label("We didn't find an AI on this computer yet").is_none());
 }
 
+fn found(name: &str, kind: BackendKind, needs_key: bool) -> craft_anything_ai::Detected {
+    craft_anything_ai::Detected {
+        suggestion: BackendConfig { name: name.into(), kind, model: "fixture".into(), base_url: None, ssh_host: None, enabled: true },
+        reason: "Controlled discovery result".into(),
+        needs_key,
+    }
+}
+
+/// #186: people thought they needed an API key. When a signed-in coding agent is found beside
+/// key-based providers, the first run's AI step opens on the coding agent, says it needs no key,
+/// and asks for no key until the person opens the providers' tab themselves.
+#[test]
+fn first_run_offers_a_found_coding_agent_first_and_says_it_needs_no_key() {
+    let mut h = harness(|| {
+        let mut a = demo::app(demo::engine(Mode::Beginner, false));
+        a.backends.clear();
+        a.state.backend = None;
+        a.detecting = false;
+        a.detected = Some(vec![found("Fixture key provider", BackendKind::Anthropic, true), found("Fixture agent", BackendKind::AgentCli, false)]);
+        a.state.first_run = FirstRunStep::Brain;
+        a
+    });
+    h.run_steps(3);
+    assert_eq!(h.state().state.detect_tab, None, "nothing was clicked: the automatic choice is under test");
+    h.get_by_label("Fixture agent");
+    h.get_by_label("Coding agents (1)");
+    h.get_by_label_contains("No API key needed.");
+    assert!(h.query_by_label("Fixture key provider").is_none(), "the key-based provider waits on its own tab");
+    assert!(h.query_by_label("Paste your API key (kept in your system keychain)").is_none(), "no key is asked for up front");
+    // The other tab is one click away, and says what it costs.
+    h.get_by_label("Providers (1)").click();
+    h.run_steps(3);
+    h.get_by_label("Fixture key provider");
+    h.get_by_label_contains("billed per use");
+}
+
+/// #186: with nothing found, the first run says a coding agent works without a key before it
+/// mentions keys at all.
+#[test]
+fn first_run_with_nothing_found_explains_the_no_key_path() {
+    let mut h = harness(|| {
+        let mut a = demo::app(demo::engine(Mode::Beginner, false));
+        a.backends.clear();
+        a.state.backend = None;
+        a.detecting = false;
+        a.detected = Some(Vec::new());
+        a.state.first_run = FirstRunStep::Brain;
+        a
+    });
+    h.run_steps(3);
+    h.get_by_label("We didn't find an AI on this computer yet");
+    h.get_by_label_contains("then press Look again: it uses your own subscription, no API key needed.");
+    h.get_by_label_contains("Nothing can build yet: install Claude Code, Codex or Gemini CLI");
+}
+
+/// #186: Settings → AI opens what it found on the coding agents, with the same no-key line.
+#[test]
+fn settings_ai_opens_on_found_coding_agents_with_the_no_key_line() {
+    let mut h = harness_sized(egui::vec2(1280.0, 1000.0), || {
+        let mut a = demo::app(demo::engine(Mode::Beginner, true));
+        a.backends.clear();
+        a.detecting = false;
+        a.detected = Some(vec![found("Fixture key provider", BackendKind::Openai, true), found("Fixture agent", BackendKind::AgentCli, false)]);
+        a.state.settings_open = true;
+        a.state.settings_tab = craft_anything_ui_egui::state::SettingsTab::Ai;
+        a
+    });
+    h.run_steps(4);
+    h.get_by_label("Fixture agent");
+    h.get_by_label_contains("No API key needed.");
+    assert!(h.query_by_label("Fixture key provider").is_none());
+}
+
 /// A message (such as a server that couldn't be reached) shows on the first run too.
 #[test]
 fn first_run_shows_messages() {
@@ -3867,18 +3940,19 @@ fn ai_discovery_controls_have_even_spacing() {
             a
         });
         h.run_steps(4);
+        // Coding agents come first (#186), then providers, then Detect.
+        let harnesses = h.get_by_label(&format!("Coding agents ({count})")).rect();
         let providers = h.get_by_label(&format!("Providers ({count})")).rect();
-        let harnesses = h.get_by_label(&format!("Harnesses ({count})")).rect();
         let detect = h.get_by_label("Detect").rect();
         assert!(!providers.intersects(detect) && !harnesses.intersects(detect), "controls overlap at {width}: {providers:?}, {harnesses:?}, {detect:?}");
-        let tab_gap = harnesses.left() - providers.right();
-        let action_gap = detect.left() - harnesses.right();
+        let tab_gap = providers.left() - harnesses.right();
+        let action_gap = detect.left() - providers.right();
         assert!(tab_gap > 0.0 && action_gap > 0.0, "controls need a visible gap at {width}");
         assert!((tab_gap - action_gap).abs() <= 1.0, "spacing differs at {width}: {tab_gap} vs {action_gap}");
         assert!(providers.top() < detect.bottom() && detect.top() < providers.bottom(), "controls share a row at {width}");
-        h.get_by_label(&format!("Harnesses ({count})")).click();
+        h.get_by_label(&format!("Providers ({count})")).click();
         h.run_steps(2);
-        assert_eq!(h.state().state.detect_tab, Some(craft_anything_ui_egui::detect_tabs::DetectTab::Harnesses));
+        assert_eq!(h.state().state.detect_tab, Some(craft_anything_ui_egui::detect_tabs::DetectTab::Providers));
     }
 }
 

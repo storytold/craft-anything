@@ -200,7 +200,7 @@ Build with {name} instead	Costruisci invece con {name}
 Build without it	Costruisci senza
 Builder's questions:	Domande del costruttore:
 Building	In costruzione
-Building needs a coding agent on this computer (Claude Code, Codex or Gemini CLI: install one and sign in to it once in its own window), or an AI with an API key. Craft Anything never sees your account.	Per costruire serve un agente di codice su questo computer (Claude Code, Codex o Gemini CLI: installane uno e accedi una volta nella sua finestra), oppure un'IA con una chiave API. Craft Anything non vede mai il tuo account.
+Building needs a coding agent on this computer (Claude Code, Codex or Gemini CLI: install one and sign in to it once in its own window). It uses your own subscription, so no API key is needed. Or add an AI with an API key. Craft Anything never sees your account.	Per costruire serve un agente di codice su questo computer (Claude Code, Codex o Gemini CLI: installane uno e accedi una volta nella sua finestra). Usa il tuo abbonamento, quindi non serve una chiave API. Oppure aggiungi un'IA con una chiave API. Craft Anything non vede mai il tuo account.
 Building needs a coding agent such as Claude Code, or an AI with an API key.	Per costruire serve un agente di codice come Claude Code, oppure un'IA con una chiave API.
 Builds	Costruzioni
 Builds and answers may use it again.	Costruzioni e risposte possono usarlo di nuovo.
@@ -743,9 +743,9 @@ Not compared yet: {what}	Non ancora confrontato: {what}
 Not installed	Non installato
 Not now	Non ora
 Nothing allowed yet.	Ancora nulla di consentito.
-Nothing can build yet: install Claude Code (and sign in to it once), or add an AI with an API key below.	Non si può ancora costruire: installa Claude Code (e accedi una volta), oppure aggiungi qui sotto un'IA con una chiave API.
+Nothing can build yet: install Claude Code, Codex or Gemini CLI and sign in to it once (it uses your own subscription, no API key needed), or add an API key below.	Non si può ancora costruire: installa Claude Code, Codex o Gemini CLI e accedi una volta (usa il tuo abbonamento, nessuna chiave API necessaria), oppure aggiungi qui sotto una chiave API.
 Nothing found	Niente trovato
-Nothing found yet. We look for API keys, local model servers (Ollama, LM Studio) and agent apps you already have. One on another port or computer can be added by its address below.	Ancora niente. Cerchiamo chiavi API, server di modelli locali (Ollama, LM Studio) e app di agenti che hai già. Uno su un'altra porta o un altro computer si aggiunge qui sotto dal suo indirizzo.
+Nothing found yet. We look for coding agents you're signed in to (Claude Code, Codex, Gemini CLI: no API key needed), API keys and local model servers (Ollama, LM Studio). One on another port or computer can be added by its address below.	Ancora niente. Cerchiamo gli agenti di codice in cui hai fatto l'accesso (Claude Code, Codex, Gemini CLI: nessuna chiave API necessaria), le chiavi API e i server di modelli locali (Ollama, LM Studio). Uno su un'altra porta o un altro computer si aggiunge qui sotto dal suo indirizzo.
 Nothing inside it is read.	Dentro non si legge nulla.
 Nothing inside it is read; Craft Anything works from what you can see. Your version gets its own art.	Dentro non si legge nulla; Craft Anything lavora da quello che puoi vedere. La tua versione ha una grafica sua.
 Nothing inside the original is read: not its code, files or page source. Craft Anything works from what you can see: pictures, the page as a visitor sees it, and watching it run.	Dentro l'originale non si legge nulla: né il codice, né i file, né il sorgente della pagina. Craft Anything lavora da quello che puoi vedere: immagini, la pagina come la vede un visitatore, e l'osservazione mentre gira.
@@ -1297,7 +1297,7 @@ Write the brief	Scrivi il brief
 Write the handoff	Scrivi il passaggio di consegne
 Wrote {what} to {}	Scritto {what} in {}
 You answered: {a}	Hai risposto: {a}
-You can add a Claude, ChatGPT or OpenRouter key, a local model (Ollama, LM Studio) or an agent you already use, later in Settings → AI.	Puoi aggiungere dopo, in Impostazioni → IA, una chiave Claude, ChatGPT o OpenRouter, un modello locale (Ollama, LM Studio) o un agente che usi già.
+Install Claude Code, Codex or Gemini CLI and sign in to it once, then press Look again: it uses your own subscription, no API key needed. Or add a Claude, ChatGPT or OpenRouter key, or a local model (Ollama, LM Studio), later in Settings → AI.	Installa Claude Code, Codex o Gemini CLI e accedi una volta, poi premi Guarda di nuovo: usa il tuo abbonamento, nessuna chiave API necessaria. Oppure aggiungi dopo, in Impostazioni → IA, una chiave Claude, ChatGPT o OpenRouter, o un modello locale (Ollama, LM Studio).
 You chose:	Hai scelto:
 You're all set	Sei a posto
 Your app is ready	La tua app è pronta
@@ -1423,7 +1423,7 @@ your files there are the app, edited in place	i tuoi file lì sono l'app, modifi
 ← Back	← Indietro
 ↑↓ to move · Enter to run · Esc to close	↑↓ per spostarti · Invio per eseguire · Esc per chiudere
 Providers	Fornitori
-Harnesses	Agenti
+Coding agents	Agenti di codice
 Nothing of this kind was found.	Non ho trovato nulla di questo tipo.
 Another model	Un altro modello
 Fold a project's plan	Ripiega il piano di un progetto
@@ -1509,3 +1509,5 @@ Stop Ghidra's analysis	Ferma l'analisi di Ghidra
 
 # Saved-builder notice: English until native-speaker review.
 The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.	The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.
+Uses the subscription you already have once you're signed in. No API key needed.	Usa l'abbonamento che hai già, una volta che hai fatto l'accesso. Nessuna chiave API necessaria.
+An API key, billed per use, or a model server such as Ollama.	Una chiave API, a consumo, oppure un server di modelli come Ollama.

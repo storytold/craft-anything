@@ -186,7 +186,7 @@ Build with {name} instead	Собрать с помощью {name} вместо �
 Build without it	Собрать без этого
 Builder's questions:	Вопросы конструктора:
 Building	Сборка
-Building needs a coding agent on this computer (Claude Code, Codex or Gemini CLI: install one and sign in to it once in its own window), or an AI with an API key. Craft Anything never sees your account.	Для сборки нужен агент кодирования на этом компьютере (Claude Code, Codex или Gemini CLI: установите его и один раз войдите в нём в отдельном окне) или ИИ с ключом API. Craft Anything никогда не видит ваш аккаунт.
+Building needs a coding agent on this computer (Claude Code, Codex or Gemini CLI: install one and sign in to it once in its own window). It uses your own subscription, so no API key is needed. Or add an AI with an API key. Craft Anything never sees your account.	Для сборки нужен агент кодирования на этом компьютере (Claude Code, Codex или Gemini CLI: установите его и один раз войдите в него в его собственном окне). Он работает по вашей подписке, поэтому ключ API не нужен. Или добавьте ИИ с ключом API. Craft Anything никогда не видит вашу учётную запись.
 Building needs a coding agent such as Claude Code, or an AI with an API key.	Для сборки нужен агент кодирования, например Claude Code, или ИИ с ключом API.
 Builds	Сборки
 Builds and answers may use it again.	Сборки и ответы могут использовать его снова.
@@ -732,9 +732,9 @@ Not compared yet: {what}	Пока не сравнено: {what}
 Not installed	Не установлено
 Not now	Не сейчас
 Nothing allowed yet.	Пока ничего не разрешено.
-Nothing can build yet: install Claude Code (and sign in to it once), or add an AI with an API key below.	Пока ничего нельзя собрать: установите Claude Code (и один раз войдите в него) или добавьте ИИ с ключом API ниже.
+Nothing can build yet: install Claude Code, Codex or Gemini CLI and sign in to it once (it uses your own subscription, no API key needed), or add an API key below.	Пока ничего нельзя собрать: установите Claude Code, Codex или Gemini CLI и один раз войдите в него (он работает по вашей подписке, ключ API не нужен) или добавьте ключ API ниже.
 Nothing found	Ничего не найдено
-Nothing found yet. We look for API keys, local model servers (Ollama, LM Studio) and agent apps you already have. One on another port or computer can be added by its address below.	Пока ничего не найдено. Мы ищем ключи API, локальные серверы моделей (Ollama, LM Studio) и приложения-агенты, которые у вас уже есть. Сервер на другом порту или другом компьютере можно добавить по адресу ниже.
+Nothing found yet. We look for coding agents you're signed in to (Claude Code, Codex, Gemini CLI: no API key needed), API keys and local model servers (Ollama, LM Studio). One on another port or computer can be added by its address below.	Пока ничего не найдено. Мы ищем агенты кодирования, в которые вы вошли (Claude Code, Codex, Gemini CLI: ключ API не нужен), ключи API и локальные серверы моделей (Ollama, LM Studio). Сервер на другом порту или компьютере можно добавить по адресу ниже.
 Nothing inside it is read.	Внутри ничего не читается.
 Nothing inside it is read; Craft Anything works from what you can see. Your version gets its own art.	Внутри ничего не читается; Craft Anything работает с тем, что вы можете увидеть. Ваша версия получит собственную графику.
 Nothing inside the original is read: not its code, files or page source. Craft Anything works from what you can see: pictures, the page as a visitor sees it, and watching it run.	Внутри оригинала ничего не читается: ни код, ни файлы, ни исходник страницы. Craft Anything работает с тем, что вы можете увидеть: изображениями, страницей глазами посетителя и наблюдением за её работой.
@@ -1295,7 +1295,7 @@ Write the brief	Написать краткое описание
 Write the handoff	Написать передачу
 Wrote {what} to {}	Записано {what} в {}
 You answered: {a}	Вы ответили: {a}
-You can add a Claude, ChatGPT or OpenRouter key, a local model (Ollama, LM Studio) or an agent you already use, later in Settings → AI.	Вы можете добавить ключ Claude, ChatGPT или OpenRouter, локальную модель (Ollama, LM Studio) или агент, который уже используете, позже в Настройки → ИИ.
+Install Claude Code, Codex or Gemini CLI and sign in to it once, then press Look again: it uses your own subscription, no API key needed. Or add a Claude, ChatGPT or OpenRouter key, or a local model (Ollama, LM Studio), later in Settings → AI.	Установите Claude Code, Codex или Gemini CLI, один раз войдите в него и нажмите «Искать снова»: он работает по вашей подписке, ключ API не нужен. Или позже добавьте ключ Claude, ChatGPT или OpenRouter либо локальную модель (Ollama, LM Studio) в Настройки → ИИ.
 You chose:	Вы выбрали:
 You're all set	Всё готово
 Your app is ready	Ваше приложение готово
@@ -1421,7 +1421,7 @@ your files there are the app, edited in place	ваши файлы там — э�
 ← Back	← Назад
 ↑↓ to move · Enter to run · Esc to close	↑↓ для перемещения · Enter для запуска · Esc для закрытия
 Providers	Провайдеры
-Harnesses	Агенты
+Coding agents	Агенты кодирования
 Nothing of this kind was found.	Ничего такого не найдено.
 Another model	Другая модель
 Fold a project's plan	Свернуть план проекта
@@ -1507,3 +1507,5 @@ Stop Ghidra's analysis	Остановить анализ Ghidra
 
 # Saved-builder notice: English until native-speaker review.
 The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.	The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.
+Uses the subscription you already have once you're signed in. No API key needed.	Работает по подписке, которая у вас уже есть, после входа. Ключ API не нужен.
+An API key, billed per use, or a model server such as Ollama.	Ключ API с оплатой по использованию или сервер моделей, например Ollama.

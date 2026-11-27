@@ -200,7 +200,7 @@ Build with {name} instead	Místo toho sestavit pomocí {name}
 Build without it	Sestavit bez něj
 Builder's questions:	Otázky sestavovacího agenta:
 Building	Probíhá sestavení
-Building needs a coding agent on this computer (Claude Code, Codex or Gemini CLI: install one and sign in to it once in its own window), or an AI with an API key. Craft Anything never sees your account.	Sestavení vyžaduje programovacího agenta v tomto počítači (Claude Code, Codex nebo Gemini CLI: nainstalujte jej a jednou se přihlaste v jeho vlastním okně), nebo AI s klíčem API. Craft Anything nikdy nemá přístup k vašemu účtu.
+Building needs a coding agent on this computer (Claude Code, Codex or Gemini CLI: install one and sign in to it once in its own window). It uses your own subscription, so no API key is needed. Or add an AI with an API key. Craft Anything never sees your account.	Sestavení vyžaduje programovacího agenta v tomto počítači (Claude Code, Codex nebo Gemini CLI: nainstalujte jej a jednou se přihlaste v jeho vlastním okně). Využívá vaše vlastní předplatné, takže klíč API není potřeba. Nebo přidejte AI s klíčem API. Craft Anything váš účet nikdy nevidí.
 Building needs a coding agent such as Claude Code, or an AI with an API key.	Sestavení vyžaduje programovacího agenta, například Claude Code, nebo AI s klíčem API.
 Builds	Sestavení
 Builds and answers may use it again.	Při sestavování a odpovídání může být znovu použit.
@@ -742,9 +742,9 @@ Not compared yet: {what}	Zatím neporovnáno: {what}
 Not installed	Nenainstalováno
 Not now	Teď ne
 Nothing allowed yet.	Zatím není nic povoleno.
-Nothing can build yet: install Claude Code (and sign in to it once), or add an AI with an API key below.	Zatím nelze sestavovat: nainstalujte Claude Code (a jednou se v něm přihlaste), nebo níže přidejte AI s klíčem API.
+Nothing can build yet: install Claude Code, Codex or Gemini CLI and sign in to it once (it uses your own subscription, no API key needed), or add an API key below.	Zatím nelze sestavovat: nainstalujte Claude Code, Codex nebo Gemini CLI a jednou se v něm přihlaste (využívá vaše vlastní předplatné, klíč API není potřeba), nebo níže přidejte klíč API.
 Nothing found	Nic nenalezeno
-Nothing found yet. We look for API keys, local model servers (Ollama, LM Studio) and agent apps you already have. One on another port or computer can be added by its address below.	Zatím nic nenalezeno. Hledáme klíče API, místní servery modelů (Ollama, LM Studio) a aplikace agentů, které už máte. Server na jiném portu nebo jiném počítači můžete přidat podle adresy níže.
+Nothing found yet. We look for coding agents you're signed in to (Claude Code, Codex, Gemini CLI: no API key needed), API keys and local model servers (Ollama, LM Studio). One on another port or computer can be added by its address below.	Zatím nic nenalezeno. Hledáme programovací agenty, ve kterých jste přihlášeni (Claude Code, Codex, Gemini CLI: klíč API není potřeba), klíče API a místní servery modelů (Ollama, LM Studio). Server na jiném portu nebo jiném počítači můžete přidat podle adresy níže.
 Nothing inside it is read.	Nic uvnitř se nečte.
 Nothing inside it is read; Craft Anything works from what you can see. Your version gets its own art.	Nic uvnitř se nečte; Craft Anything vychází z toho, co vidíte. Vaše verze dostane vlastní grafiku.
 Nothing inside the original is read: not its code, files or page source. Craft Anything works from what you can see: pictures, the page as a visitor sees it, and watching it run.	Nic uvnitř originálu se nečte: ani jeho kód, ani soubory, ani zdrojový kód stránek. Craft Anything vychází z toho, co vidíte: obrázky, stránka z pohledu návštěvníka a pozorování běhu.
@@ -1295,7 +1295,7 @@ Write the brief	Napsat zadání
 Write the handoff	Napsat předávací zprávu
 Wrote {what} to {}	Zapsáno {what} do {}
 You answered: {a}	Vaše odpověď: {a}
-You can add a Claude, ChatGPT or OpenRouter key, a local model (Ollama, LM Studio) or an agent you already use, later in Settings → AI.	Klíč Claude, ChatGPT nebo OpenRouter, místní model (Ollama, LM Studio) či agenta, kterého již používáte, můžete později přidat v Nastavení → AI.
+Install Claude Code, Codex or Gemini CLI and sign in to it once, then press Look again: it uses your own subscription, no API key needed. Or add a Claude, ChatGPT or OpenRouter key, or a local model (Ollama, LM Studio), later in Settings → AI.	Nainstalujte Claude Code, Codex nebo Gemini CLI, jednou se v něm přihlaste a pak stiskněte Hledat znovu: využívá vaše vlastní předplatné, klíč API není potřeba. Nebo později v Nastavení → AI přidejte klíč Claude, ChatGPT či OpenRouter nebo místní model (Ollama, LM Studio).
 You chose:	Vaše volba:
 You're all set	Vše je připraveno
 Your app is ready	Vaše aplikace je hotová
@@ -1421,7 +1421,7 @@ your files there are the app, edited in place	vaše soubory ve složce jsou apli
 ← Back	← Zpět
 ↑↓ to move · Enter to run · Esc to close	↑↓ pro pohyb · Enter pro spuštění · Esc pro zavření
 Providers	Poskytovatelé
-Harnesses	Agenti
+Coding agents	Programovací agenti
 Nothing of this kind was found.	Nic takového nebylo nalezeno.
 Another model	Jiný model
 Fold a project's plan	Sbalit plán projektu
@@ -1507,3 +1507,5 @@ Stop Ghidra's analysis	Zastavit analýzu Ghidry
 
 # Saved-builder notice: English until native-speaker review.
 The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.	The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.
+Uses the subscription you already have once you're signed in. No API key needed.	Po přihlášení využívá předplatné, které už máte. Klíč API není potřeba.
+An API key, billed per use, or a model server such as Ollama.	Klíč API, placený podle využití, nebo server modelů, například Ollama.

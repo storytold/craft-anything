@@ -1,6 +1,8 @@
-//! Splitting what Detect found into the two things a person is choosing between: an API provider
-//! (a key, billed per token) and a harness (a coding agent already installed). Without the split,
-//! eight more providers push the harnesses off the screen.
+//! Splitting what Detect found into the two things a person is choosing between: a coding agent
+//! already installed and signed in (it runs on the person's own subscription, no key), and an API
+//! provider (a key, billed per token, or a model server). Without the split, eight more providers
+//! push the coding agents off the screen. Coding agents come first: most people asked for a key
+//! they never needed (#186).
 
 use craft_anything_ai::Detected;
 
@@ -10,6 +12,25 @@ pub enum DetectTab {
     #[default]
     Providers,
     Harnesses,
+}
+
+impl DetectTab {
+    /// The tab's name on screen. "Harness" is jargon; a person knows a coding agent.
+    pub fn label(self) -> &'static str {
+        match self {
+            DetectTab::Harnesses => "Coding agents",
+            DetectTab::Providers => "Providers",
+        }
+    }
+
+    /// One line under the tabs saying what the shown kind costs and needs, so nobody goes looking
+    /// for an API key they don't need (#186).
+    pub fn blurb(self) -> &'static str {
+        match self {
+            DetectTab::Harnesses => "Uses the subscription you already have once you're signed in. No API key needed.",
+            DetectTab::Providers => "An API key, billed per use, or a model server such as Ollama.",
+        }
+    }
 }
 
 /// The tab a found backend belongs to: an agent program is a harness, everything else answers over
@@ -39,28 +60,39 @@ pub fn counts(detected: &[Detected]) -> (usize, usize) {
 }
 
 /// Which tab to show. A tab the person clicked stays, even when it is empty: that is how its "nothing
-/// of this kind was found" line is read. Only the automatic first choice prefers the tab that has
-/// something, so adding the only provider never opens on an empty screen.
+/// of this kind was found" line is read. The automatic first choice is a coding agent whenever one
+/// was found, since it needs no key (#186), and otherwise the tab that has something, so adding the
+/// only provider never opens on an empty screen.
 pub fn resolve(chosen: Option<DetectTab>, providers: usize, harnesses: usize) -> DetectTab {
     match chosen {
         Some(tab) => tab,
-        None if providers == 0 && harnesses > 0 => DetectTab::Harnesses,
-        None => DetectTab::Providers,
+        None if harnesses > 0 => DetectTab::Harnesses,
+        None if providers > 0 => DetectTab::Providers,
+        None => DetectTab::Harnesses,
     }
 }
 
 /// Draw the two tabs and return the one that is showing. An empty tab is dimmed, not disabled: it
 /// still opens, and says what is missing.
 pub fn bar(ui: &mut egui::Ui, chosen: &mut Option<DetectTab>, detected: &[Detected]) -> DetectTab {
-    ui.horizontal_wrapped(|ui| buttons(ui, chosen, detected)).inner
+    let tab = ui.horizontal_wrapped(|ui| buttons(ui, chosen, detected)).inner;
+    blurb(ui, tab);
+    tab
+}
+
+/// The shown tab's line on what it needs: no key for a coding agent, a key or a server otherwise.
+pub fn blurb(ui: &mut egui::Ui, tab: DetectTab) {
+    let t = crate::theme::Tokens::get(ui.ctx());
+    ui.add(egui::Label::new(egui::RichText::new(crate::i18n::tr(tab.blurb())).color(t.text_dim).size(crate::theme::SMALL)).wrap());
 }
 
 /// Draw the tab buttons in the caller's layout, so adjacent actions share its spacing and wrapping.
 pub fn buttons(ui: &mut egui::Ui, chosen: &mut Option<DetectTab>, detected: &[Detected]) -> DetectTab {
     let (providers, harnesses) = counts(detected);
     let showing = resolve(*chosen, providers, harnesses);
-    for (tab, label, count) in [(DetectTab::Providers, "Providers", providers), (DetectTab::Harnesses, "Harnesses", harnesses)] {
-        let mut text = egui::RichText::new(format!("{} ({count})", crate::i18n::tr(label)));
+    // Coding agents first: they need no key, and a key is what people thought they had to find.
+    for (tab, count) in [(DetectTab::Harnesses, harnesses), (DetectTab::Providers, providers)] {
+        let mut text = egui::RichText::new(format!("{} ({count})", crate::i18n::tr(tab.label())));
         if count == 0 {
             text = text.weak();
         }
@@ -91,13 +123,14 @@ mod tests {
         assert_eq!(counts(&all), (2, 1));
     }
 
-    /// The first choice prefers the tab with something; a click is always honoured, so an empty tab
-    /// can show what it is missing.
+    /// The first choice is a coding agent whenever one was found, then the tab with something; a
+    /// click is always honoured, so an empty tab can show what it is missing.
     #[test]
     fn the_default_gives_way_but_a_click_does_not() {
         assert_eq!(resolve(None, 0, 3), DetectTab::Harnesses, "only harnesses were found");
         assert_eq!(resolve(None, 2, 0), DetectTab::Providers);
-        assert_eq!(resolve(None, 0, 0), DetectTab::Providers, "nothing at all: the first tab");
+        assert_eq!(resolve(None, 5, 1), DetectTab::Harnesses, "a coding agent needs no key, so it comes first (#186)");
+        assert_eq!(resolve(None, 0, 0), DetectTab::Harnesses, "nothing at all: the first tab, coding agents");
         assert_eq!(resolve(Some(DetectTab::Harnesses), 2, 0), DetectTab::Harnesses, "a clicked empty tab stays");
         assert_eq!(resolve(Some(DetectTab::Providers), 0, 3), DetectTab::Providers, "a clicked empty tab stays");
         assert_eq!(resolve(Some(DetectTab::Harnesses), 2, 3), DetectTab::Harnesses);

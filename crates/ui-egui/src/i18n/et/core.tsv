@@ -200,7 +200,7 @@ Build with {name} instead	Ehita selle asemel {name} abil
 Build without it	Ehita ilma selleta
 Builder's questions:	Ehitaja küsimused:
 Building	Ehitan
-Building needs a coding agent on this computer (Claude Code, Codex or Gemini CLI: install one and sign in to it once in its own window), or an AI with an API key. Craft Anything never sees your account.	Ehitamiseks on vaja selles arvutis programmeerimisagenti (Claude Code, Codex või Gemini CLI: paigalda üks ja logi selle oma aknas üks kord sisse) või AI-d API võtmega. Craft Anything ei näe kunagi sinu kontot.
+Building needs a coding agent on this computer (Claude Code, Codex or Gemini CLI: install one and sign in to it once in its own window). It uses your own subscription, so no API key is needed. Or add an AI with an API key. Craft Anything never sees your account.	Ehitamiseks on vaja selles arvutis programmeerimisagenti (Claude Code, Codex või Gemini CLI: paigalda üks ja logi selle oma aknas üks kord sisse). See kasutab sinu enda tellimust, nii et API võtit pole vaja. Või lisa AI API võtmega. Craft Anything ei näe kunagi sinu kontot.
 Building needs a coding agent such as Claude Code, or an AI with an API key.	Ehitamiseks on vaja programmeerimisagenti nagu Claude Code või AI-d API võtmega.
 Builds	Ehitused
 Builds and answers may use it again.	Ehitused ja vastused võivad seda uuesti kasutada.
@@ -742,9 +742,9 @@ Not compared yet: {what}	Veel pole võrreldud: {what}
 Not installed	Pole paigaldatud
 Not now	Mitte praegu
 Nothing allowed yet.	Veel pole midagi lubatud.
-Nothing can build yet: install Claude Code (and sign in to it once), or add an AI with an API key below.	Veel ei saa midagi ehitada: paigalda Claude Code (ja logi sinna üks kord sisse) või lisa allpool AI API võtmega.
+Nothing can build yet: install Claude Code, Codex or Gemini CLI and sign in to it once (it uses your own subscription, no API key needed), or add an API key below.	Veel ei saa midagi ehitada: paigalda Claude Code, Codex või Gemini CLI ja logi sinna üks kord sisse (see kasutab sinu enda tellimust, API võtit pole vaja) või lisa allpool API võti.
 Nothing found	Midagi ei leitud
-Nothing found yet. We look for API keys, local model servers (Ollama, LM Studio) and agent apps you already have. One on another port or computer can be added by its address below.	Veel ei leitud midagi. Otsime API võtmeid, kohalikke mudeliservereid (Ollama, LM Studio) ja agendirakendusi, mis sul juba on. Teise pordi või arvuti oma saab allpool aadressi järgi lisada.
+Nothing found yet. We look for coding agents you're signed in to (Claude Code, Codex, Gemini CLI: no API key needed), API keys and local model servers (Ollama, LM Studio). One on another port or computer can be added by its address below.	Veel ei leitud midagi. Otsime programmeerimisagente, kuhu oled sisse loginud (Claude Code, Codex, Gemini CLI: API võtit pole vaja), API võtmeid ja kohalikke mudeliservereid (Ollama, LM Studio). Teise pordi või arvuti oma saab allpool aadressi järgi lisada.
 Nothing inside it is read.	Selle sees ei loeta midagi.
 Nothing inside it is read; Craft Anything works from what you can see. Your version gets its own art.	Selle sees ei loeta midagi; Craft Anything töötab selle põhjal, mida sa näed. Sinu versioon saab oma graafika.
 Nothing inside the original is read: not its code, files or page source. Craft Anything works from what you can see: pictures, the page as a visitor sees it, and watching it run.	Originaali sees ei loeta midagi: ei koodi, faile ega lehe lähteteksti. Craft Anything töötab selle põhjal, mida sa näed: pildid, leht nii, nagu külastaja seda näeb, ja selle töötamise jälgimine.
@@ -1295,7 +1295,7 @@ Write the brief	Kirjuta kokkuvõte
 Write the handoff	Kirjuta üleandmine
 Wrote {what} to {}	Kirjutasin {what} asukohta {}
 You answered: {a}	Vastasid: {a}
-You can add a Claude, ChatGPT or OpenRouter key, a local model (Ollama, LM Studio) or an agent you already use, later in Settings → AI.	Hiljem saad jaotises Seaded → AI lisada Claude'i, ChatGPT või OpenRouteri võtme, kohaliku mudeli (Ollama, LM Studio) või agendi, mida juba kasutad.
+Install Claude Code, Codex or Gemini CLI and sign in to it once, then press Look again: it uses your own subscription, no API key needed. Or add a Claude, ChatGPT or OpenRouter key, or a local model (Ollama, LM Studio), later in Settings → AI.	Paigalda Claude Code, Codex või Gemini CLI, logi sinna üks kord sisse ja vajuta siis Vaata uuesti: see kasutab sinu enda tellimust, API võtit pole vaja. Või lisa hiljem jaotises Seaded → AI Claude'i, ChatGPT või OpenRouteri võti või kohalik mudel (Ollama, LM Studio).
 You chose:	Valisid:
 You're all set	Kõik on valmis
 Your app is ready	Sinu rakendus on valmis
@@ -1421,7 +1421,7 @@ your files there are the app, edited in place	sinu failid seal on rakendus, mida
 ← Back	← Tagasi
 ↑↓ to move · Enter to run · Esc to close	↑↓ liikumiseks · Enter käivitamiseks · Esc sulgemiseks
 Providers	Teenusepakkujad
-Harnesses	Agendid
+Coding agents	Programmeerimisagendid
 Nothing of this kind was found.	Seda liiki midagi ei leitud.
 Another model	Teine mudel
 Fold a project's plan	Ahenda projekti plaan
@@ -1507,3 +1507,5 @@ Stop Ghidra's analysis	Peata Ghidra analüüs
 
 # Saved-builder notice: English until native-speaker review.
 The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.	The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.
+Uses the subscription you already have once you're signed in. No API key needed.	Kasutab sisselogimise järel tellimust, mis sul juba on. API võtit pole vaja.
+An API key, billed per use, or a model server such as Ollama.	API võti, mille eest makstakse kasutuse järgi, või mudeliserver, näiteks Ollama.

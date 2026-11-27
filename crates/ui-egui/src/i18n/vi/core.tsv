@@ -200,7 +200,7 @@ Build with {name} instead	Xây dựng bằng {name} thay thế
 Build without it	Xây dựng mà không dùng nó
 Builder's questions:	Câu hỏi của trình xây dựng:
 Building	Đang xây dựng
-Building needs a coding agent on this computer (Claude Code, Codex or Gemini CLI: install one and sign in to it once in its own window), or an AI with an API key. Craft Anything never sees your account.	Việc xây dựng cần một tác tử lập trình trên máy tính này (Claude Code, Codex hoặc Gemini CLI: cài một cái và đăng nhập một lần trong cửa sổ riêng của nó), hoặc một AI có khóa API. Craft Anything không bao giờ nhìn thấy tài khoản của bạn.
+Building needs a coding agent on this computer (Claude Code, Codex or Gemini CLI: install one and sign in to it once in its own window). It uses your own subscription, so no API key is needed. Or add an AI with an API key. Craft Anything never sees your account.	Việc xây dựng cần một tác tử lập trình trên máy tính này (Claude Code, Codex hoặc Gemini CLI: cài một cái và đăng nhập một lần trong cửa sổ riêng của nó). Nó dùng gói đăng ký của chính bạn, nên không cần khóa API. Hoặc thêm một AI có khóa API. Craft Anything không bao giờ thấy tài khoản của bạn.
 Building needs a coding agent such as Claude Code, or an AI with an API key.	Việc xây dựng cần một tác tử lập trình như Claude Code, hoặc một AI có khóa API.
 Builds	Các lượt xây dựng
 Builds and answers may use it again.	Các lượt xây dựng và câu trả lời có thể dùng lại nó.
@@ -742,9 +742,9 @@ Not compared yet: {what}	Chưa so sánh: {what}
 Not installed	Chưa cài đặt
 Not now	Để sau
 Nothing allowed yet.	Chưa cho phép gì cả.
-Nothing can build yet: install Claude Code (and sign in to it once), or add an AI with an API key below.	Chưa thể xây dựng gì: hãy cài Claude Code (và đăng nhập một lần), hoặc thêm một AI bằng khóa API bên dưới.
+Nothing can build yet: install Claude Code, Codex or Gemini CLI and sign in to it once (it uses your own subscription, no API key needed), or add an API key below.	Chưa thể xây dựng gì: hãy cài Claude Code, Codex hoặc Gemini CLI và đăng nhập một lần (nó dùng gói đăng ký của chính bạn, không cần khóa API), hoặc thêm một khóa API bên dưới.
 Nothing found	Không tìm thấy gì
-Nothing found yet. We look for API keys, local model servers (Ollama, LM Studio) and agent apps you already have. One on another port or computer can be added by its address below.	Chưa tìm thấy gì. Chúng tôi tìm khóa API, máy chủ mô hình cục bộ (Ollama, LM Studio) và các ứng dụng tác tử bạn đã có. Nếu có một cái ở cổng khác hoặc máy tính khác, bạn có thể thêm bằng địa chỉ của nó bên dưới.
+Nothing found yet. We look for coding agents you're signed in to (Claude Code, Codex, Gemini CLI: no API key needed), API keys and local model servers (Ollama, LM Studio). One on another port or computer can be added by its address below.	Chưa tìm thấy gì. Chúng tôi tìm các tác tử lập trình bạn đã đăng nhập (Claude Code, Codex, Gemini CLI: không cần khóa API), khóa API và máy chủ mô hình cục bộ (Ollama, LM Studio). Nếu có một cái ở cổng khác hoặc máy tính khác, bạn có thể thêm bằng địa chỉ của nó bên dưới.
 Nothing inside it is read.	Chúng tôi không đọc bất cứ thứ gì bên trong.
 Nothing inside it is read; Craft Anything works from what you can see. Your version gets its own art.	Chúng tôi không đọc bất cứ thứ gì bên trong; Craft Anything chỉ làm việc dựa trên những gì bạn nhìn thấy. Phiên bản của bạn sẽ có hình ảnh riêng.
 Nothing inside the original is read: not its code, files or page source. Craft Anything works from what you can see: pictures, the page as a visitor sees it, and watching it run.	Chúng tôi không đọc bất cứ thứ gì bên trong bản gốc: không đọc mã, tệp hay mã nguồn trang. Craft Anything chỉ làm việc dựa trên những gì bạn nhìn thấy: hình ảnh, trang như khách truy cập thấy, và quan sát nó chạy.
@@ -1295,7 +1295,7 @@ Write the brief	Viết bản tóm tắt
 Write the handoff	Viết bản bàn giao
 Wrote {what} to {}	Đã ghi {what} vào {}
 You answered: {a}	Bạn đã trả lời: {a}
-You can add a Claude, ChatGPT or OpenRouter key, a local model (Ollama, LM Studio) or an agent you already use, later in Settings → AI.	Bạn có thể thêm khóa Claude, ChatGPT hoặc OpenRouter, một mô hình chạy trên máy (Ollama, LM Studio) hoặc một tác tử bạn đã dùng, sau này trong Cài đặt → AI.
+Install Claude Code, Codex or Gemini CLI and sign in to it once, then press Look again: it uses your own subscription, no API key needed. Or add a Claude, ChatGPT or OpenRouter key, or a local model (Ollama, LM Studio), later in Settings → AI.	Hãy cài Claude Code, Codex hoặc Gemini CLI, đăng nhập một lần rồi bấm Xem lại: nó dùng gói đăng ký của chính bạn, không cần khóa API. Hoặc sau này thêm khóa Claude, ChatGPT hoặc OpenRouter, hay một mô hình chạy trên máy (Ollama, LM Studio), trong Cài đặt → AI.
 You chose:	Bạn đã chọn:
 You're all set	Mọi thứ đã sẵn sàng
 Your app is ready	Ứng dụng của bạn đã sẵn sàng
@@ -1421,7 +1421,7 @@ your files there are the app, edited in place	các tệp của bạn ở đó ch
 ← Back	← Quay lại
 ↑↓ to move · Enter to run · Esc to close	↑↓ để di chuyển · Enter để chạy · Esc để đóng
 Providers	Nhà cung cấp
-Harnesses	Khung chạy tác tử
+Coding agents	Tác tử lập trình
 Nothing of this kind was found.	Không tìm thấy mục nào thuộc loại này.
 Another model	Mô hình khác
 Fold a project's plan	Thu gọn kế hoạch của dự án
@@ -1507,3 +1507,5 @@ Stop Ghidra's analysis	Dừng phân tích của Ghidra
 
 # Saved-builder notice: English until native-speaker review.
 The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.	The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.
+Uses the subscription you already have once you're signed in. No API key needed.	Dùng gói đăng ký bạn đã có, sau khi bạn đăng nhập. Không cần khóa API.
+An API key, billed per use, or a model server such as Ollama.	Một khóa API, tính phí theo mức dùng, hoặc một máy chủ mô hình như Ollama.

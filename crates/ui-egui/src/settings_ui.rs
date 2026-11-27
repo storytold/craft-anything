@@ -996,10 +996,11 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
             tab
         })
         .inner;
+    crate::detect_tabs::blurb(ui, tab);
     ui.add_space(theme::space::XS);
     if detected.is_empty() && !app.detecting {
         ui.label(
-            RichText::new(tr("Nothing found yet. We look for API keys, local model servers (Ollama, LM Studio) and agent apps you already have. One on another port or computer can be added by its address below."))
+            RichText::new(tr("Nothing found yet. We look for coding agents you're signed in to (Claude Code, Codex, Gemini CLI: no API key needed), API keys and local model servers (Ollama, LM Studio). One on another port or computer can be added by its address below."))
                 .color(t.text_faint),
         );
     }

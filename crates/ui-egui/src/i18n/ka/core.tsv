@@ -236,7 +236,7 @@ Build with {name} instead	აწყობა {name}-ით, ნაცვლა�
 Build without it	აწყობა მის გარეშე
 Builder's questions:	ამწყობის კითხვები:
 Building	აწყობა მიმდინარეობს
-Building needs a coding agent on this computer (Claude Code, Codex or Gemini CLI: install one and sign in to it once in its own window), or an AI with an API key. Craft Anything never sees your account.	ასაწყობად საჭიროა პროგრამირების აგენტი ამ კომპიუტერზე (Claude Code, Codex ან Gemini CLI: დააინსტალირეთ ერთ-ერთი და ერთხელ შედით მასში მის საკუთარ ფანჯარაში) ან AI API გასაღებით. Craft Anything თქვენს ანგარიშს ვერასოდეს ხედავს.
+Building needs a coding agent on this computer (Claude Code, Codex or Gemini CLI: install one and sign in to it once in its own window). It uses your own subscription, so no API key is needed. Or add an AI with an API key. Craft Anything never sees your account.	ასაწყობად საჭიროა პროგრამირების აგენტი ამ კომპიუტერზე (Claude Code, Codex ან Gemini CLI: დააინსტალირეთ ერთ-ერთი და ერთხელ შედით მასში მის საკუთარ ფანჯარაში). ის თქვენს გამოწერას იყენებს, ამიტომ API გასაღები საჭირო არ არის. ან დაამატეთ AI API გასაღებით. Craft Anything თქვენს ანგარიშს ვერასდროს ხედავს.
 Building needs a coding agent such as Claude Code, or an AI with an API key.	ასაწყობად საჭიროა პროგრამირების აგენტი, მაგალითად Claude Code, ან AI API გასაღებით.
 Builds	აწყობები
 Builds and answers may use it again.	აწყობებმა და პასუხებმა შეიძლება ის ხელახლა გამოიყენონ.
@@ -762,9 +762,9 @@ Not compared yet: {what}	ჯერ შეუდარებელია: {what}
 Not installed	არ არის დაინსტალირებული
 Not now	ახლა არა
 Nothing allowed yet.	ჯერ არაფერია დაშვებული.
-Nothing can build yet: install Claude Code (and sign in to it once), or add an AI with an API key below.	ჯერ ვერაფერი აიწყობა: დააინსტალირეთ Claude Code (და ერთხელ შედით მასში) ან ქვემოთ დაამატეთ AI API გასაღებით.
+Nothing can build yet: install Claude Code, Codex or Gemini CLI and sign in to it once (it uses your own subscription, no API key needed), or add an API key below.	ჯერ ვერაფერი აიწყობა: დააინსტალირეთ Claude Code, Codex ან Gemini CLI და ერთხელ შედით მასში (ის თქვენს გამოწერას იყენებს, API გასაღები საჭირო არ არის), ან ქვემოთ დაამატეთ API გასაღები.
 Nothing found	ვერაფერი მოიძებნა
-Nothing found yet. We look for API keys, local model servers (Ollama, LM Studio) and agent apps you already have. One on another port or computer can be added by its address below.	ჯერ ვერაფერი მოიძებნა. ვეძებთ API გასაღებებს, მოდელების ლოკალურ სერვერებს (Ollama, LM Studio) და აგენტის აპებს, რომლებიც უკვე გაქვთ. სხვა პორტზე ან კომპიუტერზე არსებულის დამატება ქვემოთ მისი მისამართით შეიძლება.
+Nothing found yet. We look for coding agents you're signed in to (Claude Code, Codex, Gemini CLI: no API key needed), API keys and local model servers (Ollama, LM Studio). One on another port or computer can be added by its address below.	ჯერ ვერაფერი მოიძებნა. ვეძებთ პროგრამირების აგენტებს, რომლებშიც შესული ხართ (Claude Code, Codex, Gemini CLI: API გასაღები საჭირო არ არის), API გასაღებებს და მოდელების ლოკალურ სერვერებს (Ollama, LM Studio). სხვა პორტზე ან კომპიუტერზე არსებულის დამატება ქვემოთ მისამართით შეგიძლიათ.
 Nothing inside it is read.	შიგნით არაფერი იკითხება.
 Nothing inside it is read; Craft Anything works from what you can see. Your version gets its own art.	შიგნით არაფერი იკითხება; Craft Anything მუშაობს იმით, რასაც თქვენ ხედავთ. თქვენი ვერსია საკუთარ გრაფიკას მიიღებს.
 Nothing inside the original is read: not its code, files or page source. Craft Anything works from what you can see: pictures, the page as a visitor sees it, and watching it run.	ორიგინალის შიგნით არაფერი იკითხება: არც მისი კოდი, არც ფაილები, არც გვერდის წყარო. Craft Anything მუშაობს იმით, რასაც თქვენ ხედავთ: სურათებით, გვერდით ისე, როგორც მას ვიზიტორი ხედავს, და მისი მუშაობის დაკვირვებით.
@@ -1316,7 +1316,7 @@ Write the brief	მოკლე აღწერის დაწერა
 Write the handoff	გადაცემის ჩანაწერის დაწერა
 Wrote {what} to {}	{what} ჩაიწერა აქ: {}
 You answered: {a}	თქვენ უპასუხეთ: {a}
-You can add a Claude, ChatGPT or OpenRouter key, a local model (Ollama, LM Studio) or an agent you already use, later in Settings → AI.	Claude-ის, ChatGPT-ის ან OpenRouter-ის გასაღების, ლოკალური მოდელის (Ollama, LM Studio) ან უკვე გამოყენებული აგენტის დამატება მოგვიანებით შეგიძლიათ აქ: პარამეტრები → AI.
+Install Claude Code, Codex or Gemini CLI and sign in to it once, then press Look again: it uses your own subscription, no API key needed. Or add a Claude, ChatGPT or OpenRouter key, or a local model (Ollama, LM Studio), later in Settings → AI.	დააინსტალირეთ Claude Code, Codex ან Gemini CLI, ერთხელ შედით მასში და დააჭირეთ „ხელახლა ძებნა“: ის თქვენს გამოწერას იყენებს, API გასაღები საჭირო არ არის. ან მოგვიანებით დაამატეთ Claude-ის, ChatGPT-ის ან OpenRouter-ის გასაღები ან ლოკალური მოდელი (Ollama, LM Studio) აქ: პარამეტრები → AI.
 You chose:	თქვენ აირჩიეთ:
 You're all set	ყველაფერი მზადაა
 Your app is ready	თქვენი აპი მზადაა
@@ -1445,7 +1445,7 @@ Zoom	მასშტაბი
 Apply model options	მოდელის პარამეტრების გამოყენება
 Extended	გაფართოებული
 For example: add a dark mode	მაგალითად: ბნელი რეჟიმის დამატება
-Harnesses	აგენტები
+Coding agents	პროგრამირების აგენტები
 Model options	მოდელის პარამეტრები
 Providers	მომწოდებლები
 Reasoning	მსჯელობა
@@ -1507,3 +1507,5 @@ Stop Ghidra's analysis	Ghidra-ს ანალიზის შეწყვეტ
 
 # Saved-builder notice: English until native-speaker review.
 The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.	The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.
+Uses the subscription you already have once you're signed in. No API key needed.	შესვლის შემდეგ იყენებს თქვენს არსებულ გამოწერას. API გასაღები საჭირო არ არის.
+An API key, billed per use, or a model server such as Ollama.	API გასაღები, რომლის საფასურიც გამოყენების მიხედვით ითვლება, ან მოდელების სერვერი, მაგალითად Ollama.

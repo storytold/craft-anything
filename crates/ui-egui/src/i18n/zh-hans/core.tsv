@@ -200,7 +200,7 @@ Build with {name} instead	改用 {name} 构建
 Build without it	不使用它，继续构建
 Builder's questions:	构建助手的问题：
 Building	构建中
-Building needs a coding agent on this computer (Claude Code, Codex or Gemini CLI: install one and sign in to it once in its own window), or an AI with an API key. Craft Anything never sees your account.	构建需要此计算机上的编程智能体 (Claude Code、Codex 或 Gemini CLI：安装其中一个，并在其窗口中登录一次)，或配置了 API 密钥的 AI。Craft Anything 不会接触你的账户。
+Building needs a coding agent on this computer (Claude Code, Codex or Gemini CLI: install one and sign in to it once in its own window). It uses your own subscription, so no API key is needed. Or add an AI with an API key. Craft Anything never sees your account.	构建需要此计算机上的编程智能体 (Claude Code、Codex 或 Gemini CLI：安装其中一个，并在其窗口中登录一次)。它使用你自己的订阅，因此无需 API 密钥。也可以添加配置了 API 密钥的 AI。Craft Anything 不会看到你的账户。
 Building needs a coding agent such as Claude Code, or an AI with an API key.	构建需要 Claude Code 等编程智能体，或配置了 API 密钥的 AI。
 Builds	构建
 Builds and answers may use it again.	构建和回答时可以再次使用它。
@@ -742,9 +742,9 @@ Not compared yet: {what}	尚未比较：{what}
 Not installed	未安装
 Not now	暂时不要
 Nothing allowed yet.	尚未允许任何操作。
-Nothing can build yet: install Claude Code (and sign in to it once), or add an AI with an API key below.	尚无可用的构建助手：请安装 Claude Code (并先登录一次)，或在下方添加配置了 API 密钥的 AI。
+Nothing can build yet: install Claude Code, Codex or Gemini CLI and sign in to it once (it uses your own subscription, no API key needed), or add an API key below.	尚无可用的构建助手：请安装 Claude Code、Codex 或 Gemini CLI 并登录一次 (它使用你自己的订阅，无需 API 密钥)，或在下方添加 API 密钥。
 Nothing found	未找到内容
-Nothing found yet. We look for API keys, local model servers (Ollama, LM Studio) and agent apps you already have. One on another port or computer can be added by its address below.	尚未找到。我们会查找你已有的 API 密钥、本地模型服务器 (Ollama、LM Studio) 和智能体应用。其他端口或其他电脑上的服务器可以在下方按地址添加。
+Nothing found yet. We look for coding agents you're signed in to (Claude Code, Codex, Gemini CLI: no API key needed), API keys and local model servers (Ollama, LM Studio). One on another port or computer can be added by its address below.	尚未找到。我们会查找你已登录的编程智能体 (Claude Code、Codex、Gemini CLI：无需 API 密钥)、API 密钥和本地模型服务器 (Ollama、LM Studio)。其他端口或其他电脑上的服务器可以在下方按地址添加。
 Nothing inside it is read.	不会读取其内部内容。
 Nothing inside it is read; Craft Anything works from what you can see. Your version gets its own art.	不会读取其内部内容；Craft Anything 仅依据你能看到的内容工作。你的版本会使用自己的美术素材。
 Nothing inside the original is read: not its code, files or page source. Craft Anything works from what you can see: pictures, the page as a visitor sees it, and watching it run.	不会读取原作的内部内容，包括代码、文件和网页源码。Craft Anything 仅根据可见内容工作：图片、访客所见的网页以及运行时的表现。
@@ -1295,7 +1295,7 @@ Write the brief	撰写需求简报
 Write the handoff	撰写交接说明
 Wrote {what} to {}	已将{what}写入 {}
 You answered: {a}	你的回答：{a}
-You can add a Claude, ChatGPT or OpenRouter key, a local model (Ollama, LM Studio) or an agent you already use, later in Settings → AI.	之后可以在“设置 → AI”中添加 Claude、ChatGPT 或 OpenRouter 密钥、本地模型 (Ollama、LM Studio)，或你正在使用的智能体。
+Install Claude Code, Codex or Gemini CLI and sign in to it once, then press Look again: it uses your own subscription, no API key needed. Or add a Claude, ChatGPT or OpenRouter key, or a local model (Ollama, LM Studio), later in Settings → AI.	安装 Claude Code、Codex 或 Gemini CLI 并登录一次，然后点击“重新查找”：它使用你自己的订阅，无需 API 密钥。也可以之后在“设置 → AI”中添加 Claude、ChatGPT 或 OpenRouter 密钥，或本地模型 (Ollama、LM Studio)。
 You chose:	你的选择：
 You're all set	准备就绪
 Your app is ready	你的应用已就绪
@@ -1421,7 +1421,7 @@ your files there are the app, edited in place	该位置的文件就是应用，�
 ← Back	← 返回
 ↑↓ to move · Enter to run · Esc to close	↑↓ 选择 · Enter 运行 · Esc 关闭
 Providers	提供商
-Harnesses	代理
+Coding agents	编程智能体
 Nothing of this kind was found.	没有找到这类项目。
 Another model	其他模型
 Fold a project's plan	折叠项目的计划
@@ -1507,3 +1507,5 @@ Stop Ghidra's analysis	停止 Ghidra 的分析
 
 # Saved-builder notice: English until native-speaker review.
 The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.	The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.
+Uses the subscription you already have once you're signed in. No API key needed.	登录后使用你已有的订阅，无需 API 密钥。
+An API key, billed per use, or a model server such as Ollama.	按用量计费的 API 密钥，或 Ollama 等模型服务器。

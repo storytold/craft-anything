@@ -200,7 +200,7 @@ Build with {name} instead	Stattdessen mit {name} bauen
 Build without it	Ohne bauen
 Builder's questions:	Fragen des Builders:
 Building	Wird gebaut
-Building needs a coding agent on this computer (Claude Code, Codex or Gemini CLI: install one and sign in to it once in its own window), or an AI with an API key. Craft Anything never sees your account.	Zum Bauen braucht es einen Coding-Agent auf diesem Computer (Claude Code, Codex oder Gemini CLI: installiere einen und melde dich einmal in seinem eigenen Fenster an) oder eine KI mit API-Schlüssel. Craft Anything sieht dein Konto nie.
+Building needs a coding agent on this computer (Claude Code, Codex or Gemini CLI: install one and sign in to it once in its own window). It uses your own subscription, so no API key is needed. Or add an AI with an API key. Craft Anything never sees your account.	Zum Bauen braucht es einen Coding-Agent auf diesem Computer (Claude Code, Codex oder Gemini CLI: installiere einen und melde dich einmal in seinem eigenen Fenster an). Er nutzt dein eigenes Abo, also ist kein API-Schlüssel nötig. Oder füge eine KI mit API-Schlüssel hinzu. Craft Anything sieht dein Konto nie.
 Building needs a coding agent such as Claude Code, or an AI with an API key.	Zum Bauen braucht es einen Coding-Agent wie Claude Code oder eine KI mit API-Schlüssel.
 Builds	Builds
 Builds and answers may use it again.	Builds und Antworten dürfen es erneut verwenden.
@@ -742,9 +742,9 @@ Not compared yet: {what}	Noch nicht verglichen: {what}
 Not installed	Nicht installiert
 Not now	Jetzt nicht
 Nothing allowed yet.	Noch nichts erlaubt.
-Nothing can build yet: install Claude Code (and sign in to it once), or add an AI with an API key below.	Es kann noch nichts gebaut werden: Installiere Claude Code (und melde dich einmal dort an) oder füge unten eine KI mit API-Schlüssel hinzu.
+Nothing can build yet: install Claude Code, Codex or Gemini CLI and sign in to it once (it uses your own subscription, no API key needed), or add an API key below.	Es kann noch nichts gebaut werden: Installiere Claude Code, Codex oder Gemini CLI und melde dich einmal dort an (es nutzt dein eigenes Abo, kein API-Schlüssel nötig), oder füge unten einen API-Schlüssel hinzu.
 Nothing found	Nichts gefunden
-Nothing found yet. We look for API keys, local model servers (Ollama, LM Studio) and agent apps you already have. One on another port or computer can be added by its address below.	Noch nichts gefunden. Wir suchen nach API-Schlüsseln, lokalen Modellservern (Ollama, LM Studio) und Agent-Apps, die du schon hast. Einen Server auf einem anderen Port oder Computer kannst du unten über seine Adresse hinzufügen.
+Nothing found yet. We look for coding agents you're signed in to (Claude Code, Codex, Gemini CLI: no API key needed), API keys and local model servers (Ollama, LM Studio). One on another port or computer can be added by its address below.	Noch nichts gefunden. Wir suchen nach Coding-Agenten, bei denen du angemeldet bist (Claude Code, Codex, Gemini CLI: kein API-Schlüssel nötig), nach API-Schlüsseln und lokalen Modellservern (Ollama, LM Studio). Einen Server auf einem anderen Port oder Computer kannst du unten über seine Adresse hinzufügen.
 Nothing inside it is read.	Darin wird nichts gelesen.
 Nothing inside it is read; Craft Anything works from what you can see. Your version gets its own art.	Darin wird nichts gelesen; Craft Anything arbeitet mit dem, was du sehen kannst. Deine Version bekommt eigene Grafiken.
 Nothing inside the original is read: not its code, files or page source. Craft Anything works from what you can see: pictures, the page as a visitor sees it, and watching it run.	Im Original wird nichts gelesen: weder Code noch Dateien noch Seitenquelltext. Craft Anything arbeitet mit dem, was du sehen kannst: Bilder, die Seite, wie ein Besucher sie sieht, und das Beobachten beim Ausführen.
@@ -1295,7 +1295,7 @@ Write the brief	Das Briefing schreiben
 Write the handoff	Die Übergabe schreiben
 Wrote {what} to {}	{what} nach {} geschrieben
 You answered: {a}	Du hast geantwortet: {a}
-You can add a Claude, ChatGPT or OpenRouter key, a local model (Ollama, LM Studio) or an agent you already use, later in Settings → AI.	Du kannst später unter Einstellungen → KI einen Claude-, ChatGPT- oder OpenRouter-Schlüssel, ein lokales Modell (Ollama, LM Studio) oder einen Agenten hinzufügen, den du schon nutzt.
+Install Claude Code, Codex or Gemini CLI and sign in to it once, then press Look again: it uses your own subscription, no API key needed. Or add a Claude, ChatGPT or OpenRouter key, or a local model (Ollama, LM Studio), later in Settings → AI.	Installiere Claude Code, Codex oder Gemini CLI, melde dich einmal dort an und klicke dann auf Noch einmal ansehen: Es nutzt dein eigenes Abo, kein API-Schlüssel nötig. Oder füge später unter Einstellungen → KI einen Claude-, ChatGPT- oder OpenRouter-Schlüssel oder ein lokales Modell (Ollama, LM Studio) hinzu.
 You chose:	Du hast gewählt:
 You're all set	Alles bereit
 Your app is ready	Deine App ist fertig
@@ -1421,7 +1421,7 @@ your files there are the app, edited in place	deine Dateien dort sind die App, d
 ← Back	← Zurück
 ↑↓ to move · Enter to run · Esc to close	↑↓ zum Bewegen · Enter zum Ausführen · Esc zum Schließen
 Providers	Anbieter
-Harnesses	Agenten
+Coding agents	Coding-Agenten
 Nothing of this kind was found.	Nichts dieser Art wurde gefunden.
 Another model	Anderes Modell
 Fold a project's plan	Den Plan eines Projekts einklappen
@@ -1507,3 +1507,5 @@ Stop Ghidra's analysis	Ghidras Analyse stoppen
 
 # Saved-builder notice: English until native-speaker review.
 The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.	The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.
+Uses the subscription you already have once you're signed in. No API key needed.	Nutzt das Abo, das du schon hast, sobald du angemeldet bist. Kein API-Schlüssel nötig.
+An API key, billed per use, or a model server such as Ollama.	Ein API-Schlüssel, nach Nutzung abgerechnet, oder ein Modellserver wie Ollama.

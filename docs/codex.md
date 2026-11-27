@@ -12,7 +12,7 @@ is never used as a coding agent. An explicitly selected program and PATH remain
 ahead of the bundle fallback. A saved bare `codex` command gets the same fallback.
 There is no shell-profile edit, global symlink, recursive scan or app launch.
 
-In Settings → AI, add Codex under Found on this computer → Harnesses, then use
+In Settings → AI, add Codex under Found on this computer → Coding agents, then use
 **Check** in its configured row. The check runs the selected program's `--version`
 and `login status` on a worker. `craft-anything-cli ai test <name>` uses the same
 headless API. It sends no prompt, and its `version_only` flag remains true:

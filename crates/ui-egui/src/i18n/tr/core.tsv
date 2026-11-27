@@ -200,7 +200,7 @@ Build with {name} instead	Bunun yerine {name} ile derle
 Build without it	Onsuz derle
 Builder's questions:	Oluşturucunun soruları:
 Building	Derleniyor
-Building needs a coding agent on this computer (Claude Code, Codex or Gemini CLI: install one and sign in to it once in its own window), or an AI with an API key. Craft Anything never sees your account.	Derlemek için bu bilgisayarda bir kodlama ajanı (Claude Code, Codex veya Gemini CLI: birini kurun ve kendi penceresinde bir kez oturum açın) ya da API anahtarı olan bir AI gerekir. Craft Anything hesabınızı hiçbir zaman görmez.
+Building needs a coding agent on this computer (Claude Code, Codex or Gemini CLI: install one and sign in to it once in its own window). It uses your own subscription, so no API key is needed. Or add an AI with an API key. Craft Anything never sees your account.	Derlemek için bu bilgisayarda bir kodlama ajanı gerekir (Claude Code, Codex veya Gemini CLI: birini kurun ve kendi penceresinde bir kez oturum açın). Kendi aboneliğinizi kullanır, bu yüzden API anahtarı gerekmez. Ya da API anahtarı olan bir AI ekleyin. Craft Anything hesabınızı asla görmez.
 Building needs a coding agent such as Claude Code, or an AI with an API key.	Derlemek için Claude Code gibi bir kodlama ajanı ya da API anahtarı olan bir AI gerekir.
 Builds	Derlemeler
 Builds and answers may use it again.	Derlemeler ve yanıtlar bunu yeniden kullanabilir.
@@ -742,9 +742,9 @@ Not compared yet: {what}	Henüz karşılaştırılmadı: {what}
 Not installed	Kurulu değil
 Not now	Şimdi değil
 Nothing allowed yet.	Henüz hiçbir şeye izin verilmedi.
-Nothing can build yet: install Claude Code (and sign in to it once), or add an AI with an API key below.	Henüz hiçbir şey derleyemez: Claude Code'u kurun (ve bir kez oturum açın) ya da aşağıda API anahtarı olan bir AI ekleyin.
+Nothing can build yet: install Claude Code, Codex or Gemini CLI and sign in to it once (it uses your own subscription, no API key needed), or add an API key below.	Henüz hiçbir şey derleyemez: Claude Code, Codex veya Gemini CLI'yi kurun ve bir kez oturum açın (kendi aboneliğinizi kullanır, API anahtarı gerekmez) ya da aşağıda bir API anahtarı ekleyin.
 Nothing found	Hiçbir şey bulunamadı
-Nothing found yet. We look for API keys, local model servers (Ollama, LM Studio) and agent apps you already have. One on another port or computer can be added by its address below.	Henüz bir şey bulunamadı. API anahtarlarını, yerel model sunucularını (Ollama, LM Studio) ve hâlihazırda sahip olduğunuz ajan uygulamalarını ararız. Başka bir bağlantı noktasında veya bilgisayarda olan biri aşağıda adresiyle eklenebilir.
+Nothing found yet. We look for coding agents you're signed in to (Claude Code, Codex, Gemini CLI: no API key needed), API keys and local model servers (Ollama, LM Studio). One on another port or computer can be added by its address below.	Henüz bir şey bulunamadı. Oturum açtığınız kodlama ajanlarını (Claude Code, Codex, Gemini CLI: API anahtarı gerekmez), API anahtarlarını ve yerel model sunucularını (Ollama, LM Studio) ararız. Başka bir bağlantı noktasında veya bilgisayarda olan bir sunucuyu aşağıda adresiyle ekleyebilirsiniz.
 Nothing inside it is read.	İçindeki hiçbir şey okunmaz.
 Nothing inside it is read; Craft Anything works from what you can see. Your version gets its own art.	İçindeki hiçbir şey okunmaz; Craft Anything görebildiklerinizden çalışır. Sizin sürümünüz kendi görsellerini alır.
 Nothing inside the original is read: not its code, files or page source. Craft Anything works from what you can see: pictures, the page as a visitor sees it, and watching it run.	Orijinalin içinden hiçbir şey okunmaz: kodu, dosyaları veya sayfa kaynağı. Craft Anything görebildiklerinizden çalışır: resimler, sayfanın ziyaretçinin gördüğü hâli ve çalışırken izlenmesi.
@@ -1295,7 +1295,7 @@ Write the brief	Özeti yaz
 Write the handoff	Devir notunu yaz
 Wrote {what} to {}	{what}, {} konumuna yazıldı
 You answered: {a}	Yanıtladınız: {a}
-You can add a Claude, ChatGPT or OpenRouter key, a local model (Ollama, LM Studio) or an agent you already use, later in Settings → AI.	Daha sonra Ayarlar → AI bölümünden Claude, ChatGPT veya OpenRouter anahtarı, yerel bir model (Ollama, LM Studio) ya da kullandığınız bir ajan ekleyebilirsiniz.
+Install Claude Code, Codex or Gemini CLI and sign in to it once, then press Look again: it uses your own subscription, no API key needed. Or add a Claude, ChatGPT or OpenRouter key, or a local model (Ollama, LM Studio), later in Settings → AI.	Claude Code, Codex veya Gemini CLI'yi kurun, bir kez oturum açın ve ardından Yeniden bak'a basın: kendi aboneliğinizi kullanır, API anahtarı gerekmez. Ya da daha sonra Ayarlar → AI bölümünden Claude, ChatGPT veya OpenRouter anahtarı ya da yerel bir model (Ollama, LM Studio) ekleyin.
 You chose:	Seçtiniz:
 You're all set	Her şey hazır
 Your app is ready	Uygulamanız hazır
@@ -1421,7 +1421,7 @@ your files there are the app, edited in place	oradaki dosyalarınız uygulamanı
 ← Back	← Geri
 ↑↓ to move · Enter to run · Esc to close	↑↓ gezinmek · Enter çalıştırmak · Esc kapatmak için
 Providers	Sağlayıcılar
-Harnesses	Ajan ortamları
+Coding agents	Kodlama ajanları
 Nothing of this kind was found.	Bu türden hiçbir şey bulunamadı.
 Another model	Başka bir model
 Fold a project's plan	Bir projenin planını katla
@@ -1507,3 +1507,5 @@ Stop Ghidra's analysis	Ghidra analizini durdur
 
 # Saved-builder notice: reviewed by native Turkish speaker @MacallanTheRoot.
 The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.	Bu proje için seçilen yapay zekâ ({saved}) devre dışı bırakılmış veya artık yapılandırılmamış. Projeyi bunun yerine {used} oluşturacak.
+Uses the subscription you already have once you're signed in. No API key needed.	Oturum açtığınızda zaten sahip olduğunuz aboneliği kullanır. API anahtarı gerekmez.
+An API key, billed per use, or a model server such as Ollama.	Kullandıkça ödenen bir API anahtarı ya da Ollama gibi bir model sunucusu.

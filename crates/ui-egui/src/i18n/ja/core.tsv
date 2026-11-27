@@ -95,7 +95,7 @@ Build with {name}	{name} でビルド
 Build with {name} instead	代わりに {name} でビルド
 Build without it	それなしでビルド
 Builder's questions:	ビルダーからの質問:
-Building needs a coding agent on this computer (Claude Code, Codex or Gemini CLI: install one and sign in to it once in its own window), or an AI with an API key. Craft Anything never sees your account.	ビルドには、このコンピュータ上のコーディングエージェント(Claude Code、Codex、Gemini CLI のいずれかをインストールし、それぞれのウィンドウで一度サインイン)か、API キーを使う AI が必要です。Craft Anything がアカウントを見ることはありません。
+Building needs a coding agent on this computer (Claude Code, Codex or Gemini CLI: install one and sign in to it once in its own window). It uses your own subscription, so no API key is needed. Or add an AI with an API key. Craft Anything never sees your account.	ビルドには、このコンピュータ上のコーディングエージェントが必要です(Claude Code、Codex、Gemini CLI のいずれかをインストールし、それぞれのウィンドウで一度サインインしてください)。ご自身のサブスクリプションで動くので、API キーは不要です。API キーを使った AI を追加することもできます。Craft Anything があなたのアカウントを見ることはありません。
 Building needs a coding agent such as Claude Code, or an AI with an API key.	ビルドには Claude Code などのコーディングエージェントか、API キーを使う AI が必要です。
 Builds	ビルド
 Builds and answers may use it again.	ビルドと回答が再びこの AI を使えるようになります。
@@ -422,9 +422,9 @@ Not compared yet: {what}	未比較: {what}
 Not installed	未インストール
 Not now	後で
 Nothing allowed yet.	まだ何も許可されていません。
-Nothing can build yet: install Claude Code (and sign in to it once), or add an AI with an API key below.	まだビルドできません。Claude Code をインストールして一度サインインするか、下で API キーを使って AI を追加してください。
+Nothing can build yet: install Claude Code, Codex or Gemini CLI and sign in to it once (it uses your own subscription, no API key needed), or add an API key below.	まだビルドできません。Claude Code、Codex、Gemini CLI のいずれかをインストールして一度サインインするか(ご自身のサブスクリプションで動くので API キーは不要です)、下で API キーを追加してください。
 Nothing found	何も見つかりません
-Nothing found yet. We look for API keys, local model servers (Ollama, LM Studio) and agent apps you already have. One on another port or computer can be added by its address below.	まだ見つかっていません。API キー、ローカルのモデルサーバー(Ollama、LM Studio)、すでにあるエージェントアプリを探します。別のポートや別のコンピュータにあるサーバーは、下でアドレスを指定して追加できます。
+Nothing found yet. We look for coding agents you're signed in to (Claude Code, Codex, Gemini CLI: no API key needed), API keys and local model servers (Ollama, LM Studio). One on another port or computer can be added by its address below.	まだ見つかっていません。サインイン済みのコーディングエージェント(Claude Code、Codex、Gemini CLI: API キー不要)、API キー、ローカルのモデルサーバー(Ollama、LM Studio)を探します。別のポートや別のコンピュータにあるものは、下でアドレスを入力して追加できます。
 Craft Anything reads its code and files with every tool it has. For your private use.	Craft Anything が持つすべてのツールで、コードとファイルを読みます。私的利用のためのモードです。
 Nothing inside it is read.	中身は一切読みません。
 Nothing inside it is read; Craft Anything works from what you can see. Your version gets its own art.	中身は読みません。見えるものから Craft Anything が作業し、あなたの版には独自のアートを使います。
@@ -799,7 +799,7 @@ Working out how much space a copy takes…	コピーの容量を計算してい�
 Working…	実行中…
 Working… ({n} steps so far)	実行中…(これまで {n} ステップ)
 You answered: {a}	あなたの回答: {a}
-You can add a Claude, ChatGPT or OpenRouter key, a local model (Ollama, LM Studio) or an agent you already use, later in Settings → AI.	Claude、ChatGPT、OpenRouter のキー、ローカルモデル(Ollama、LM Studio)、すでに使っているエージェントは、後から 設定 → AI で追加できます。
+Install Claude Code, Codex or Gemini CLI and sign in to it once, then press Look again: it uses your own subscription, no API key needed. Or add a Claude, ChatGPT or OpenRouter key, or a local model (Ollama, LM Studio), later in Settings → AI.	Claude Code、Codex、Gemini CLI のいずれかをインストールして一度サインインし、「もう一度見る」を押してください。ご自身のサブスクリプションで動くので API キーは不要です。Claude、ChatGPT、OpenRouter のキーやローカルモデル(Ollama、LM Studio)は、後から 設定 → AI で追加することもできます。
 You chose:	あなたの選択:
 You're all set	準備が整いました
 Your brains	登録済みの AI
@@ -856,7 +856,7 @@ your files there are the app, edited in place	そこにあるファイルがア�
 ← Back	← 戻る
 ↑↓ to move · Enter to run · Esc to close	↑↓ で移動 · Enter で実行 · Esc で閉じる
 Providers	プロバイダ
-Harnesses	ハーネス
+Coding agents	コーディングエージェント
 Nothing of this kind was found.	この種類のものは見つかりませんでした。
 Another model	別のモデル
 Fold a project's plan	プロジェクトのプランを畳む
@@ -962,3 +962,5 @@ Stop Ghidra's analysis	Ghidra の解析を停止
 
 # Saved-builder notice: English until native-speaker review.
 The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.	The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.
+Uses the subscription you already have once you're signed in. No API key needed.	サインインすれば、すでにお持ちのサブスクリプションで動きます。API キーは不要です。
+An API key, billed per use, or a model server such as Ollama.	従量課金の API キー、または Ollama などのモデルサーバー。
