@@ -473,6 +473,9 @@ pub struct UiState {
     /// Settings → Plugins: the plugin being added.
     #[serde(default)]
     pub plugin_form: PluginForm,
+    /// The remote command being typed for an SSH agent suggestion, by suggestion name.
+    #[serde(default)]
+    pub remote_commands: BTreeMap<String, String>,
     /// The Game files screen.
     #[serde(default)]
     pub game: GameFiles,
@@ -606,6 +609,12 @@ impl PluginForm {
         self.is_command() && plugin_args(&self.args) == PluginArgs::BadList
     }
 
+    /// The plugins_test params: those of plugins_add for an MCP server (a .wasm file has no
+    /// server to start).
+    pub fn test_params(&self) -> Option<serde_json::Value> {
+        self.params().filter(|p| p.get("wasm").is_none())
+    }
+
     /// The plugins_add params, or None while it's incomplete or its arguments are refused.
     pub fn params(&self) -> Option<serde_json::Value> {
         let (id, place) = (self.id.trim(), self.place.trim());
@@ -669,6 +678,7 @@ impl Default for UiState {
             pin_draft: Default::default(),
             answers: BTreeMap::new(),
             plugin_form: PluginForm::default(),
+            remote_commands: BTreeMap::new(),
             game: GameFiles::default(),
         }
     }
@@ -705,6 +715,15 @@ mod tests {
         assert_eq!(f("ls", "server", "[1, 2] --x"), Some(serde_json::json!({"id": "ls", "command": "server", "args": ["[1,", "2]", "--x"]})));
         assert_eq!(f("", "npx", ""), None);
         assert_eq!(f("x", "  ", ""), None);
+    }
+
+    #[test]
+    fn only_a_plugin_server_is_tested() {
+        let form = |place: &str| PluginForm { id: "docs".into(), place: place.into(), args: String::new() };
+        assert_eq!(form("npx").test_params(), form("npx").params());
+        assert!(form("https://mcp.example.com/mcp").test_params().is_some());
+        assert_eq!(form("/plugins/words.wasm").test_params(), None);
+        assert_eq!(form("").test_params(), None);
     }
 
     #[test]

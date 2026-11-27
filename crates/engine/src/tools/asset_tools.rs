@@ -195,6 +195,23 @@ fn within_budget(ctx: &mut Ctx<'_>, inbox: &Inbox, ws: &mut Workspace, cost: f64
     }
 }
 
+/// A model failure after a picture was made and paid for: hand the saved picture back as `image`
+/// so a retry doesn't pay for another one. Only a rate limit is wrapped; a call that supplied an
+/// image, or a picture that was never saved, keeps its own guidance.
+fn model_failed_after_picture(e: ToolError, picture: &Value) -> ToolError {
+    let Some(picture) = picture.as_str() else { return e };
+    let rate_limited = e.code == ErrorCode::OverLimit && e.details.as_ref().and_then(|d| d.get("status")).and_then(Value::as_u64) == Some(429);
+    if !rate_limited {
+        return e;
+    }
+    let image = if picture.starts_with("app/") { picture.to_string() } else { format!("app/{picture}") };
+    let mut err = ToolError::new(ErrorCode::OverLimit, format!("The 3D model hit fal.ai's rate limit after the picture was made and paid for: {}", e.message))
+        .with_remediation(format!("Set image to {image} and try again: the picture is already saved and paid for, so the retry won't make another one."))
+        .with_details(json!({"image": image}));
+    err.retryable = false;
+    err
+}
+
 /// Save a generated file and list it with its cost.
 fn keep(ws: &Workspace, path: &Path, rel: &str, kind: &str, made_from: &str, g: &Generated) -> Result<(), ToolError> {
     if let Some(parent) = path.parent() {
@@ -304,7 +321,7 @@ fn assets_model_generate(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput,
         }
     };
     ctx.report(None, "Turning it into a 3D model (a minute or two)…");
-    let g = provider.generate(&key, &AssetRequest::Model3d { model, image_url: &url, textured, faces })?;
+    let g = provider.generate(&key, &AssetRequest::Model3d { model, image_url: &url, textured, faces }).map_err(|e| model_failed_after_picture(e, &picture))?;
     keep(&j.ws, &path, &rel, "model", &made_from, &g)?;
     cost += g.cost_usd;
     Ok(summary(&j.ws, &rel, cost, json!({"picture": picture, "textured": textured, "faces": faces})))
@@ -422,6 +439,112 @@ mod tests {
         let spent = w.assets_spent();
         assert!((spent - (0.50 + 0.003 * 1.048576)).abs() < 1e-9, "{spent}");
         assert_eq!(w.assets().len(), 2);
+    }
+
+    /// Rate-limits either the picture or the model, so the two points of the flow can be tested.
+    struct RateLimited {
+        picture: bool,
+    }
+
+    impl craft_anything_engines::assets::AssetProvider for RateLimited {
+        fn id(&self) -> &'static str {
+            "fal"
+        }
+        fn name(&self) -> &'static str {
+            "rate-limited"
+        }
+        fn generate(&self, _key: &str, req: &AssetRequest) -> Result<Generated, ToolError> {
+            let limited = match req {
+                AssetRequest::Image { .. } => self.picture,
+                AssetRequest::Model3d { .. } => !self.picture,
+                _ => false,
+            };
+            if limited {
+                return Err(
+                    ToolError::new(ErrorCode::OverLimit, "fal.ai is rate limiting the generation (429): slow down").with_details(json!({"status": 429}))
+                );
+            }
+            Ok(Generated { url: "https://stand-in/picture.png".into(), bytes: b"ok".to_vec(), cost_usd: req.listed_cost() })
+        }
+    }
+
+    /// A model rate limit after the picture was made must not invite a retry that pays for another
+    /// picture: hand back the saved picture as `image`.
+    #[test]
+    fn a_model_rate_limit_after_the_picture_says_to_reuse_it() {
+        let (_d, w) = ws();
+        let mut providers = AssetProviders::built_in();
+        providers.register(std::sync::Arc::new(RateLimited { picture: false }));
+        let mut session = crate::testing::session();
+        session.settings.assets.image_model = Some("flux-schnell".into());
+        let e = crate::Engine::new(session);
+        e.session().ext.insert(std::sync::Arc::new(InboxDir(w.inbox_dir())));
+        e.session().ext.insert(std::sync::Arc::new(AssetKeys([("fal".to_string(), "k-1".to_string())].into())));
+        e.session().ext.insert(std::sync::Arc::new(providers));
+        let err = e
+            .call("assets_model_generate", json!({"prompt": "a crate", "save_as": "Assets/crate.glb"}), crate::CallOptions::new(crate::Caller::Mcp))
+            .err()
+            .unwrap();
+        assert_eq!(err.code, ErrorCode::OverLimit, "{err:?}");
+        assert!(!err.retryable, "a retry must not make another picture");
+        assert!(err.message.contains("picture was made and paid for"), "{err:?}");
+        assert!(err.remediation.as_deref().is_some_and(|r| r.contains("app/Assets/crate.png")), "{err:?}");
+        assert_eq!(err.details.as_ref().and_then(|d| d["image"].as_str()), Some("app/Assets/crate.png"));
+        assert!(w.app_dir().join("Assets/crate.png").exists(), "the picture is still saved");
+        assert!(!w.app_dir().join("Assets/crate.glb").exists(), "the model wasn't saved");
+        assert_eq!(w.assets().len(), 1, "only the picture was paid for");
+    }
+
+    /// A rate limit before any picture is saved keeps the normal retry guidance.
+    #[test]
+    fn a_picture_rate_limit_before_it_is_saved_stays_retryable() {
+        let (_d, w) = ws();
+        let mut providers = AssetProviders::built_in();
+        providers.register(std::sync::Arc::new(RateLimited { picture: true }));
+        let mut session = crate::testing::session();
+        session.settings.assets.image_model = Some("flux-schnell".into());
+        let e = crate::Engine::new(session);
+        e.session().ext.insert(std::sync::Arc::new(InboxDir(w.inbox_dir())));
+        e.session().ext.insert(std::sync::Arc::new(AssetKeys([("fal".to_string(), "k-1".to_string())].into())));
+        e.session().ext.insert(std::sync::Arc::new(providers));
+        let err = e
+            .call("assets_model_generate", json!({"prompt": "a crate", "save_as": "Assets/crate.glb"}), crate::CallOptions::new(crate::Caller::Mcp))
+            .err()
+            .unwrap();
+        assert_eq!(err.code, ErrorCode::OverLimit, "{err:?}");
+        assert!(err.retryable, "nothing was made or paid for yet");
+        assert!(!err.message.contains("picture was made and paid for"), "{err:?}");
+        assert!(w.assets().is_empty());
+    }
+
+    /// A rate limit when the picture was supplied keeps the normal retry guidance too.
+    #[test]
+    fn a_model_rate_limit_with_a_supplied_image_stays_retryable() {
+        let (_d, w) = ws();
+        std::fs::create_dir_all(w.app_dir().join("Assets")).unwrap();
+        std::fs::write(w.app_dir().join("Assets/source.png"), b"\x89PNG").unwrap();
+        // `image` is project-relative, so a picture in app/ carries the app/ prefix.
+        assert!(w.root.join("app/Assets/source.png").exists());
+        let mut providers = AssetProviders::built_in();
+        providers.register(std::sync::Arc::new(RateLimited { picture: false }));
+        let mut session = crate::testing::session();
+        session.settings.assets.image_model = Some("flux-schnell".into());
+        let e = crate::Engine::new(session);
+        e.session().ext.insert(std::sync::Arc::new(InboxDir(w.inbox_dir())));
+        e.session().ext.insert(std::sync::Arc::new(AssetKeys([("fal".to_string(), "k-1".to_string())].into())));
+        e.session().ext.insert(std::sync::Arc::new(providers));
+        let err = e
+            .call(
+                "assets_model_generate",
+                json!({"image": "app/Assets/source.png", "save_as": "Assets/crate.glb"}),
+                crate::CallOptions::new(crate::Caller::Mcp),
+            )
+            .err()
+            .unwrap();
+        assert_eq!(err.code, ErrorCode::OverLimit, "{err:?}");
+        assert!(err.retryable, "no picture was made for this call");
+        assert!(!err.message.contains("picture was made and paid for"), "{err:?}");
+        assert!(w.assets().is_empty());
     }
 
     #[test]

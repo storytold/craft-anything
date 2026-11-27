@@ -104,7 +104,8 @@ fn serve(mut stream: TcpStream, port: u16, ws_seen: Arc<AtomicBool>, dialog_answ
     let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
 }
 
-fn ws_accept(key: &str) -> String {
+/// The `Sec-WebSocket-Accept` a stand-in server answers `key` with (RFC 6455 fixes SHA-1 here).
+pub(crate) fn ws_accept(key: &str) -> String {
     use base64::Engine as _;
     use sha1::{Digest, Sha1};
     let mut h = Sha1::new();

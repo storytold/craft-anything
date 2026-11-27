@@ -58,7 +58,7 @@ pub fn parse(data: &[u8]) -> Result<IbDocument, FormatError> {
         parse_nib_archive(data)
     } else if data.starts_with(b"bplist") || plist::looks_like_plist(data) {
         let v = plist::parse(data)?;
-        let a = keyed_archive::from_plist(&v)?;
+        let a = keyed_archive::from_owned_plist(v)?;
         Ok(from_keyed_archive(&a))
     } else {
         Err(FormatError::Malformed("neither a NIB archive nor a keyed archive".into()))

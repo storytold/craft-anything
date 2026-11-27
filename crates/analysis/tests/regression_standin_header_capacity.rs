@@ -129,11 +129,14 @@ fn full_routes_preserve_missing_graphql_operations() {
 
     let opts = BuildOptions { max_samples_per_route: 1, hidden_values: vec!["Hidden".into()], ..Default::default() };
     let standin = capture(vec![operation("Hidden", 304, ""), operation("Hidden", 200, "ok")], &opts);
-    assert_eq!(standin.routes[0].samples[0].request_key, None);
-    let Answer::Found(found) = answer(&standin, &mut Turns::default(), "POST", "/graphql", "", br#"{"operationName":"Hidden"}"#) else {
-        panic!("replacement used an unsanitized request key");
+    let kept = &standin.routes[0].samples[0];
+    assert_eq!(kept.request_key, None, "replacement used an unsanitized request key");
+    assert_eq!((kept.status, kept.text.as_deref()), (200, Some("ok")));
+    // With its name hidden, the recording can't say this write was the one asked for.
+    let Answer::NoMatch(refused) = answer(&standin, &mut Turns::default(), "POST", "/graphql", "", br#"{"operationName":"Hidden"}"#) else {
+        panic!("a hidden write answered a named one");
     };
-    assert_eq!(found.body, b"ok");
+    assert_eq!(refused.reason, NoMatchReason::WriteNotRecorded);
 }
 
 #[test]

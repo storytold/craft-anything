@@ -74,8 +74,9 @@ pub trait DeepDecompiler: Send + Sync {
         None
     }
     /// Decompile the function at `entry` (an address in the engine's own space). `Ok(None)` means
-    /// the engine has no better answer. `waiting` gets a line now and then while it waits (#1714).
-    fn decompile(&self, entry: u64, waiting: &dyn Fn(&str)) -> Result<Option<DeepFunction>, GhidraError>;
+    /// the engine has no better answer. `cancel` is checked while waiting for the engine or its
+    /// reply. `waiting` gets a line now and then while it waits (#1714).
+    fn decompile(&self, entry: u64, cancel: &dyn Fn() -> bool, waiting: &dyn Fn(&str)) -> Result<Option<DeepFunction>, GhidraError>;
     /// List the functions the engine found.
     fn list_functions(&self) -> Result<Vec<DeepFunction>, GhidraError>;
 }
@@ -140,7 +141,8 @@ pub struct Config {
     pub language_id: Option<String>,
     /// A compiler-spec id paired with `language_id`, passed as `-cspec` (ignored without one).
     pub compiler_spec: Option<String>,
-    /// Java's memory for Ghidra in GB ([`HEAP_GB`] bounds it); `None`: half this computer's memory.
+    /// Java's memory for Ghidra in GB ([`SET_HEAP_GB`] bounds it); `None`: half this computer's
+    /// memory, within [`HEAP_GB`].
     pub memory_gb: Option<u64>,
 }
 
@@ -189,9 +191,15 @@ pub(crate) fn analyse_args(
     a
 }
 
-/// The memory Java may give Ghidra, in GB: at least 4 (Ghidra's own default of 2 GB crawls or runs
-/// out on a big game), at most 31 (past that Java loses its compressed pointers).
+/// The memory Java may give Ghidra when the person hasn't set it, in GB: at least 4 (Ghidra's own
+/// default of 2 GB crawls or runs out on a big game), at most 31 (past that Java loses its
+/// compressed pointers).
 pub const HEAP_GB: std::ops::RangeInclusive<u64> = 4..=31;
+
+/// The memory a person may set for Ghidra, in GB. Below [`HEAP_GB`]'s floor too: on a computer or
+/// container with little memory a 4 GB heap can stall everything else, while a small program
+/// analyses fine in 1 GB (#2425). The floor of 4 is for the automatic amount only.
+pub const SET_HEAP_GB: std::ops::RangeInclusive<u64> = 1..=31;
 
 /// A rough guide to the memory a program of a given size wants: (programs up to this many MB,
 /// GB). Bigger than the last row: [`BIG_PROGRAM_GB`].
@@ -210,9 +218,9 @@ fn auto_heap_gb(machine_gb: Option<u64>) -> u64 {
     (machine_gb.unwrap_or(16) / 2).clamp(*HEAP_GB.start(), *HEAP_GB.end())
 }
 
-/// The Java heap setting for a run.
+/// The Java heap setting for a run: the person's amount within [`SET_HEAP_GB`], or the automatic one.
 fn ghidra_heap(cfg: &Config) -> String {
-    let gb = cfg.memory_gb.map(|g| g.clamp(*HEAP_GB.start(), *HEAP_GB.end())).unwrap_or_else(|| auto_heap_gb(machine_memory_gb()));
+    let gb = cfg.memory_gb.map(|g| g.clamp(*SET_HEAP_GB.start(), *SET_HEAP_GB.end())).unwrap_or_else(|| auto_heap_gb(machine_memory_gb()));
     format!("{gb}G")
 }
 
@@ -466,7 +474,9 @@ fn headless(cfg: &Config, runtime_root: &Path, args: Vec<OsString>, lifetime: Du
         .env("XDG_CACHE_HOME", runtime_root.join("tmp"))
         .env("XDG_CONFIG_HOME", runtime_root.join("home"))
         .env("XDG_DATA_HOME", runtime_root.join("home"))
-        // Ghidra's launcher reads this for the headless Java heap.
+        // Ghidra's launcher reads this for the headless Java heap (12.1 and later; before that its
+        // `support/analyzeHeadless` sets a fixed 2 GB and reads no variable). Every start, the
+        // analysis and the bridge, comes through here, so each gets the same amount.
         .env("GHIDRA_HEADLESS_MAXMEM", ghidra_heap(cfg))
         .stdin(StdinMode::Closed)
         .timeout(lifetime)
@@ -860,7 +870,7 @@ impl DeepDecompiler for Session {
         self.image_base
     }
 
-    fn decompile(&self, entry: u64, waiting: &dyn Fn(&str)) -> Result<Option<DeepFunction>, GhidraError> {
+    fn decompile(&self, entry: u64, cancel: &dyn Fn() -> bool, waiting: &dyn Fn(&str)) -> Result<Option<DeepFunction>, GhidraError> {
         let said = std::cell::RefCell::new(String::new());
         // Once a minute, from the first: most decompiles take seconds and say nothing.
         let say = |since: Instant, what: &dyn Fn(u64) -> String| {
@@ -874,6 +884,9 @@ impl DeepDecompiler for Session {
         // A decompile ahead of this one holds the bridge, for up to its own request time (#1711).
         let queued = Instant::now();
         let mut client = loop {
+            if cancel() {
+                return Err(GhidraError::Cancelled);
+            }
             match self.client.try_lock() {
                 Ok(g) => break g,
                 Err(std::sync::TryLockError::Poisoned(p)) => break p.into_inner(),
@@ -886,6 +899,9 @@ impl DeepDecompiler for Session {
         let asked = Instant::now();
         let limit = REQUEST_TIME.as_secs() / 60;
         let still = || {
+            if cancel() {
+                return true;
+            }
             say(asked, &|m| format!("Ghidra is decompiling this function ({m} min so far; it gives up at {limit} min)"));
             false
         };

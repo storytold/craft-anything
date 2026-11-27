@@ -26,7 +26,7 @@ const MAX_STRING: usize = 4096;
 pub enum CodeLayout {
     /// 3.8 to 3.10: `co_nlocals` is stored, `co_qualname` isn't.
     Py38,
-    /// 3.11 to 3.14: `localsplus` tables, `co_qualname` and the exception table.
+    /// 3.11 to 3.15: `localsplus` tables, `co_qualname` and the exception table.
     Py311,
 }
 
@@ -68,6 +68,7 @@ pub const RELEASES: &[Release] = &[
     Release { version: "3.12", first: 3500, released: 3531, last: 3531, header: 16, layout: Some(CodeLayout::Py311) },
     Release { version: "3.13", first: 3550, released: 3571, last: 3571, header: 16, layout: Some(CodeLayout::Py311) },
     Release { version: "3.14", first: 3600, released: 3627, last: 3627, header: 16, layout: Some(CodeLayout::Py311) },
+    Release { version: "3.15", first: 3650, released: 3666, last: 3666, header: 16, layout: Some(CodeLayout::Py311) },
 ];
 
 impl Release {
@@ -382,7 +383,7 @@ impl<'a> Marshal<'a> {
                 let slot = self.reserve(flagged);
                 self.sequence(3, slot, depth)
             }
-            b'{' => self.dict(flagged, depth),
+            b'{' | b'}' => self.dict(flagged, depth),
             b'c' => self.code(flagged, depth),
             other => Err(bad(&format!("an unknown type code {other:#04x}"))),
         }
@@ -517,7 +518,7 @@ pub struct CodeObject {
     pub bytecode_size: usize,
     /// Names it refers to: globals, attributes, imports.
     pub names: Vec<String>,
-    /// Text among its constants, including inside constant tuples.
+    /// Text among its constants, including inside constant tuples and dictionaries.
     pub strings: Vec<String>,
     /// Functions and classes defined in it.
     pub children: Vec<CodeObject>,
@@ -563,6 +564,12 @@ impl Walk {
             Value::Seq(items) => {
                 for item in items {
                     self.strings_in(item, out, children);
+                }
+            }
+            Value::Dict(items) => {
+                for (key, value) in items {
+                    self.strings_in(key, out, children);
+                    self.strings_in(value, out, children);
                 }
             }
             Value::Code(c) => match self.code(c) {
@@ -721,6 +728,70 @@ pub fn flatten(root: &CodeObject) -> Vec<FlatCode<'_>> {
 mod tests {
     use super::*;
     use craft_anything_testkit::packed::{code_38, code_311, marshal as m, pyc};
+
+    fn python315_fixtures() -> serde_json::Value {
+        serde_json::from_str(include_str!("../tests/fixtures/python315/fixtures.json")).unwrap()
+    }
+
+    fn fixture_bytes(hex: &serde_json::Value) -> Vec<u8> {
+        let (pairs, remainder) = hex.as_str().unwrap().as_bytes().as_chunks::<2>();
+        assert!(remainder.is_empty());
+        pairs.iter().map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap()).collect()
+    }
+
+    #[test]
+    fn python315_compiler_metadata_and_frozen_constants_read() {
+        // CPython's compiler, marshal reader and CodeType fields provide the oracle. The
+        // generator never executes this code, and the frozen constants are explicitly added
+        // with CodeType.replace rather than claimed to be compiler-folded literals.
+        let fixtures = python315_fixtures();
+        for fixture in fixtures["files"].as_array().unwrap() {
+            let data = fixture_bytes(&fixture["hex"]);
+            let file = read_pyc(&data).unwrap();
+            let case = fixture["case"].as_str().unwrap();
+            assert_eq!(file.header.magic, fixture["magic"].as_u64().unwrap() as u16, "{case}");
+            assert_eq!((file.header.version, file.header.is_release), (Some("3.15"), true), "{case}");
+            assert_eq!(serde_json::to_value(file.header.invalidation).unwrap(), fixture["invalidation"], "{case}");
+            assert_eq!(file.code_missing, None, "{case}");
+            let code = file.code.unwrap();
+            assert!(!code.cut_short, "{case}");
+            assert_eq!(serde_json::to_value(code.root).unwrap(), fixtures["expected_code"][fixture["oracle"].as_str().unwrap()], "{case}");
+        }
+    }
+
+    #[test]
+    fn python315_frozen_dictionary_aliases_keep_reference_and_read_bounds() {
+        let fixtures = python315_fixtures();
+        let data = fixture_bytes(&fixtures["frozen_aliases_hex"]);
+        let value = read_value(&data, None).unwrap();
+        let Value::Seq(items) = &value.value else { panic!("not a tuple") };
+        assert_eq!(items.len(), 2);
+        assert!(Rc::ptr_eq(&items[0], &items[1]), "marshal references must keep the shared dictionary");
+        assert!(matches!(&items[0].value, Value::Dict(entries) if entries.len() == 2));
+        for end in 0..data.len() {
+            assert!(read_value(&data[..end], None).is_err(), "truncated at {end}");
+        }
+        let mut strings = Vec::new();
+        let mut children = Vec::new();
+        let mut walk = Walk { steps: MAX_WALK, text: MAX_TEXT, cut: false };
+        walk.strings_in(&value, &mut strings, &mut children);
+        assert!(walk.cut);
+        assert!(strings.is_empty(), "dictionary keys and values must respect the shared text budget");
+    }
+
+    #[test]
+    fn python315_prereleases_and_unknown_successor_remain_header_only() {
+        let fixtures = python315_fixtures();
+        let mut data = fixture_bytes(&fixtures["files"][0]["hex"]);
+        for magic in [3650u16, 3665, 3667] {
+            data[..2].copy_from_slice(&magic.to_le_bytes());
+            let file = read_pyc(&data).unwrap();
+            assert_eq!(file.header.version, (magic <= 3665).then_some("3.15"));
+            assert!(!file.header.is_release);
+            assert!(file.code.is_none());
+            assert!(file.code_missing.is_some());
+        }
+    }
 
     fn sample_38() -> Vec<u8> {
         let inner = code_38("helper", "app.py", 7, &["os", "path"], &["inner text"], &[]);

@@ -21,7 +21,7 @@ fn struct_enum_and_protocol_initialisers_read_init() {
 /// `(extension in NewsTag):`, which this demangler leaves out.
 #[test]
 fn initialisers_in_class_extensions_read_init() {
-    assert_eq!(dm("_$sSo7UIColorC7NewsTagE3hexABSi_tcfC"), "__C.UIColor.init(hex: Swift.Int) -> __C.UIColor");
+    assert_eq!(dm("_$sSo7UIColorC7NewsTagE3hexABSi_tcfC"), "(extension in NewsTag):__C.UIColor.init(hex: Swift.Int) -> __C.UIColor");
 }
 
 /// A class's own allocating initialiser keeps its name: plain, generic, nested in an enum, and an

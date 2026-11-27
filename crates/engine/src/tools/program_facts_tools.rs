@@ -9,11 +9,13 @@ use crate::tool::{Ctx, Effects, Requires, ToolOutput, ToolSpec, Toolset, parse_p
 use craft_anything_analysis::function_match::{self, BodyStatus, MatchMethod, MatchResult, MatchedPair};
 use craft_anything_disasm::pseudo::lift;
 use craft_anything_disasm::{Image, Limits, Program};
-use craft_anything_evidence::{Authority, Confidence, Coverage, CoverageStatus, ErrorCode, Limitation, Location, ToolError};
+use craft_anything_evidence::{
+    Authority, Confidence, Coverage, CoverageStatus, Environment, ErrorCode, EvidenceBuilder, Limitation, Location, ToolError, host_triple,
+};
 use craft_anything_formats::authenticode::{self, CertTable, HashStatus, SignatureReport};
 use craft_anything_formats::verify::Verified;
 use craft_anything_formats::{Binary, Format, ai_model, elf, macho_deps, parse_binary, pe};
-use craft_anything_platform::fs::write_atomic;
+use craft_anything_platform::fs::{read_file_capped, write_atomic};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -91,7 +93,7 @@ pub fn specs() -> Vec<ToolSpec> {
         spec(
             "native_source_folder_write",
             "Write pseudo-C to a folder",
-            "Write each function of the active target as pseudo-C to its own file in a folder, across as many runs as it takes: running again with the same folder skips what's done and continues, and a state file records the target's SHA-256 (another target is refused) and each finished function. Each call stops at max_functions or max_seconds and says how far it got. Files are written atomically. Uses the built-in decompiler, as native_functions_decompile does. Refuses a folder with other files in it.",
+            "Write each function the built-in analysis found as pseudo-C to its own file, preferring Ghidra in Deep mode and falling back to the built-in decompiler with a reason. Running again with the same folder keeps finished files and continues. A versioned state file records the target's SHA-256 and each function's source; another target is refused. Stops starting functions at max_functions or max_seconds; an analysis or function already started may take longer. Files are written atomically. Refuses a folder with other files in it.",
             "Save a whole program as readable code files, a part at a time.",
             Toolset::Native,
             Effects::MUTATES_SESSION | Effects::WRITES_FILESYSTEM | Effects::CARRIES_TARGET_CONTENT,
@@ -898,30 +900,113 @@ fn app_builds_line_up(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, To
 /// The state file's name inside an export folder.
 pub const EXPORT_STATE_FILE: &str = "craft-pseudocode-export.json";
 /// The state file's format version.
-const EXPORT_STATE_VERSION: u32 = 1;
+const EXPORT_STATE_VERSION: u32 = 2;
+const MAX_EXPORT_STATE_BYTES: u64 = 256 << 20;
 /// Save the state at least this often, so a crash costs little repeated work.
 const SAVE_EVERY_FUNCTIONS: usize = 256;
 const SAVE_EVERY: Duration = Duration::from_secs(5);
 /// Most newly written file names listed in one result.
 const MAX_LISTED: usize = 200;
+const MAX_EXPORT_NOTES: usize = 5;
+
+const EXPORT_STATE_STEPS: &[crate::versioned::Step<Value>] = &[export_v1_to_v2];
+const _: () = assert!(EXPORT_STATE_STEPS.len() + 1 == EXPORT_STATE_VERSION as usize);
+
+/// Version 1 only wrote built-in pseudo-C. Its files stay as they are; provenance moves from
+/// the whole export to each function so a later Ghidra run can finish the same folder honestly.
+fn export_v1_to_v2(doc: &mut Value) -> Result<(), String> {
+    let obj = doc.as_object_mut().ok_or("the export state isn't an object")?;
+    if obj.get("engine").and_then(Value::as_str) != Some("clean-room lifter") {
+        return Err("the version-1 export has an unknown engine".into());
+    }
+    let functions = obj.get_mut("functions").and_then(Value::as_object_mut).ok_or("the export has no function records")?;
+    for (entry, function) in functions {
+        let function = function.as_object_mut().ok_or("a function record isn't an object")?;
+        if function.contains_key("source") {
+            return Err("a version-1 function already has source metadata".into());
+        }
+        function.insert("source".into(), json!({"engine": "builtin", "entry": entry}));
+    }
+    obj.remove("engine");
+    Ok(())
+}
+
+/// Which decompiler wrote a file, with addresses in both coordinate systems when they differ.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct ExportSource {
+    engine: String,
+    /// The entry of the returned function, in the built-in engine's address space.
+    entry: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    engine_entry: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    engine_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    language_id: Option<String>,
+}
 
 /// One function that has been written.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 struct ExportedFunction {
     file: String,
     name: String,
     lines: usize,
-    structured: bool,
+    /// Ghidra does not report this property; unknown stays null, rather than false.
+    structured: Option<bool>,
+    source: ExportSource,
 }
 
 /// What an export folder holds, by function entry.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 struct ExportState {
     version: u32,
     target_sha256: String,
     target_name: String,
-    engine: String,
     functions: BTreeMap<String, ExportedFunction>,
+}
+
+/// The published schema of a resumable pseudo-C export (`cargo xtask schemas`).
+pub fn source_export_schema() -> String {
+    let schema = schemars::generate::SchemaSettings::draft2020_12().into_generator().into_root_schema_for::<ExportState>();
+    serde_json::to_string_pretty(&schema).map(|s| s + "\n").unwrap_or_default()
+}
+
+struct ExportCode {
+    name: String,
+    text: String,
+    structured: Option<bool>,
+    source: ExportSource,
+    limitations: Vec<Limitation>,
+}
+
+/// Read the existing Deep tool's structured result, keeping its rebasing and user-name rules.
+fn deep_export_code(output: ToolOutput) -> Result<ExportCode, String> {
+    #[derive(Deserialize)]
+    struct Code {
+        function: String,
+        entry: String,
+        pseudo_code: Option<String>,
+        engine_entry: Option<String>,
+    }
+    let ToolOutput::Evidence(evidence) = output else { return Err("The Deep engine returned no code evidence.".into()) };
+    let code: Code = serde_json::from_value(evidence.result).map_err(|e| format!("The Deep engine's code result couldn't be read: {e}"))?;
+    let text = code.pseudo_code.filter(|s| !s.trim().is_empty()).ok_or("Ghidra returned no pseudo-C for this function.")?;
+    Ok(ExportCode {
+        name: code.function,
+        text,
+        structured: None,
+        source: ExportSource {
+            engine: evidence.environment.engine,
+            entry: code.entry,
+            engine_entry: code.engine_entry,
+            engine_version: evidence.environment.engine_version,
+            language_id: evidence.environment.language_id,
+        },
+        limitations: evidence.limitations,
+    })
 }
 
 /// A file name that's safe everywhere, whatever a hostile program calls its function: the entry
@@ -941,13 +1026,7 @@ fn comment_safe(name: &str) -> String {
 /// with anything else in it, another target's export, and a state it can't read.
 fn open_export_state(folder: &Path, sha: &str, target: &str) -> Result<ExportState, ToolError> {
     let state_path = folder.join(EXPORT_STATE_FILE);
-    let fresh = || ExportState {
-        version: EXPORT_STATE_VERSION,
-        target_sha256: sha.to_string(),
-        target_name: target.to_string(),
-        engine: "clean-room lifter".to_string(),
-        functions: BTreeMap::new(),
-    };
+    let fresh = || ExportState { version: EXPORT_STATE_VERSION, target_sha256: sha.to_string(), target_name: target.to_string(), functions: BTreeMap::new() };
     if folder.exists() && !folder.is_dir() {
         return Err(ToolError::invalid(format!("{} is a file, not a folder", folder.display())));
     }
@@ -961,16 +1040,15 @@ fn open_export_state(folder: &Path, sha: &str, target: &str) -> Result<ExportSta
         }
         return Ok(fresh());
     }
-    let bytes = std::fs::read(&state_path).map_err(|e| ToolError::io(state_path.display(), e))?;
     let unreadable = |why: String| {
         ToolError::invalid(format!("Couldn't read the state file {}: {why}", state_path.display()))
             .with_remediation("Pick a new folder; this one is left as it is.")
     };
-    let raw: Value = serde_json::from_slice(&bytes).map_err(|e| unreadable(e.to_string()))?;
-    let version = raw.get("version").and_then(Value::as_u64).ok_or_else(|| unreadable("it has no version".into()))?;
-    if version != u64::from(EXPORT_STATE_VERSION) {
-        return Err(unreadable(format!("it is version {version}, and this app reads version {EXPORT_STATE_VERSION}")));
-    }
+    let bytes = read_file_capped(&state_path, MAX_EXPORT_STATE_BYTES).map_err(|e| unreadable(e.message))?;
+    let mut raw: Value = serde_json::from_slice(&bytes).map_err(|e| unreadable(e.to_string()))?;
+    let version = raw.get("version").and_then(Value::as_u64).and_then(|v| u32::try_from(v).ok()).ok_or_else(|| unreadable("it has no valid version".into()))?;
+    let version = crate::versioned::upgrade(&mut raw, version, 1, EXPORT_STATE_STEPS).map_err(unreadable)?;
+    raw.as_object_mut().ok_or_else(|| unreadable("it isn't an object".into()))?.insert("version".into(), Value::from(version));
     let state: ExportState = serde_json::from_value(raw).map_err(|e| unreadable(e.to_string()))?;
     if state.target_sha256 != sha {
         return Err(ToolError::invalid(format!("{} holds an export of a different file ({})", folder.display(), state.target_name))
@@ -982,6 +1060,10 @@ fn open_export_state(folder: &Path, sha: &str, target: &str) -> Result<ExportSta
 
 fn save_export_state(folder: &Path, state: &ExportState) -> Result<(), ToolError> {
     let bytes = serde_json::to_vec_pretty(state).map_err(|e| ToolError::invalid(format!("Couldn't write the state: {e}")))?;
+    if bytes.len() as u64 > MAX_EXPORT_STATE_BYTES {
+        return Err(ToolError::new(ErrorCode::OverLimit, "The pseudo-C export state is too large to save.")
+            .with_remediation("Keep this folder as it is and use a new folder for another export."));
+    }
     write_atomic(&folder.join(EXPORT_STATE_FILE), &bytes)
 }
 
@@ -1019,6 +1101,10 @@ fn native_source_folder_write(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOu
     let mut written_now = 0usize;
     let mut already_done = 0usize;
     let mut replaced_missing = 0usize;
+    let mut functions_by_engine: BTreeMap<String, usize> = BTreeMap::new();
+    let mut deep_available = None;
+    let mut deep_fallbacks = 0usize;
+    let mut fallback_examples = Vec::new();
     let mut listed = Vec::new();
     let mut stopped = "finished";
     let mut next_function = None;
@@ -1029,40 +1115,121 @@ fn native_source_folder_write(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOu
             return Err(e);
         }
         let key = format!("{:#x}", f.entry);
-        if let Some(done) = state.functions.get(&key) {
-            if folder.join(&done.file).is_file() {
-                already_done += 1;
-                continue;
-            }
-            replaced_missing += 1;
+        let previous = state.functions.get(&key);
+        if let Some(done) = previous
+            && folder.join(&done.file).is_file()
+        {
+            already_done += 1;
+            *functions_by_engine.entry(done.source.engine.clone()).or_default() += 1;
+            continue;
+        }
+        let replaces_missing = previous.is_some();
+        // Keep checking the remaining records after a writing budget is spent. A record whose
+        // file went missing is not finished, even when this call has no time to replace it.
+        if next_function.is_some() {
+            continue;
         }
         if written_now >= p.max_functions {
             stopped = "max_functions";
             next_function = Some(key);
-            break;
+            continue;
         }
         if started.elapsed() >= limit {
             stopped = "time_limit";
             next_function = Some(key);
-            break;
+            continue;
         }
         if i % 64 == 0 {
             ctx.report(Some(i as f32 / total.max(1) as f32), format!("writing {}", f.name));
         }
-        let ps = lift(&st.img, &st.prog, f, &names);
-        let name = names(f.entry).unwrap_or_else(|| f.name.clone());
-        let file = export_file_name(f.entry, &name);
-        let text = format!(
-            "// {} at {key}, from {}. Approximate pseudo-C from the built-in decompiler.\n{}\n",
-            comment_safe(&name),
+        // Start Ghidra only for work this call will do. Remember an unavailable installation
+        // for this export call, avoiding a filesystem search for every function. A ready
+        // provider is in DeepSlot, which a bridge failure can remove. Confirm it again so a
+        // replacement starts before the post-startup budget check, not inside pseudo_code.
+        if matches!(deep_available, Some(Ok(()))) {
+            deep_available = None;
+        }
+        let availability = deep_available.get_or_insert_with(|| super::deep::provider_for_active(ctx).map(|_| ()));
+        if let Err(e) = ctx.cancel.check() {
+            save_export_state(&folder, &state)?;
+            return Err(e);
+        }
+        if started.elapsed() >= limit {
+            stopped = "time_limit";
+            next_function = Some(key);
+            continue;
+        }
+        let deep = match availability {
+            Ok(()) => super::deep::pseudo_code(ctx, super::deep::At::Ours(f.entry), st.img.bin.image_base, json!({"function": key})),
+            Err(why) => Err(why.clone()),
+        };
+        // Startup cancellation is reported as an unavailable Deep engine. Do not turn it into
+        // a built-in write; a cancellation after decompilation must not write this file either.
+        if let Err(e) = ctx.cancel.check() {
+            save_export_state(&folder, &state)?;
+            return Err(e);
+        }
+        let (deep_code, why_not_deep) = match deep {
+            Ok(Ok(output)) => match deep_export_code(output) {
+                Ok(code) => (Some(code), None),
+                Err(why) => (None, Some(why)),
+            },
+            Ok(Err(e)) => {
+                save_export_state(&folder, &state)?;
+                return Err(e);
+            }
+            Err(why) => (None, why.map(|why| why.message)),
+        };
+        let mut code = deep_code.unwrap_or_else(|| {
+            let ps = lift(&st.img, &st.prog, f, &names);
+            ExportCode {
+                name: names(f.entry).unwrap_or_else(|| f.name.clone()),
+                text: ps.text,
+                structured: Some(ps.structured),
+                source: ExportSource {
+                    engine: "builtin".into(),
+                    entry: key.clone(),
+                    engine_entry: None,
+                    engine_version: Some(env!("CARGO_PKG_VERSION").into()),
+                    language_id: None,
+                },
+                limitations: ps.limitations.into_iter().map(|(c, m)| Limitation::new(c, m)).collect(),
+            }
+        });
+        if let Some(why) = why_not_deep {
+            deep_fallbacks += 1;
+            if fallback_examples.len() < MAX_EXPORT_NOTES {
+                fallback_examples.push(json!({"entry": key, "reason": why.chars().take(1024).collect::<String>()}));
+            }
+            code.limitations.insert(0, Limitation::new("deep_engine_unavailable", why));
+        }
+        let file = export_file_name(f.entry, &code.name);
+        let engine_name = if code.source.engine == "builtin" { "the built-in decompiler" } else { &code.source.engine };
+        let mut text = format!(
+            "// {} requested at {key}, from {}. Approximate pseudo-C from {}.\n// Source function at {}{}.\n",
+            comment_safe(&code.name),
             comment_safe(&target_name),
-            ps.text
+            comment_safe(engine_name),
+            comment_safe(&code.source.entry),
+            code.source.engine_entry.as_deref().map(|a| format!(", engine address {}", comment_safe(a))).unwrap_or_default(),
         );
+        for note in code.limitations.iter().take(MAX_EXPORT_NOTES) {
+            text.push_str(&format!("// {}: {}\n", comment_safe(&note.code), comment_safe(&note.message)));
+        }
+        if code.limitations.len() > MAX_EXPORT_NOTES {
+            text.push_str(&format!("// {} further notes; use native_function_pseudocode for the full result.\n", code.limitations.len() - MAX_EXPORT_NOTES));
+        }
+        text.push_str(&code.text);
+        text.push('\n');
         write_atomic(&folder.join(&file), text.as_bytes())?;
         if listed.len() < MAX_LISTED {
             listed.push(file.clone());
         }
-        state.functions.insert(key, ExportedFunction { file, name, lines: ps.text.lines().count(), structured: ps.structured });
+        *functions_by_engine.entry(code.source.engine.clone()).or_default() += 1;
+        state
+            .functions
+            .insert(key, ExportedFunction { file, name: code.name, lines: code.text.lines().count(), structured: code.structured, source: code.source });
+        replaced_missing += usize::from(replaces_missing);
         written_now += 1;
         unsaved += 1;
         if unsaved >= SAVE_EVERY_FUNCTIONS || last_save.elapsed() >= SAVE_EVERY {
@@ -1073,7 +1240,7 @@ fn native_source_folder_write(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOu
     }
     save_export_state(&folder, &state)?;
 
-    let done = st.prog.functions.keys().filter(|e| state.functions.contains_key(&format!("{e:#x}"))).count();
+    let done = already_done + written_now;
     let remaining = total.saturating_sub(done);
     let finished = remaining == 0;
     let summary = if finished {
@@ -1082,14 +1249,38 @@ fn native_source_folder_write(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOu
         format!("{done} of {total} functions are written ({written_now} in this run); {remaining} remain. Run this again with the same folder to continue.")
     };
     let capped = st.prog.discovery_capped();
-    let mut lims = vec![Limitation::new(
-        "pseudo_code_inferred",
-        "Pseudo-C from the built-in decompiler is register-level and approximate. Deep mode's Ghidra isn't used here, as in native_functions_decompile.",
-    )];
+    let mut lims = Vec::new();
+    if functions_by_engine.contains_key("builtin") {
+        lims.push(Limitation::new("pseudo_code_inferred", "Files attributed to the built-in decompiler contain register-level, approximate pseudo-C."));
+    }
+    if functions_by_engine.contains_key("ghidra") {
+        lims.push(Limitation::new(
+            "deep_engine",
+            "Ghidra's pseudo-C is a reading aid, not the original source. Each file and state record identify its source.",
+        ));
+        lims.push(Limitation::new(
+            "builtin_function_inventory",
+            "The exported functions are those found by the built-in analysis; functions only Ghidra found are not included.",
+        ));
+    }
+    if deep_fallbacks > 0 {
+        lims.push(Limitation::new(
+            "deep_engine_unavailable",
+            format!("{deep_fallbacks} functions in this call used the built-in decompiler because Deep decompilation was unavailable or returned no code. The result keeps the first {MAX_EXPORT_NOTES} reasons, shortened to 1024 characters; file headers keep short notes."),
+        ));
+    }
     if capped {
         lims.push(Limitation::new("discovery_capped", "Function discovery hit a limit on this program, so \"all\" means all the functions it found."));
     }
-    let e = super::native_common::ev(ctx, "native_source_folder_write", params_json(&p))?
+    let engine = match functions_by_engine.len() {
+        0 => "builtin".into(),
+        1 => functions_by_engine.keys().next().cloned().unwrap_or_else(|| "builtin".into()),
+        _ => "mixed".into(),
+    };
+    let confidence = if done > 0 && functions_by_engine.get("ghidra") == Some(&done) { Confidence::Derived } else { Confidence::Inferred };
+    let environment = Environment { clean_room: ctx.session.clean_room(), engine, engine_version: None, host: host_triple(), language_id: None };
+    let e = EvidenceBuilder::new("native_source_folder_write", ctx.session.active()?.target.subject(), environment)
+        .params(params_json(&p))
         .result(json!({
             "folder": folder,
             "state_file": EXPORT_STATE_FILE,
@@ -1099,6 +1290,9 @@ fn native_source_folder_write(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOu
             "written_now": written_now,
             "already_done": already_done,
             "replaced_missing": replaced_missing,
+            "functions_by_engine": functions_by_engine,
+            "deep_fallbacks": deep_fallbacks,
+            "fallback_examples": fallback_examples,
             "remaining": remaining,
             "finished": finished,
             "stopped_because": stopped,
@@ -1106,7 +1300,7 @@ fn native_source_folder_write(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOu
             "written_files": listed,
         }))
         .summary(summary)
-        .confidence(Confidence::Inferred)
+        .confidence(confidence)
         .target_content(true)
         .limitations(lims)
         .coverage(Coverage {
@@ -1631,7 +1825,7 @@ mod tests {
 
         // The state file is versioned and says what it's about.
         let state: Value = serde_json::from_slice(&std::fs::read(folder.join(EXPORT_STATE_FILE)).unwrap()).unwrap();
-        assert_eq!(state["version"], 1);
+        assert_eq!(state["version"], 2);
         assert_eq!(state["functions"].as_object().unwrap().len() as u64, total);
         assert_eq!(state["target_sha256"], v["result"]["target_sha256"]);
 
@@ -1701,6 +1895,62 @@ mod tests {
         assert!(out.is_err());
         let v = call(&e, "native_source_folder_write", json!({"folder": folder}));
         assert_eq!(v["result"]["finished"], true);
+    }
+
+    #[test]
+    fn export_counts_missing_files_even_when_the_writing_budget_is_zero() {
+        let (bytes, _) = craft_anything_testkit::elf64(craft_anything_testkit::ElfArch::X86_64, true);
+        let e = engine_with("prog", &bytes);
+        let tmp = tempfile::tempdir().unwrap();
+        let folder = tmp.path().join("out");
+        let first = call(&e, "native_source_folder_write", json!({"folder": folder}));
+        let total = first["result"]["functions_total"].as_u64().unwrap();
+        let files = exported_files(&folder);
+        std::fs::remove_file(&files[0]).unwrap();
+        std::fs::remove_file(files.last().unwrap()).unwrap();
+
+        let v = call(&e, "native_source_folder_write", json!({"folder": folder, "max_seconds": 0}));
+        assert_eq!(v["result"]["finished"], false);
+        assert_eq!(v["result"]["functions_done"], total - 2);
+        assert_eq!(v["result"]["already_done"], total - 2);
+        assert_eq!(v["result"]["functions_by_engine"]["builtin"], total - 2);
+        assert_eq!(v["result"]["remaining"], 2);
+        assert_eq!(v["result"]["written_now"], 0);
+        assert_eq!(v["result"]["replaced_missing"], 0);
+        assert_eq!(v["result"]["stopped_because"], "time_limit");
+        assert_eq!(v["coverage"]["status"], "partial");
+        assert_eq!(v["coverage"]["examined"], total - 2);
+
+        let v = call(&e, "native_source_folder_write", json!({"folder": folder, "max_functions": 1}));
+        assert_eq!(v["result"]["finished"], false);
+        assert_eq!(v["result"]["functions_done"], total - 1);
+        assert_eq!(v["result"]["replaced_missing"], 1);
+        assert_eq!(v["result"]["remaining"], 1);
+        assert_eq!(v["result"]["stopped_because"], "max_functions");
+        let v = call(&e, "native_source_folder_write", json!({"folder": folder}));
+        assert_eq!(v["result"]["finished"], true);
+        assert_eq!(v["result"]["functions_done"], total);
+    }
+
+    #[test]
+    fn export_refuses_damaged_current_provenance_and_oversized_state() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join(EXPORT_STATE_FILE);
+        let bad = br#"{"version":2,"target_sha256":"test","target_name":"sample","functions":{"0x10":{"file":"sample.c","name":"sample","lines":1,"structured":null}}}"#;
+        std::fs::write(&path, bad).unwrap();
+        assert!(open_export_state(tmp.path(), "test", "sample").unwrap_err().message.contains("source"));
+        assert_eq!(std::fs::read(&path).unwrap(), bad);
+
+        std::fs::File::create(&path).unwrap().set_len(MAX_EXPORT_STATE_BYTES + 1).unwrap();
+        let e = open_export_state(tmp.path(), "test", "sample").unwrap_err();
+        assert!(e.message.contains("limit"), "{e:?}");
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), MAX_EXPORT_STATE_BYTES + 1);
+    }
+
+    #[test]
+    fn the_source_export_schema_is_current() {
+        let published = include_str!("../../../../docs/schemas/pseudocode-export.schema.json");
+        assert_eq!(source_export_schema(), published.replace("\r\n", "\n"));
     }
 
     #[test]

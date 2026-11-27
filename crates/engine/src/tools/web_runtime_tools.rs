@@ -70,7 +70,7 @@ fn connect(
 ) -> Result<(Browser, CdpClient, String), ToolError> {
     let browser = browser_tools::resolve_browser(ctx, endpoint, launch, headless, no_sandbox, dl)?;
     let targets = cdp::json_list(&browser.endpoint, dl)?;
-    let target = web_common::pick_target(&targets, target_id, Some("page"))?;
+    let target = browser.page_target(&targets, target_id)?;
     let url = web_common::sanitize_url(target.get("url").and_then(Value::as_str).unwrap_or_default());
     let client = web_common::connect_target_answering_dialogs(&browser, target, PAGE_MAX_MESSAGE, dl)?;
     Ok((browser, client, url))

@@ -5,6 +5,7 @@
 
 use super::{AssetProvider, AssetRequest, Generated, Shape, SizeBy};
 use craft_anything_evidence::{ErrorCode, ToolError};
+use craft_anything_platform::retry;
 use serde_json::{Value, json};
 use std::io::Read;
 use std::time::Duration;
@@ -82,27 +83,99 @@ impl AssetProvider for Fal {
 }
 
 impl Fal {
+    /// Send one paid generation and return fal's answer. Redirects are not followed: a redirected
+    /// paid POST is ambiguous, so it's reported as possibly billed rather than sent again.
     fn post(&self, key: &str, model: &str, body: &Value) -> Result<Value, ToolError> {
         let url = format!("{}/{model}", self.base);
         // A 3D model takes a minute or two; fal answers once it's done.
         let resp = agent(Duration::from_secs(10 * 60))
             .post(&url)
+            .config()
+            .max_redirects(0)
+            .build()
             .header("Authorization", &format!("Key {key}"))
             .header("Content-Type", "application/json")
             .send(body.to_string())
-            .map_err(|e| {
-                ToolError::new(ErrorCode::EngineMissing, format!("Couldn't reach fal.ai: {e}"))
-                    .with_remediation("Check your internet connection and try again.")
-            })?;
+            .map_err(Fal::post_error)?;
         let status = resp.status().as_u16();
-        let text = resp.into_body().read_to_string().unwrap_or_default();
+        let body = resp.into_body().read_to_string();
+        if (200..=299).contains(&status) {
+            let text = body.map_err(Fal::answer_error)?;
+            return serde_json::from_str(&text).map_err(|e| {
+                let mut err = ToolError::new(
+                    ErrorCode::GarbledOutput,
+                    format!("fal.ai accepted the generation but its answer couldn't be read: {e}. The generation may already be running and billed."),
+                )
+                .with_remediation("Check the generation in the fal.ai dashboard before trying again: sending it again may charge you twice.");
+                err.retryable = false;
+                err
+            });
+        }
+        let text = body.unwrap_or_default();
+        let detail: String = text.chars().take(300).collect();
         match status {
-            200..=299 => serde_json::from_str(&text).map_err(|e| ToolError::new(ErrorCode::GarbledOutput, format!("fal.ai sent an unreadable answer: {e}"))),
             401 | 403 => Err(ToolError::new(ErrorCode::BadSettings, "fal.ai didn't accept the key.")
                 .with_remediation("Check the fal.ai key in Settings → AI → Game assets.")),
             402 => Err(ToolError::new(ErrorCode::OverLimit, "The fal.ai account is out of credit.").with_remediation("Add credit at fal.ai, then try again.")),
-            _ => Err(ToolError::new(ErrorCode::EngineMissing, format!("fal.ai answered {status}: {}", text.chars().take(300).collect::<String>()))),
+            404 => Err(ToolError::new(ErrorCode::BadSettings, format!("fal.ai didn't find the model ({status}): {detail}"))
+                .with_remediation("Check the model in Settings → AI → Game assets.")),
+            429 => Err(ToolError::new(ErrorCode::OverLimit, format!("fal.ai is rate limiting the generation ({status}): {detail}"))
+                .with_remediation("Wait a moment, then try again.")
+                .with_details(json!({"status": 429}))),
+            300..=399 => Err(Fal::billed_status_error(ErrorCode::ProgramFailed, format!("fal.ai redirected the generation request ({status}): {detail}"))),
+            408 | 504 => Err(Fal::billed_status_error(ErrorCode::TimedOut, format!("fal.ai didn't answer in time ({status}): {detail}"))),
+            500..=599 => Err(Fal::billed_status_error(ErrorCode::EngineMissing, format!("fal.ai failed while answering ({status}): {detail}"))),
+            _ => Err(ToolError::new(ErrorCode::BadInput, format!("fal.ai rejected the generation ({status}): {detail}"))
+                .with_remediation("Check the prompt and model, then try again.")),
         }
+    }
+
+    /// A status that may mean fal took the generation before failing or redirecting: don't invite a
+    /// retry that could charge twice.
+    fn billed_status_error(code: ErrorCode, message: String) -> ToolError {
+        let mut err = ToolError::new(code, format!("{message} The generation may already be running and billed."))
+            .with_remediation("Check the generation in the fal.ai dashboard before trying again: sending it again may charge you twice.");
+        err.retryable = false;
+        err
+    }
+
+    /// The failure of one paid generation POST. Only a failure before anything was sent is a
+    /// reachability problem. Anything later, from a reset or TLS error to a timeout or a signal,
+    /// may have reached fal and started a generation: say it may be billed, and don't invite a
+    /// second charge.
+    fn post_error(e: ureq::Error) -> ToolError {
+        let before_sent = match &e {
+            ureq::Error::ConnectionFailed | ureq::Error::HostNotFound => true,
+            ureq::Error::Timeout(ureq::Timeout::Connect | ureq::Timeout::Resolve) => true,
+            ureq::Error::Io(io) => matches!(io.kind(), std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::NotFound),
+            _ => false,
+        };
+        if before_sent {
+            return ToolError::new(ErrorCode::EngineMissing, format!("Couldn't reach fal.ai: {e}"))
+                .with_remediation("Check your internet connection and try again.");
+        }
+        let (code, what) = match &e {
+            ureq::Error::Timeout(_) => (ErrorCode::TimedOut, "fal.ai didn't answer in time"),
+            ureq::Error::Io(io) if retry::interrupted(io) => (ErrorCode::ProgramFailed, "The call to fal.ai was interrupted before it answered"),
+            _ => (ErrorCode::ProgramFailed, "The call to fal.ai failed before it answered"),
+        };
+        let mut err = ToolError::new(code, format!("{what}: {e}. The generation may already be running and billed."))
+            .with_remediation("Check the generation in the fal.ai dashboard before trying again: sending it again may charge you twice.");
+        err.retryable = false;
+        err
+    }
+
+    /// A failure reading fal's answer after it accepted the generation: it may already have run and
+    /// been billed, whatever cut the answer short.
+    fn answer_error(e: ureq::Error) -> ToolError {
+        let code = if matches!(&e, ureq::Error::Timeout(_)) { ErrorCode::TimedOut } else { ErrorCode::ProgramFailed };
+        let mut err = ToolError::new(
+            code,
+            format!("fal.ai accepted the generation but its answer couldn't be read: {e}. The generation may already be running and billed."),
+        )
+        .with_remediation("Check the generation in the fal.ai dashboard before trying again: sending it again may charge you twice.");
+        err.retryable = false;
+        err
     }
 }
 
@@ -120,25 +193,44 @@ fn agent(timeout: Duration) -> ureq::Agent {
 /// Fetch a generated file (fal answers with its address, or a `data:` URI in sync mode).
 fn download(url: &str) -> Result<Vec<u8>, ToolError> {
     if let Some(data) = url.strip_prefix("data:") {
-        let b64 =
-            data.split_once(";base64,").map(|(_, b)| b).ok_or_else(|| ToolError::new(ErrorCode::GarbledOutput, "fal.ai sent a file in an unknown form."))?;
-        return base64_decode(b64);
+        let b64 = data
+            .split_once(";base64,")
+            .map(|(_, b)| b)
+            .ok_or_else(|| paid_file_error(ErrorCode::GarbledOutput, None, "fal.ai sent the generated file in a form we couldn't read".to_string()))?;
+        return base64_decode(b64).map_err(|e| paid_file_error(ErrorCode::GarbledOutput, None, format!("The generated file couldn't be read: {}", e.message)));
     }
-    let resp =
-        agent(Duration::from_secs(120)).get(url).call().map_err(|e| ToolError::new(ErrorCode::EngineMissing, format!("Couldn't download the file: {e}")))?;
+    let resp = agent(Duration::from_secs(120))
+        .get(url)
+        .call()
+        .map_err(|e| paid_file_error(ErrorCode::EngineMissing, Some(url), format!("The generated file couldn't be downloaded: {e}")))?;
     if !resp.status().is_success() {
-        return Err(ToolError::new(ErrorCode::EngineMissing, format!("Downloading the file failed ({}).", resp.status().as_u16())));
+        return Err(paid_file_error(ErrorCode::EngineMissing, Some(url), format!("Downloading the generated file failed ({}).", resp.status().as_u16())));
     }
     let mut bytes = Vec::new();
     resp.into_body()
         .into_reader()
         .take(MAX_BYTES + 1)
         .read_to_end(&mut bytes)
-        .map_err(|e| ToolError::new(ErrorCode::EngineMissing, format!("The download broke off: {e}")))?;
+        .map_err(|e| paid_file_error(ErrorCode::EngineMissing, Some(url), format!("The download of the generated file broke off: {e}")))?;
     if bytes.len() as u64 > MAX_BYTES {
-        return Err(ToolError::new(ErrorCode::OverLimit, "The generated file is too large."));
+        return Err(paid_file_error(ErrorCode::OverLimit, Some(url), "The generated file is larger than 200 MB and wasn't downloaded.".to_string()));
     }
     Ok(bytes)
+}
+
+/// A generated file that couldn't be fetched or read. fal already made it, so retrying would pay
+/// for the generation again: give its address when there is one, and don't invite another.
+fn paid_file_error(code: ErrorCode, url: Option<&str>, message: String) -> ToolError {
+    let mut err = ToolError::new(code, format!("{}. The generation was made and paid for.", message.trim_end_matches('.')));
+    err.retryable = false;
+    if let Some(url) = url {
+        err = err
+            .with_remediation(format!("The generated file is at {url}: open that address to download it, or check your connection."))
+            .with_details(json!({"url": url}));
+    } else {
+        err = err.with_remediation("Check the generation in the fal.ai dashboard before making it again: sending it again may charge you twice.");
+    }
+    err
 }
 
 fn image_url(v: &Value) -> Option<String> {
@@ -275,6 +367,183 @@ mod tests {
         assert_eq!(model_url(&fbx_only), None);
         let glb_mesh = json!({"model_mesh": {"url": "https://x/m.glb", "file_name": "m.glb"}});
         assert_eq!(model_url(&glb_mesh).as_deref(), Some("https://x/m.glb"));
+    }
+
+    /// Only a failure before anything was sent says fal couldn't be reached. Every later failure
+    /// may have reached fal and started a paid generation, whatever cut it off.
+    #[test]
+    fn only_a_failure_before_sending_is_unreachable() {
+        let before = [
+            ureq::Error::ConnectionFailed,
+            ureq::Error::HostNotFound,
+            ureq::Error::Timeout(ureq::Timeout::Connect),
+            ureq::Error::Timeout(ureq::Timeout::Resolve),
+            ureq::Error::Io(std::io::Error::from(std::io::ErrorKind::ConnectionRefused)),
+            ureq::Error::Io(std::io::Error::from(std::io::ErrorKind::NotFound)),
+        ];
+        for e in before {
+            let err = Fal::post_error(e);
+            assert_eq!((err.code, err.retryable), (ErrorCode::EngineMissing, false), "{err:?}");
+            assert!(err.message.starts_with("Couldn't reach fal.ai"), "{err:?}");
+            assert!(err.remediation.as_deref().is_some_and(|r| r.contains("internet connection")), "{err:?}");
+        }
+
+        let after = [
+            (ureq::Error::Timeout(ureq::Timeout::SendBody), ErrorCode::TimedOut),
+            (ureq::Error::Timeout(ureq::Timeout::RecvResponse), ErrorCode::TimedOut),
+            (ureq::Error::Io(std::io::Error::from(std::io::ErrorKind::ConnectionReset)), ErrorCode::ProgramFailed),
+            (ureq::Error::Io(std::io::Error::from(std::io::ErrorKind::BrokenPipe)), ErrorCode::ProgramFailed),
+            (ureq::Error::Io(std::io::Error::from(std::io::ErrorKind::Interrupted)), ErrorCode::ProgramFailed),
+            (ureq::Error::Tls("bad certificate"), ErrorCode::ProgramFailed),
+        ];
+        for (e, code) in after {
+            let err = Fal::post_error(e);
+            assert_eq!((err.code, err.retryable), (code, false), "{err:?}");
+            assert!(!err.message.starts_with("Couldn't reach"), "{err:?}");
+            assert!(err.message.contains("may already be running") && err.message.contains("billed"), "{err:?}");
+            assert!(err.remediation.as_deref().is_some_and(|r| r.contains("dashboard") && r.contains("twice")), "{err:?}");
+        }
+    }
+
+    /// Once fal has answered 200, a stalled or cut body is the same billed generation.
+    #[test]
+    fn an_answer_cut_short_is_billed_aware() {
+        let slow = Fal::answer_error(ureq::Error::Timeout(ureq::Timeout::RecvBody));
+        assert_eq!((slow.code, slow.retryable), (ErrorCode::TimedOut, false), "{slow:?}");
+        assert!(slow.message.contains("may already be running") && slow.message.contains("billed"), "{slow:?}");
+        let interrupted = Fal::answer_error(ureq::Error::Io(std::io::Error::from(std::io::ErrorKind::Interrupted)));
+        assert_eq!((interrupted.code, interrupted.retryable), (ErrorCode::ProgramFailed, false), "{interrupted:?}");
+        assert!(interrupted.remediation.as_deref().is_some_and(|r| r.contains("dashboard")), "{interrupted:?}");
+    }
+
+    /// A server that accepts the POST, reads it, and closes without sending response headers.
+    fn serve_closed() -> String {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", l.local_addr().unwrap());
+        std::thread::spawn(move || {
+            let (stream, _) = l.accept().unwrap();
+            let mut r = BufReader::new(stream.try_clone().unwrap());
+            let mut len = 0usize;
+            loop {
+                let mut line = String::new();
+                r.read_line(&mut line).unwrap();
+                if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                    len = v.trim().parse().unwrap();
+                }
+                if line == "\r\n" {
+                    break;
+                }
+            }
+            let mut request_body = vec![0; len];
+            r.read_exact(&mut request_body).unwrap();
+            drop(stream);
+        });
+        base
+    }
+
+    /// The POST was consumed before the connection closed, so the generation may have started.
+    #[test]
+    fn a_disconnect_before_the_answer_is_billed_aware() {
+        let err = Fal { base: serve_closed() }.post("k", "model", &json!({})).unwrap_err();
+        assert_eq!((err.code, err.retryable), (ErrorCode::ProgramFailed, false), "{err:?}");
+        assert!(err.message.contains("may already be running") && err.message.contains("billed"), "{err:?}");
+        assert!(err.remediation.as_deref().is_some_and(|r| r.contains("dashboard")), "{err:?}");
+    }
+
+    /// A local server that accepts one generation POST and sends 200 headers, then fewer body
+    /// bytes than its Content-Length says before closing.
+    fn serve_truncated(body: &'static str) -> String {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", l.local_addr().unwrap());
+        std::thread::spawn(move || {
+            let (mut stream, _) = l.accept().unwrap();
+            let mut r = BufReader::new(stream.try_clone().unwrap());
+            let mut len = 0usize;
+            loop {
+                let mut line = String::new();
+                r.read_line(&mut line).unwrap();
+                if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                    len = v.trim().parse().unwrap();
+                }
+                if line == "\r\n" {
+                    break;
+                }
+            }
+            let mut request_body = vec![0; len];
+            r.read_exact(&mut request_body).unwrap();
+            write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 100\r\nConnection: close\r\n\r\n{body}").unwrap();
+        });
+        base
+    }
+
+    /// fal accepted the generation, so a cut answer doesn't mean nothing ran or was billed.
+    #[test]
+    fn a_truncated_answer_to_a_paid_generation_is_not_unreadable() {
+        let err = Fal { base: serve_truncated("{}") }.post("k", "model", &json!({})).unwrap_err();
+        assert_eq!((err.code, err.retryable), (ErrorCode::ProgramFailed, false), "{err:?}");
+        assert!(err.message.contains("may already be running") && err.message.contains("billed"), "{err:?}");
+        assert!(err.remediation.as_deref().is_some_and(|r| r.contains("dashboard")), "{err:?}");
+    }
+
+    /// A complete but unreadable 200 answer still came from a generation fal accepted.
+    #[test]
+    fn a_malformed_answer_to_a_paid_generation_is_billed_aware() {
+        let (base, _) = serve(vec![(200, "not json".into())]);
+        let err = Fal { base }.post("k", "model", &json!({})).unwrap_err();
+        assert_eq!((err.code, err.retryable), (ErrorCode::GarbledOutput, false), "{err:?}");
+        assert!(err.message.contains("may already be running") && err.message.contains("billed"), "{err:?}");
+        assert!(err.remediation.as_deref().is_some_and(|r| r.contains("dashboard")), "{err:?}");
+    }
+
+    /// A gateway timeout or server failure after the POST may still have started a paid
+    /// generation: it must not be retried or read as a plain server error.
+    #[test]
+    fn an_ambiguous_server_failure_is_billed_aware() {
+        for (status, code) in [(504, ErrorCode::TimedOut), (500, ErrorCode::EngineMissing)] {
+            let (base, _) = serve(vec![(status, "not today".into())]);
+            let err = Fal { base }.post("k", "model", &json!({})).unwrap_err();
+            assert_eq!((err.code, err.retryable), (code, false), "{err:?}");
+            assert!(err.message.contains("may already be running") && err.message.contains("billed"), "{err:?}");
+            assert!(err.remediation.as_deref().is_some_and(|r| r.contains("dashboard")), "{err:?}");
+        }
+    }
+
+    /// A redirect isn't followed for a paid POST: the first address may have accepted it.
+    #[test]
+    fn a_redirected_generation_is_billed_aware() {
+        let (base, _) = serve(vec![(307, "elsewhere".into())]);
+        let err = Fal { base }.post("k", "model", &json!({})).unwrap_err();
+        assert_eq!((err.code, err.retryable), (ErrorCode::ProgramFailed, false), "{err:?}");
+        assert!(err.message.contains("redirected") && err.message.contains("billed"), "{err:?}");
+        assert!(err.remediation.as_deref().is_some_and(|r| r.contains("dashboard")), "{err:?}");
+    }
+
+    /// A request fal rejects before generating is not billed and can be corrected.
+    #[test]
+    fn a_rejected_generation_is_not_billed_aware() {
+        let (base, _) = serve(vec![(400, "bad prompt".into())]);
+        let err = Fal { base }.post("k", "model", &json!({})).unwrap_err();
+        assert_eq!((err.code, err.retryable), (ErrorCode::BadInput, false), "{err:?}");
+        assert!(!err.message.contains("billed"), "{err:?}");
+    }
+
+    /// A download after a paid generation can fail; it must not invite the whole paid generation
+    /// again, and it must give the file's address so the person can still fetch it.
+    #[test]
+    fn a_failed_download_says_the_generation_was_paid_for() {
+        let (base, _) = serve(vec![(500, "missing".into())]);
+        let url = format!("{base}/made.png");
+        let err = download(&url).unwrap_err();
+        assert_eq!((err.code, err.retryable), (ErrorCode::EngineMissing, false), "{err:?}");
+        assert!(err.message.contains("generation was made and paid for"), "{err:?}");
+        assert!(err.remediation.as_deref().is_some_and(|r| r.contains(&url)), "{err:?}");
+        assert_eq!(err.details.as_ref().and_then(|d| d["url"].as_str()), Some(url.as_str()));
+
+        // A `data:` answer that can't be decoded was still a paid generation, with no address to give.
+        let bad = download("data:image/png,not-base64").unwrap_err();
+        assert_eq!((bad.code, bad.retryable), (ErrorCode::GarbledOutput, false), "{bad:?}");
+        assert!(bad.message.contains("generation was made and paid for"), "{bad:?}");
+        assert!(bad.remediation.as_deref().is_some_and(|r| r.contains("dashboard")), "{bad:?}");
     }
 
     #[test]

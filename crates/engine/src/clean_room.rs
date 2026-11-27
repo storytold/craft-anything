@@ -79,6 +79,7 @@ pub const TOOLS: &[&str] = &[
     "rebuild_stop",
     // The builder's own project.
     "build_files_list",
+    "build_files_search",
     "build_file_read",
     "build_file_write",
     "build_file_edit",
@@ -92,6 +93,7 @@ pub const TOOLS: &[&str] = &[
     "engines_list",
     "engines_install",
     "engines_app_open",
+    "engines_analysis_stop",
     "engines_adb_check",
     "engines_apktool_check",
     "engines_jeb_check",
@@ -99,6 +101,7 @@ pub const TOOLS: &[&str] = &[
     "plugins_list",
     "plugins_refresh",
     "plugins_add",
+    "plugins_test",
     "plugins_remove",
     "setup_plan",
     "setup_apply",

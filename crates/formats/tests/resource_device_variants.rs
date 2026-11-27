@@ -1,10 +1,16 @@
-use craft_anything_formats::{arsc::config_qualifiers, bytes::Reader};
+use craft_anything_formats::arsc::{Limits, parse};
+use craft_anything_testkit::android::resources_arsc_with_config;
 
+/// The qualifier string and locale a table gives an entry stored under a 64-byte configuration
+/// that `f` fills in.
 fn config(f: impl FnOnce(&mut [u8])) -> (String, String) {
     let mut cfg = [0; 64];
     cfg[0] = 64;
     f(&mut cfg);
-    config_qualifiers(&Reader::new(&cfg), 0)
+    let table = parse(&resources_arsc_with_config(&cfg), Limits::default()).unwrap();
+    assert!(table.warnings.is_empty(), "{:?}", table.warnings);
+    let [entry] = &table.entries[..] else { panic!("one entry: {:?}", table.entries) };
+    (entry.config.clone(), entry.locale.clone())
 }
 
 #[test]

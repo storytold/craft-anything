@@ -90,14 +90,17 @@ fn objc_class_descriptors_decode() {
 /// extension, which this demangler leaves out by design.
 #[test]
 fn a_type_declared_in_an_extension_leaves_out_the_extension_prefix() {
-    assert_eq!(dm("_$s10Foundation4DataV13MachObjectLibE13ScanningErrorOMB"), "reflection metadata builtin descriptor Foundation.Data.ScanningError");
+    assert_eq!(
+        dm("_$s10Foundation4DataV13MachObjectLibE13ScanningErrorOMB"),
+        "reflection metadata builtin descriptor (extension in MachObjectLib):Foundation.Data.ScanningError"
+    );
     assert_eq!(
         dm("_$s10Foundation17AsyncLineSequenceVySo12NSURLSessionCAAE0B5BytesVGMD"),
-        "demangling cache variable for type metadata for Foundation.AsyncLineSequence<__C.NSURLSession.AsyncBytes>"
+        "demangling cache variable for type metadata for Foundation.AsyncLineSequence<(extension in Foundation):__C.NSURLSession.AsyncBytes>"
     );
     assert_eq!(
         dm("_$s10Foundation15AttributeScopesO14XCUIAutomationE28SyntaxHighlightingAttributesVMF"),
-        "reflection metadata field descriptor Foundation.AttributeScopes.SyntaxHighlightingAttributes"
+        "reflection metadata field descriptor (extension in XCUIAutomation):Foundation.AttributeScopes.SyntaxHighlightingAttributes"
     );
 }
 

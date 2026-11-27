@@ -124,21 +124,11 @@ impl AgentAdapter for OpenCode {
         let by_hand = format!("Delete it yourself{on} with `opencode session delete --standalone {id}`, so OpenCode doesn't pick it up again.");
         let args = ["session", "delete", "--standalone", id].map(String::from);
         let proc = match host {
-            Some(h) => Process::new("ssh").args(crate::ssh::ssh_line_args(h, crate::cli_agents::remote_command(program, args.to_vec(), &[]))),
+            Some(h) => Process::new("ssh").args(crate::ssh::ssh_line_args(h, remote_discard_command(program, &args))),
             None => self.process(program).args(args),
         };
         let out = proc.timeout(std::time::Duration::from_secs(30)).stdout_cap(64 * 1024).run().map_err(|e| e.with_remediation(by_hand.clone()))?;
-        if out.success || session_already_gone(&out) {
-            // A session the person (or an earlier sweep) already deleted is gone: there is nothing
-            // left to pick up, so the sweep has nothing to report (#1707).
-            Ok(())
-        } else {
-            Err(ToolError::new(
-                ErrorCode::ProgramFailed,
-                format!("opencode session delete exited with {}", out.code.map_or("no code".into(), |c| c.to_string())),
-            )
-            .with_remediation(by_hand))
-        }
+        discard_outcome(&out, host, by_hand)
     }
 
     fn discards_sessions(&self) -> bool {
@@ -299,6 +289,49 @@ fn error_text(error: &Value) -> String {
     }
 }
 
+/// Wrap the remote `opencode session delete` command in POSIX `sh -c` so a remote command exiting
+/// with 255 is remapped to 1 instead of colliding with `ssh`'s own exit 255 for transport
+/// failures, while preserving exit 0 and other non-zero exit codes.
+fn remote_discard_command(program: &str, args: &[String]) -> String {
+    let script = r#""$@"; s=$?; if [ "$s" -eq 255 ]; then exit 1; else exit "$s"; fi"#;
+    let mut parts = Vec::with_capacity(args.len() + 5);
+    parts.push("sh".to_string());
+    parts.push("-c".to_string());
+    parts.push(crate::ssh::shell_quote(script));
+    parts.push("_".to_string());
+    parts.push(crate::ssh::shell_quote(program));
+    parts.extend(args.iter().map(|a| crate::ssh::shell_quote(a)));
+    parts.join(" ")
+}
+
+/// Turn the result of `opencode session delete` (local or over SSH) into an outcome.
+/// A session already gone is success (#1707). Over SSH, ssh's own exit code 255 (or a killed
+/// transport with no exit code) means the host could not be reached (`ErrorCode::EngineMissing`),
+/// distinct from a remote `opencode` error (`ErrorCode::ProgramFailed`).
+fn discard_outcome(out: &craft_anything_platform::process::Output, host: Option<&str>, by_hand: String) -> Result<(), ToolError> {
+    if out.success || session_already_gone(out) {
+        return Ok(());
+    }
+    if let Some(host) = host
+        && matches!(out.code, Some(255) | None)
+    {
+        let stderr = out.stderr_end_text();
+        let message = if let Some(failure) = crate::ssh::diagnose(host, "opencode", crate::ssh::is_git_server(host), out.code, &stderr) {
+            failure.what
+        } else {
+            let reason = stderr.lines().rev().find(|line| !line.trim().is_empty()).map(str::trim).unwrap_or("");
+            if reason.is_empty() {
+                format!("couldn't reach {host} over ssh ({})", out.code.map_or("no code".into(), |c| format!("exit {c}")))
+            } else {
+                format!("couldn't reach {host} over ssh: {reason}")
+            }
+        };
+        return Err(ToolError::new(ErrorCode::EngineMissing, message).with_remediation(by_hand));
+    }
+    Err(ToolError::new(ErrorCode::ProgramFailed, format!("opencode session delete exited with {}", out.code.map_or("no code".into(), |c| c.to_string())))
+        .with_remediation(by_hand))
+}
+
 /// Whether a failed delete means the session is already gone: `opencode session delete` exits 1
 /// saying "Session not found: ses_…" when it isn't there, which is what a sweep asked for (#1707).
 fn session_already_gone(out: &craft_anything_platform::process::Output) -> bool {
@@ -327,6 +360,10 @@ fn opencode_failure(error: &Value) -> TurnFailure {
                     TurnFailure::from_api(&crate::http::status_error("OpenCode", status, data.get("responseBody").and_then(Value::as_str).unwrap_or_default()))
                 },
             );
+            // OpenCode may give the service's words without its response body or status.
+            if data.get("message").and_then(Value::as_str).is_some_and(crate::http::request_too_large) {
+                failure.kind = FailureKind::Configuration;
+            }
             if failure.kind == FailureKind::Unknown && data.get("isRetryable").and_then(Value::as_bool) == Some(true) {
                 failure.kind = FailureKind::Transient;
             } else if failure.retryable() && data.get("isRetryable").and_then(Value::as_bool) == Some(false) {
@@ -392,6 +429,10 @@ mod tests {
         assert_eq!(opencode_failure(&json!({"name":"APIError","data":{"isRetryable":true}})).kind, FailureKind::Transient);
         let quota = json!({"name":"APIError","data":{"statusCode":429,"isRetryable":true,"responseBody":"{\"error\":{\"code\":\"insufficient_quota\"}}"}});
         assert_eq!(opencode_failure(&quota).kind, FailureKind::Billing);
+        for status in [json!(429), json!(null)] {
+            let large = json!({"name":"APIError","data":{"statusCode":status,"isRetryable":true,"message":"Request too large for the model: Limit 30000, Requested 47000."}});
+            assert!(!opencode_failure(&large).retryable(), "told without a response body, status {status}");
+        }
     }
 
     #[test]
@@ -664,6 +705,63 @@ mod tests {
         assert!(session_already_gone(&failed("", "Session not found: ses_1")));
         assert!(session_already_gone(&failed("session not found: ses_1\n", "")));
         assert!(!session_already_gone(&failed("", "openCode is busy, try again")));
+    }
+
+    /// Guards that SSH transport failures (exit 255 or no exit code) classify as unreachable
+    /// (`EngineMissing`), while remote `opencode` exits (1/127) and local 255 stay `ProgramFailed`.
+    #[test]
+    fn discard_outcome_distinguishes_ssh_unreachable_from_remote_program_failures() {
+        let with_code = |code: Option<i32>, stderr: &str| craft_anything_platform::process::Output {
+            code,
+            success: false,
+            stdout: Vec::new(),
+            stderr: stderr.as_bytes().to_vec(),
+            stdout_tail: Vec::new(),
+            stderr_tail: Vec::new(),
+            stdout_truncated: false,
+            stderr_truncated: false,
+            duration: std::time::Duration::ZERO,
+        };
+        let ssh_255 =
+            discard_outcome(&with_code(Some(255), "ssh: connect to host studio port 22: Operation timed out\n"), Some("studio"), "fix".into()).unwrap_err();
+        assert_eq!(ssh_255.code, ErrorCode::EngineMissing);
+        assert_eq!(ssh_255.remediation.as_deref(), Some("fix"));
+
+        let ssh_killed = discard_outcome(&with_code(None, ""), Some("studio"), "fix".into()).unwrap_err();
+        assert_eq!(ssh_killed.code, ErrorCode::EngineMissing);
+
+        let remote_missing = discard_outcome(&with_code(Some(127), "sh: opencode: command not found\n"), Some("studio"), "fix".into()).unwrap_err();
+        assert_eq!(remote_missing.code, ErrorCode::ProgramFailed);
+
+        let remote_err = discard_outcome(&with_code(Some(1), "opencode failed\n"), Some("studio"), "fix".into()).unwrap_err();
+        assert_eq!(remote_err.code, ErrorCode::ProgramFailed);
+
+        let local_255 = discard_outcome(&with_code(Some(255), "local failure\n"), None, "fix".into()).unwrap_err();
+        assert_eq!(local_255.code, ErrorCode::ProgramFailed);
+
+        assert!(discard_outcome(&with_code(Some(1), "Session not found: ses_1"), Some("studio"), "fix".into()).is_ok());
+    }
+
+    /// Guards that remote SSH discard commands wrap execution in POSIX `sh -c` to remap a remote
+    /// exit status of 255 to 1 without clobbering exit 0, other non-zero codes, or argument quoting.
+    #[test]
+    fn remote_discard_command_remaps_exit_255_and_quotes_arguments() {
+        let args = ["session", "delete", "--standalone", "ses_42"].map(String::from);
+        let cmd = remote_discard_command("/opt/my bin/opencode", &args);
+        assert!(cmd.starts_with("sh -c '"), "{cmd}");
+        assert!(cmd.contains(r#"if [ "$s" -eq 255 ]; then exit 1; else exit "$s"; fi"#), "{cmd}");
+        assert!(cmd.ends_with(" _ '/opt/my bin/opencode' session delete --standalone ses_42"), "{cmd}");
+
+        #[cfg(unix)]
+        {
+            for (remote_exit, expected_exit) in [(0, 0), (1, 1), (127, 127), (255, 1)] {
+                let script = format!("exit {remote_exit}");
+                let wrapped = remote_discard_command("sh", &["-c".into(), script]);
+                let out =
+                    craft_anything_platform::process::Process::new("sh").args(["-c", &wrapped]).timeout(std::time::Duration::from_secs(10)).run().unwrap();
+                assert_eq!(out.code, Some(expected_exit), "remote exit {remote_exit} should become {expected_exit}");
+            }
+        }
     }
 
     #[test]

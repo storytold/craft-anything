@@ -559,7 +559,18 @@ fn core_target_triage(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, To
     let builder = EvidenceBuilder::new("core_target_triage", t.subject(), Environment::builtin(ctx.session.clean_room())).params(json!({"path": p.path}));
     let ev = match parsed {
         Ok(Some(img)) => {
-            let mut r = an::triage(&img.bin, &img.data, &t.name);
+            let beside = flutter_files_beside(&t.path, img.bin.format);
+            let mut r = an::triage_beside(&img.bin, &img.data, &t.name, &beside);
+            if let Some(step) = r.result["next_steps"].as_array_mut().and_then(|steps| steps.iter_mut().find(|step| step["tool"] == "app_folder_explain"))
+                && let Some(folder) = t.path.parent().filter(|p| p.is_absolute())
+            {
+                let install = if img.bin.format == Format::MachO {
+                    folder.ancestors().find(|p| p.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("app"))).unwrap_or(folder)
+                } else {
+                    folder
+                };
+                step["args"] = json!({"path": install.display().to_string()});
+            }
             if t.kind == TargetKind::Managed {
                 r.result["plain_english"] = json!(format!("{} This is a .NET assembly: use the .NET tools for readable C#-level results.", r.summary));
                 r.summary = r.result["plain_english"].as_str().unwrap_or_default().to_string();
@@ -610,6 +621,22 @@ fn core_target_triage(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, To
         }
     };
     Ok(ToolOutput::evidence(ev))
+}
+
+/// The files a desktop Flutter build keeps beside the program at `path` that are there. Only
+/// asks the file system whether a few fixed paths exist; reads nothing.
+fn flutter_files_beside(path: &std::path::Path, format: Format) -> Vec<(an::FlutterFile, String)> {
+    let Some(folder) = path.parent() else {
+        return Vec::new();
+    };
+    an::flutter_files_beside(format)
+        .iter()
+        .filter_map(|f| {
+            let p = f.path.split('/').fold(folder.to_path_buf(), |acc, part| acc.join(part));
+            let meta = std::fs::metadata(&p).ok()?;
+            (meta.is_dir() == f.dir).then(|| (*f, p.display().to_string()))
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -803,6 +830,71 @@ mod tests {
     use super::super::native_common::test_support::*;
     use craft_anything_testkit as tk;
     use serde_json::json;
+
+    #[test]
+    fn flutter_folder_step_opens_the_linux_install_or_enclosing_mac_app() {
+        let e = engine_with("craft.exe", &tk::pe64());
+        for (folder, runner, mut program) in
+            [("installed", "runner", tk::elf64(tk::ElfArch::X86_64, false).0), ("Sample.app", "Contents/MacOS/Runner", tk::macho64())]
+        {
+            let root = tempfile::tempdir().unwrap();
+            let install = root.path().join(folder);
+            let exe = install.join(runner);
+            std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+            program.extend_from_slice(b"flutter_assets");
+            std::fs::write(&exe, program).unwrap();
+            let r = call(&e, "core_target_triage", json!({"path": exe}));
+            let step = &r["result"]["next_steps"][0];
+            assert_eq!(step["tool"], "app_folder_explain");
+            assert_eq!(step["args"]["path"], install.display().to_string());
+            assert!(call(&e, "app_folder_explain", step["args"].clone())["result"].is_object());
+        }
+    }
+
+    #[test]
+    fn triage_finds_a_flutter_build_beside_a_windows_program() {
+        // #2227: data/flutter_assets and data/app.so beside the program are observed and point the
+        // reader at app.so; the same program on its own is only inferred from its text.
+        let e = engine_with("craft.exe", &tk::pe64());
+        let program = tk::flutter::pe_mentioning_flutter();
+        let alone = tempfile::tempdir().unwrap();
+        let exe = alone.path().join("localsend_app.exe");
+        std::fs::write(&exe, &program).unwrap();
+        let r = call(&e, "core_target_triage", json!({"path": exe.to_string_lossy()}));
+        assert_eq!(r["result"]["flutter"]["confidence"], "inferred", "{}", r["result"]);
+        assert_eq!(r["result"]["flutter"]["dart_code"], serde_json::Value::Null);
+        assert_eq!(r["confidence"], "inferred");
+        let step = &r["result"]["next_steps"][0];
+        assert_eq!(step["tool"], "app_folder_explain");
+        assert_eq!(step["args"]["path"], alone.path().display().to_string());
+        assert!(call(&e, "app_folder_explain", step["args"].clone())["result"].is_object());
+
+        let built = tempfile::tempdir().unwrap();
+        let exe = built.path().join("localsend_app.exe");
+        std::fs::write(&exe, &program).unwrap();
+        std::fs::create_dir_all(built.path().join("data").join("flutter_assets")).unwrap();
+        let app = built.path().join("data").join("app.so");
+        std::fs::write(&app, tk::flutter::libapp_so(tk::flutter::SymbolTable::Sections)).unwrap();
+        let r = call(&e, "core_target_triage", json!({"path": exe.to_string_lossy()}));
+        assert_eq!(r["result"]["flutter"]["confidence"], "observed", "{}", r["result"]);
+        let dart = app.display().to_string();
+        assert_eq!(r["result"]["flutter"]["dart_code"], dart.as_str());
+        assert_eq!(r["result"]["next_steps"][0]["tool"], "android_dart_snapshot_show");
+        assert!(r["result"]["plain_english"].as_str().unwrap().contains(&dart), "{}", r["result"]["plain_english"]);
+        assert!(r["locations"].as_array().unwrap().iter().any(|l| l["kind"] == "path" && l["value"] == dart.as_str()));
+        // The tool it points at reads app.so.
+        let s = call(&e, "android_dart_snapshot_show", json!({"path": dart}));
+        assert!(s["result"].is_object());
+
+        // A file where the assets folder should be, or a folder named like app.so, isn't the layout.
+        let wrong = tempfile::tempdir().unwrap();
+        let exe = wrong.path().join("craft.exe");
+        std::fs::write(&exe, tk::pe64()).unwrap();
+        std::fs::create_dir_all(wrong.path().join("data").join("app.so")).unwrap();
+        std::fs::write(wrong.path().join("data").join("flutter_assets"), b"").unwrap();
+        let r = call(&e, "core_target_triage", json!({"path": exe.to_string_lossy()}));
+        assert!(r["result"].get("flutter").is_none(), "{}", r["result"]);
+    }
 
     #[test]
     fn triage_explains_an_unreadable_elf_header() {

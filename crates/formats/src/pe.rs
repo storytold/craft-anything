@@ -865,6 +865,39 @@ pub fn parse_resources(data: &[u8], max_entries: usize) -> Result<Resources, For
     Ok(res)
 }
 
+/// Read a PE's fixed version resource without loading the executable. Headers, directory tables
+/// and the version block each get at most 64 KiB. The resource payload can be anywhere in the file.
+pub fn read_file_version(mut file: impl std::io::Read + std::io::Seek) -> Option<VersionInfo> {
+    use object::LittleEndian as Le;
+    use object::read::pe::ResourceDirectory;
+    use std::io::{Read, SeekFrom};
+
+    const LIMIT: usize = 64 << 10;
+    let mut bytes = Vec::new();
+    file.rewind().ok()?;
+    file.by_ref().take(LIMIT as u64).read_to_end(&mut bytes).ok()?;
+    let h = headers(&bytes).ok()?;
+    let (rva, size) = h.dir(2)?;
+    let offset = h.rva_to_offset(rva)?;
+    let size = (size as usize).min(h.rva_file_len(rva)?).min(LIMIT);
+    file.seek(SeekFrom::Start(offset as u64)).ok()?;
+    bytes.resize(size, 0);
+    file.read_exact(&mut bytes).ok()?;
+    let dir = ResourceDirectory::new(&bytes);
+    let versions = dir.root().ok()?.entries.iter().find(|e| e.name_or_id().id() == Some(object::pe::RT_VERSION))?.data(dir).ok()?.table()?;
+    let langs = versions.entries.first()?.data(dir).ok()?.table()?;
+    let entry = langs.entries.first()?.data(dir).ok()?.data()?;
+    let rva = entry.offset_to_data.get(Le);
+    let size = entry.size.get(Le) as usize;
+    if size > LIMIT || size > h.rva_file_len(rva)? {
+        return None;
+    }
+    file.seek(SeekFrom::Start(h.rva_to_offset(rva)? as u64)).ok()?;
+    bytes.resize(size, 0);
+    file.read_exact(&mut bytes).ok()?;
+    parse_version_info(&bytes)
+}
+
 /// Decode a `VS_VERSIONINFO` block: fixed file/product versions and the string tables.
 pub fn parse_version_info(bytes: &[u8]) -> Option<VersionInfo> {
     let r = Reader::new(bytes);

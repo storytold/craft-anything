@@ -5,8 +5,8 @@
 //! The same files, with the same edition, go to rustfmt in batches that stay well under it.
 //!
 //! It formats the workspace members' own targets, not every local path dependency as
-//! `cargo fmt --all` may: here the only other one is the patched `vendor/wgpu-hal`, which keeps
-//! upstream's formatting and isn't held to ours. Like `cargo fmt`, it runs the rustfmt that
+//! `cargo fmt --all` may: here the only others are the patched `vendor/wgpu-hal` and
+//! `vendor/winit`, which keep upstream's formatting and aren't held to ours. Like `cargo fmt`, it runs the rustfmt that
 //! `RUSTFMT` names, if set.
 
 use std::path::Path;

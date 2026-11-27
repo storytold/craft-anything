@@ -7,7 +7,7 @@ use craft_anything_ai::{AiHub, BackendConfig, BackendKind, Detected};
 use craft_anything_engine::evidence::{Confidence, Coverage, Environment, Evidence, EvidenceBuilder, Limitation, Location, Severity, Unknown};
 use craft_anything_engine::target::Target;
 use craft_anything_engine::workspace::{CheckResult, Claim, Manifest, Status, TargetRef, Workspace};
-use craft_anything_engine::{Engine, Mode, Session, Settings};
+use craft_anything_engine::{Engine, Mode, Session};
 use serde_json::json;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -98,10 +98,23 @@ fn strings_evidence() -> Option<Evidence> {
     )
 }
 
+/// A unique folder under the system temp folder so demo and UI test sessions never touch the
+/// person's real config directory or collide across calls or parallel test processes.
+fn isolated_demo_dir(kind: &str) -> PathBuf {
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+    std::env::temp_dir().join(format!("craft-anything-demo-{kind}-{}-{now}-{}", std::process::id(), N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)))
+}
+
 /// An engine with the sample program open and a few findings in the ledger.
 pub fn engine(mode: Mode, first_run_done: bool) -> Arc<Engine> {
-    let settings = Settings { mode, first_run_done, language: "en".into(), ..Default::default() };
-    let mut session = Session::new(settings);
+    let mut session = Session::isolated(&isolated_demo_dir("engine"));
+    session.settings.mode = mode;
+    session.settings.first_run_done = first_run_done;
+    session.settings.language = "en".into();
+    session.settings.engines.only_configured = true;
+    // Nothing here reads this computer's Cargo setup either.
+    session.cargo_env = Some(craft_anything_engine::outputs::CargoEnv::default());
     session.add_target(sample_target());
     for e in [strings_evidence(), functions_evidence(), percent_evidence()].into_iter().flatten() {
         let _ = session.record(e);
@@ -120,9 +133,7 @@ pub fn deep(app: &mut CraftApp) {
 pub fn app(engine: Arc<Engine>) -> CraftApp {
     // AI changes made in a demo or a test (adding, turning off, removing one) go to a folder of
     // its own, never the person's settings or system keychain.
-    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-    let store = std::env::temp_dir().join(format!("craft-anything-demo-{now}-{}", N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+    let store = isolated_demo_dir("app");
     let keys = craft_anything_ai::KeyStore::file_only(store.join("keys.toml"));
     let hub = Arc::new(AiHub::with_stores(engine.clone(), store.join("config.toml"), keys));
     let mut app = CraftApp::new(engine, hub);
@@ -224,6 +235,7 @@ fn workspace(slug: &str, name: &str, request: &str, target: TargetRef, status: S
             request: request.into(),
             target,
             stack: "React + TypeScript (Vite)".into(),
+            toolchain: None,
             status,
             note: String::new(),
             created_ms: at,
@@ -321,4 +333,49 @@ pub fn fill_project(app: &mut CraftApp) {
     };
     app.workspace = Some(ws);
     app.state.screen = Screen::Project;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use craft_anything_engine::Settings;
+
+    /// Guards that `demo::engine` builds an isolated temp-folder session with
+    /// `engines.only_configured`, distinct directories per call, and preserved caller settings.
+    #[test]
+    fn demo_engine_uses_an_isolated_temp_session_with_only_configured_engines() {
+        let real_config = Session::new(Settings::default()).config_dir();
+        let first = engine(Mode::Experienced, false);
+        let second = engine(Mode::Beginner, true);
+
+        let first_session = first.session();
+        let second_session = second.session();
+
+        let first_dir = first_session.config_dir();
+        let second_dir = second_session.config_dir();
+        assert!(first_dir.starts_with(std::env::temp_dir()), "expected temp config dir, got {}", first_dir.display());
+        assert_ne!(first_dir, real_config, "demo engine must not touch the real config folder");
+        assert_ne!(first_dir, second_dir, "each demo engine call needs its own isolated folder");
+        assert_eq!(first_session.settings.engines.store_dir.as_deref(), Some(first_dir.join("engines").as_path()));
+        assert_eq!(first_session.settings.projects_dir.as_deref(), Some(first_dir.join("projects").as_path()));
+        assert!(first_session.settings.engines.only_configured, "demo engine must not probe host-installed engines");
+        assert!(second_session.settings.engines.only_configured);
+        assert_eq!(first_session.settings.mode, Mode::Experienced);
+        assert!(!first_session.settings.first_run_done);
+        assert_eq!(second_session.settings.mode, Mode::Beginner);
+        assert!(second_session.settings.first_run_done);
+        assert_eq!(first_session.settings.language, "en");
+        assert!(!first_session.settings.deep_mode, "demo::engine stays in Clean room until demo::deep enables Deep mode");
+        assert!(first_session.cargo_env.is_some());
+        assert!(!first_dir.exists(), "building demo::engine does not create directories on disk");
+        assert!(first_session.settings.ghidra_launcher().is_none(), "isolated empty store finds no host Ghidra");
+
+        // An explicit Ghidra stand-in inside the isolated store is found even with only_configured.
+        let support = first_session.settings.engine_store_dir().join(craft_anything_engines::ghidra::get::ID).join("standin").join("support");
+        let launcher = if cfg!(windows) { "analyzeHeadless.bat" } else { "analyzeHeadless" };
+        std::fs::create_dir_all(&support).unwrap();
+        std::fs::write(support.join(launcher), b"").unwrap();
+        assert_eq!(first_session.settings.ghidra_launcher(), Some(support.join(launcher)));
+        let _ = std::fs::remove_dir_all(&first_dir);
+    }
 }

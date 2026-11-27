@@ -42,7 +42,7 @@ fn merged_value_witnesses_decode() {
 /// name, which this demangler leaves out by design.
 #[test]
 fn value_witness_of_a_type_in_an_extension_leaves_out_the_extension_prefix() {
-    assert_eq!(dm("_$sSS7SWBUtilE7PadSideOwet"), "getEnumTagSinglePayload value witness for Swift.String.PadSide");
+    assert_eq!(dm("_$sSS7SWBUtilE7PadSideOwet"), "getEnumTagSinglePayload value witness for (extension in SWBUtil):Swift.String.PadSide");
 }
 
 /// Every two-letter code `swift-demangle` accepts, on a constructed `main.A`, and value witnesses

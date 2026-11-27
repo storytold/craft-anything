@@ -371,6 +371,16 @@ pub mod space {
     pub const XXL: f32 = 32.0;
 }
 
+/// Logical widths at which Settings can keep its rail, control rows and label columns.
+pub mod breakpoint {
+    pub const SETTINGS_RAIL: f32 = 720.0;
+    pub const SETTINGS_CONTROLS: f32 = 400.0;
+    pub const SETTINGS_LABELS: f32 = 560.0;
+}
+
+/// Extra horizontal room reserved beside the scrolling Settings content.
+pub const SETTINGS_CONTENT_INSET: f32 = 14.0;
+
 /// Icon sizes.
 pub mod icon {
     pub const XS: f32 = 12.0;

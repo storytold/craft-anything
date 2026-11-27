@@ -3,7 +3,9 @@
 //! [`Check`]s that judge a build. A [`KindRegistry`] holds them; add a kind by implementing the
 //! trait and calling [`KindRegistry::register`].
 
+pub mod a11y_floor;
 mod app;
+pub mod carry_over;
 mod game;
 pub mod mechanics;
 pub mod own;
@@ -23,6 +25,7 @@ pub use website::{WebVisualCheck, WebsiteKind};
 
 use super::check::build_check;
 use super::*;
+use craft_anything_engine::tools::standin_tools;
 
 /// What a kind is recognised from: the person's words, the target and the stack (when chosen).
 pub struct DetectCx<'a> {
@@ -279,6 +282,9 @@ impl Worker {
     /// a stall names the check it is in.
     pub(super) fn run_checks_within(&self, ws: &Workspace, kind: &dyn TargetKind, round: u32, limit: Option<Duration>) -> Result<Vec<CheckResult>, ToolError> {
         let until = limit.map(|l| Instant::now() + l);
+        // The check reads a stand-in backend from the start of its recording, whatever the builder
+        // wrote to it before, and says how many writes it refused, since those changed nothing.
+        let refused_before = standin_tools::start_of_check(&self.engine.session());
         let mut cx = CheckCx { worker: self, ws, round, until };
         let from_plugins = craft_anything_engine::wasm_plugins::checks(&self.engine.session());
         let plugin_checks = from_plugins
@@ -310,6 +316,12 @@ impl Worker {
             if failed {
                 break;
             }
+        }
+        let refused = standin_tools::writes_refused(&self.engine.session()).saturating_sub(refused_before);
+        if let (true, Some(last)) = (refused > 0, out.last_mut()) {
+            let writes = if refused == 1 { "1 write".to_string() } else { format!("{refused} writes") };
+            let said = format!("The stand-in backend refused {writes} nobody recorded during this check, so what they would have changed wasn't seen.");
+            last.note = if last.note.is_empty() { said } else { format!("{} {said}", last.note) };
         }
         Ok(out)
     }
@@ -363,7 +375,8 @@ impl Check for BuildCheck {
         CheckResult::BUILD
     }
     fn run(&self, cx: &mut CheckCx) -> Result<CheckResult, ToolError> {
-        let (passed, note) = build_check(&cx.ws.app_dir(), cx.ws.app_place(), &cx.ws.manifest.stack, cx.editor(), &cx.stop());
+        let (passed, note) =
+            build_check(&cx.ws.app_dir(), cx.ws.app_place(), &cx.ws.manifest.stack, cx.ws.manifest.toolchain.as_deref(), cx.editor(), &cx.stop(), &[])?;
         // #736: a failed build of an empty app/ says first that nothing was written.
         let note = if !passed && app_is_empty(cx.ws) { format!("{} {note}", no_files_yet(cx.ws)) } else { note };
         Ok(CheckResult::new(self.id(), cx.round, passed, note))

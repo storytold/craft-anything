@@ -39,6 +39,9 @@
     <keyword>reverse engineering</keyword>
     <keyword>disassembler</keyword>
     <keyword>binary analysis</keyword>
+    <keyword>executable</keyword>
+    <keyword>decompiler</keyword>
+    <keyword>inspect</keyword>
   </keywords>
   <branding>
     <color type="primary" scheme_preference="light">#efc39f</color>

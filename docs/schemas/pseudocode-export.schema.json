@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ExportState",
+  "description": "What an export folder holds, by function entry.",
+  "type": "object",
+  "properties": {
+    "functions": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/ExportedFunction"
+      }
+    },
+    "target_name": {
+      "type": "string"
+    },
+    "target_sha256": {
+      "type": "string"
+    },
+    "version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "target_sha256",
+    "target_name",
+    "functions"
+  ],
+  "$defs": {
+    "ExportSource": {
+      "description": "Which decompiler wrote a file, with addresses in both coordinate systems when they differ.",
+      "type": "object",
+      "properties": {
+        "engine": {
+          "type": "string"
+        },
+        "engine_entry": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "engine_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "entry": {
+          "description": "The entry of the returned function, in the built-in engine's address space.",
+          "type": "string"
+        },
+        "language_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "engine",
+        "entry"
+      ]
+    },
+    "ExportedFunction": {
+      "description": "One function that has been written.",
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "lines": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "name": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/ExportSource"
+        },
+        "structured": {
+          "description": "Ghidra does not report this property; unknown stays null, rather than false.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "file",
+        "name",
+        "lines",
+        "source"
+      ]
+    }
+  }
+}

@@ -1,9 +1,10 @@
 //! HTTP plumbing: one ureq agent (rustls), JSON POST with streamed responses, and an SSE parser.
 
 use craft_anything_evidence::{ErrorCode, ToolError};
+use craft_anything_platform::retry;
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Read};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Generic, non-identifying User-Agent.
 pub const USER_AGENT: &str = "CraftAnything-dev";
@@ -39,6 +40,12 @@ pub fn was_reached(e: &ToolError) -> bool {
     e.details.as_ref().and_then(|d| d.get("reached")).and_then(Value::as_bool).unwrap_or(false)
 }
 
+/// Whether a failure was a call cut short by a signal on this computer, not the server or the
+/// connection. Its own remediation says so, so a caller must not replace it with address advice.
+pub fn interrupted(e: &ToolError) -> bool {
+    e.details.as_ref().and_then(|d| d.get("interrupted")).and_then(Value::as_bool).unwrap_or(false)
+}
+
 /// The agent for quick calls (model lists, probes).
 pub fn quick_agent(total: Duration) -> ureq::Agent {
     agent(total, total, total)
@@ -48,16 +55,26 @@ pub fn quick_agent(total: Duration) -> ureq::Agent {
 /// told apart: the internet has nothing to do with it, and one that took the request but didn't
 /// start answering was reached, so "Couldn't reach" misled (a large model still loading, #1239).
 fn net_error(what: &str, url: &str, e: ureq::Error) -> ToolError {
+    // A signal that reaches this thread (a child process ending elsewhere, for one) cuts the call
+    // short: that says nothing about the AI or the connection, and a sent request may be billed.
+    if matches!(&e, ureq::Error::Io(io) if retry::interrupted(io)) {
+        return ToolError::new(ErrorCode::ProgramFailed, format!("{what} was interrupted before it answered: {e}"))
+            .with_remediation("A signal on this computer cut the call short, not the AI: the request may have reached it, so check before sending it again.")
+            .with_details(serde_json::json!({"interrupted": true}));
+    }
     let local = is_this_computer(url);
     const LONGER: &str = "To wait longer, set timeout_secs (in seconds) for this AI under [[ai.backends]] in config.toml; the wait is five minutes unless set.";
-    if matches!(e, ureq::Error::Timeout(ureq::Timeout::RecvResponse)) {
+    if matches!(e, ureq::Error::Timeout(ureq::Timeout::RecvResponse | ureq::Timeout::Global | ureq::Timeout::PerCall)) {
         let why = if local {
             "A large model may still be loading, or reading a long prompt: a smaller context length in the server's settings makes both faster."
         } else {
             "A server busy with another tool's work may need longer."
         };
-        // `reached`: the server took the request, so its address is right (#1429).
-        return ToolError::new(ErrorCode::TimedOut, format!("{what} took the request but didn't start answering in time."))
+        // `reached`: the server took the request, so its address is right (#1429). The phase
+        // timeouts fire before the global cap when opening the connection is the problem.
+        let answer =
+            if matches!(e, ureq::Error::Timeout(ureq::Timeout::RecvResponse)) { "didn't start answering in time" } else { "didn't finish answering in time" };
+        return ToolError::new(ErrorCode::TimedOut, format!("{what} took the request but {answer}."))
             .with_remediation(format!("{why} {LONGER}"))
             .with_details(serde_json::json!({ "reached": true }));
     }
@@ -95,12 +112,17 @@ pub fn status_error(what: &str, status: u16, body: &str) -> ToolError {
     // request is among them, a Qwen 3.8 model refuses what's left with this, and no retry fits (#1245).
     let lower = full.as_deref().unwrap_or(body).to_ascii_lowercase();
     let dropped_request = overflow.is_none() && lower.contains("no user query found in messages");
+    let too_large = status == 413 || request_too_large(&lower);
     let detail: String = full.unwrap_or_else(|| body.chars().take(300).collect()).chars().take(1000).collect();
     let (code, remediation) = match status {
         _ if dropped_request => (ErrorCode::BadSettings, ""),
         401 | 403 => (ErrorCode::NoPermission, "The API key was rejected. Check it in Settings → AI."),
         404 => (ErrorCode::BadSettings, "The model or address wasn't found. Check the model name and base URL."),
         408 | 504 => (ErrorCode::TimedOut, "The service took too long. Try again."),
+        413 | 429 if too_large => (
+            ErrorCode::OverLimit,
+            "The request is larger than this service accepts, so waiting doesn't help. Use a plan with a higher limit or another model, or set a lower context_tokens for this AI in Settings → AI.",
+        ),
         429 => (ErrorCode::OverLimit, "You've hit a rate or spending limit. Wait a moment or check your plan."),
         500..=599 => (ErrorCode::EngineMissing, "The service is having trouble. Try again soon, or use another backend."),
         _ => (ErrorCode::BadInput, "The request was rejected; see the message."),
@@ -124,8 +146,15 @@ pub fn status_error(what: &str, status: u16, body: &str) -> ToolError {
         "context_window": overflow.map(|o| o.0),
         "prompt_tokens": overflow.and_then(|o| o.1),
         "context_overflow": overflow.is_some() || dropped_request,
+        "request_too_large": too_large,
         "affordable_tokens": if status == 402 { affordable_tokens(&lower) } else { None },
     }))
+}
+
+/// Whether a service says one request is larger than its per-minute token limit. OpenAI answers that
+/// with the status and code of a rate limit, and Groq with its code, but it never fits (#2379).
+pub(crate) fn request_too_large(message: &str) -> bool {
+    message.to_ascii_lowercase().contains("request too large")
 }
 
 /// The answer length OpenRouter says a key can still pay for: "You requested up to 131072 tokens,
@@ -222,9 +251,35 @@ pub fn post_json(agent: &ureq::Agent, what: &str, url: &str, headers: &[(&str, S
     Ok(Box::new(resp.into_body().into_reader()))
 }
 
-/// GET JSON.
-pub fn get_json(agent: &ureq::Agent, what: &str, url: &str, headers: &[(&str, String)]) -> Result<Value, ToolError> {
-    let mut req = agent.get(url);
+/// How many times a GET cut short by a signal is tried in all.
+const GET_TRIES: u32 = 3;
+
+/// GET JSON. A GET is safe to repeat, unlike a POST that may already be billed, so a call cut
+/// short by a signal on this computer is simply made again within `deadline`.
+pub fn get_json(agent: &ureq::Agent, what: &str, url: &str, headers: &[(&str, String)], deadline: Instant) -> Result<Value, ToolError> {
+    get_json_within(deadline, |left| get_json_once(agent, what, url, headers, left)).map_err(get_error)
+}
+
+/// The retry loop `get_json` uses, with the call separate so a test can cut it short.
+fn get_json_within(deadline: Instant, call: impl FnMut(Duration) -> Result<Value, ToolError>) -> Result<Value, ToolError> {
+    retry::when_interrupted(GET_TRIES, deadline, call, interrupted)
+}
+
+/// One GET attempt, with every phase bounded by the time left so a retry stays inside the caller's
+/// deadline. The phase timeouts keep their own kind (a reached-but-slow server still says so); the
+/// global timeout is a hair later so it only caps the whole attempt.
+fn get_json_once(agent: &ureq::Agent, what: &str, url: &str, headers: &[(&str, String)], left: Duration) -> Result<Value, ToolError> {
+    let mut req = agent
+        .get(url)
+        .config()
+        .timeout_resolve(Some(left))
+        .timeout_connect(Some(attempt_connect(agent, left)))
+        .timeout_recv_response(Some(left))
+        .timeout_recv_body(Some(left))
+        // One connect's worth of slack lets the phase timeout be reported (a reached-but-slow
+        // server still says so); the global cap only stops a phase from running past the budget.
+        .timeout_global(Some(left.saturating_mul(2).saturating_add(Duration::from_millis(1))))
+        .build();
     for (k, v) in headers {
         req = req.header(*k, v.as_str());
     }
@@ -235,6 +290,22 @@ pub fn get_json(agent: &ureq::Agent, what: &str, url: &str, headers: &[(&str, St
         return Err(status_error(what, status, &text));
     }
     serde_json::from_str(&text).map_err(|e| ToolError::new(ErrorCode::GarbledOutput, format!("{what} sent JSON we couldn't read: {e}")))
+}
+
+/// The connection budget for one GET: no more than the time left, and no more than the agent's
+/// own connect limit when it has one. A shorter configured connect timeout must not be widened to
+/// the whole answer wait.
+fn attempt_connect(agent: &ureq::Agent, left: Duration) -> Duration {
+    agent.config().timeouts().connect.map_or(left, |connect| connect.min(left))
+}
+
+/// A GET that stayed interrupted after its tries: repeating a read is safe, so it doesn't get the
+/// POST warning about a request that may already be billed.
+fn get_error(mut e: ToolError) -> ToolError {
+    if interrupted(&e) {
+        e.remediation = Some("A signal on this computer kept cutting the request short. Try again: reading is safe to repeat.".into());
+    }
+    e
 }
 
 /// One server-sent event.
@@ -250,6 +321,8 @@ const MAX_SSE_LINE: usize = 8 * 1024 * 1024;
 const MAX_SSE_EVENT_DATA: usize = 8 * 1024 * 1024;
 
 /// A stream that stopped mid-answer. One that ran out of time says how to give it more (#1096).
+/// `BufRead::read_until` already retries an interrupted read, so a failure here is a broken
+/// stream or a short answer, not a signal on this computer.
 fn stream_broke_off(e: std::io::Error) -> ToolError {
     let e = ureq::Error::from(e);
     let err = ToolError::new(ErrorCode::EngineMissing, format!("The stream broke off: {e}"));
@@ -337,6 +410,76 @@ mod tests {
         assert!(timed_out.remediation.as_deref().is_some_and(|r| r.contains("timeout_secs")), "{timed_out:?}");
         let cut = parse_sse(Fails(|| ureq::Error::ConnectionFailed), |_| Ok(true)).unwrap_err();
         assert!(cut.remediation.is_none(), "{cut:?}");
+    }
+
+    /// An interrupted send isn't the AI being unreachable: a signal on this computer cut the call
+    /// short, and a request that may already have been billed must not read as a transient server
+    /// problem.
+    #[test]
+    fn an_interrupted_call_is_not_an_unreachable_ai() {
+        let e = ureq::Error::Io(std::io::Error::from(std::io::ErrorKind::Interrupted));
+        let err = net_error("Ollama", "http://127.0.0.1:11434/v1/chat/completions", e);
+        assert_eq!((err.code, err.retryable), (ErrorCode::ProgramFailed, false), "{err:?}");
+        assert!(err.message.contains("interrupted"), "{err:?}");
+        assert!(!err.message.contains("Couldn't reach"), "{err:?}");
+        assert!(interrupted(&err), "{err:?}");
+        assert!(err.remediation.as_deref().is_some_and(|r| r.contains("may have reached")), "{err:?}");
+    }
+
+    /// A GET is safe to repeat, so a signal that cuts one short is tried again rather than
+    /// reported as an interrupted or unreachable call. After the tries, the interrupted error is
+    /// kept; another failure is the server's answer and is returned at once.
+    #[test]
+    fn an_interrupted_get_is_asked_again() {
+        let cut = || net_error("Ollama", "http://127.0.0.1:11434/v1/models", ureq::Error::Io(std::io::Error::from(std::io::ErrorKind::Interrupted)));
+        let mut calls = 0;
+        let got = get_json_within(Instant::now() + Duration::from_secs(30), |_| {
+            calls += 1;
+            if calls < 3 { Err(cut()) } else { Ok(serde_json::json!({"data": []})) }
+        });
+        assert_eq!(calls, 3);
+        assert_eq!(got.unwrap()["data"], serde_json::json!([]));
+
+        let mut calls = 0;
+        let failed = get_json_within(Instant::now() + Duration::from_secs(30), |_| {
+            calls += 1;
+            Err(cut())
+        });
+        assert_eq!(calls, GET_TRIES);
+        let failed = get_error(failed.unwrap_err());
+        assert!(interrupted(&failed), "{failed:?}");
+        assert!(failed.remediation.as_deref().is_some_and(|r| r.contains("reading is safe")), "{failed:?}");
+        assert!(!failed.remediation.as_deref().unwrap_or_default().contains("billed"), "{failed:?}");
+
+        let mut calls = 0;
+        let failed = get_json_within(Instant::now() + Duration::from_secs(30), |_| {
+            calls += 1;
+            Err(net_error("Ollama", "http://127.0.0.1:11434/v1/models", ureq::Error::ConnectionFailed))
+        });
+        assert_eq!(calls, 1);
+        assert_eq!(failed.unwrap_err().code, ErrorCode::EngineMissing);
+    }
+
+    /// A shorter configured connect timeout is kept, not widened to the whole answer wait.
+    #[test]
+    fn a_short_configured_connect_timeout_is_kept() {
+        let short = agent(Duration::from_secs(1), Duration::from_secs(5), Duration::from_secs(5));
+        assert_eq!(attempt_connect(&short, Duration::from_secs(3)), Duration::from_secs(1));
+        assert_eq!(attempt_connect(&short, Duration::from_millis(500)), Duration::from_millis(500));
+        let unset = ureq::Agent::config_builder().build().new_agent();
+        assert_eq!(attempt_connect(&unset, Duration::from_secs(2)), Duration::from_secs(2));
+    }
+
+    /// A global cap that fires after the connection was opened is still a reached server, not an
+    /// unreachable one; the per-phase timeouts fire first when opening the connection is the
+    /// problem.
+    #[test]
+    fn a_global_timeout_after_reaching_the_server_says_it_was_reached() {
+        let err = net_error("Ollama", "https://ollama.example.com/v1", ureq::Error::Timeout(ureq::Timeout::Global));
+        assert_eq!(err.code, ErrorCode::TimedOut, "{err:?}");
+        assert!(was_reached(&err), "{err:?}");
+        assert!(err.message.contains("took the request") && err.message.contains("finish answering"), "{err:?}");
+        assert!(err.remediation.as_deref().is_some_and(|r| r.contains("timeout_secs")), "{err:?}");
     }
 
     /// #1239: an answer that never started (a server busy with another tool's work) says which

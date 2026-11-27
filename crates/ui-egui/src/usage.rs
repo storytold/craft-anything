@@ -158,6 +158,41 @@ pub fn token_total(u: &ProjectUsage, units: bool) -> String {
     reported_tokens(u.tokens(), u.tokens_incomplete, units)
 }
 
+/// What one run's turns used, for the line beside Try again. Its cost is shown only when every
+/// turn reported its own: a resumed agent's turn may not have one (`claude_cost`), and a total
+/// missing some turns would read as the whole run's.
+#[derive(Debug, Clone, Default)]
+pub struct RunTally {
+    used: ProjectUsage,
+    turns: u32,
+    unpriced: bool,
+}
+
+impl RunTally {
+    pub fn add_turn(&mut self, input: u64, output: u64, tokens_unknown: bool, cost_usd: Option<f64>, estimate: bool) {
+        self.turns += 1;
+        self.used.tokens_incomplete |= tokens_unknown;
+        self.unpriced |= !cost_usd.is_some_and(|c| c.is_finite() && c >= 0.0);
+        self.used.add_turn(input, output, cost_usd, estimate);
+    }
+
+    /// "This run used 12k tokens, about $0.40 (estimate).", or nothing before its first turn ends.
+    pub fn words(&self) -> Option<String> {
+        if self.turns == 0 {
+            return None;
+        }
+        if self.used.tokens() == 0 && self.used.tokens_incomplete {
+            return Some(tr("This run's builder didn't report how many tokens it used."));
+        }
+        let tokens = token_total(&self.used, true);
+        Some(if self.unpriced {
+            trf("This run used {tokens}. Its cost isn't known: not every turn reported its own.", &[("tokens", &tokens)])
+        } else {
+            trf("This run used {tokens}, {cost}.", &[("tokens", &tokens), ("cost", &cost_short(&self.used))])
+        })
+    }
+}
+
 /// "45s", "12m 05s", "1h 04m".
 pub fn duration_words(d: Duration) -> String {
     let s = d.as_secs();
@@ -277,6 +312,38 @@ mod tests {
         assert_eq!(reported_tokens(1_000_000, true, false), "1.0M+");
         assert_eq!(reported_tokens(1_980_000, true, false), "1.9M+");
         assert!(explain(&usage, "x").starts_with("17+ tokens in, Unknown out."));
+    }
+
+    #[test]
+    fn a_runs_cost_is_shown_only_when_every_turn_reported_its_own() {
+        assert!(RunTally::default().words().is_none(), "no turn ended: nothing to say");
+
+        let mut priced = RunTally::default();
+        priced.add_turn(9_000, 3_000, false, Some(0.25), false);
+        priced.add_turn(9_000, 3_000, false, Some(0.25), false);
+        let words = priced.words().unwrap();
+        assert!(words.contains("24k tokens") && words.contains("$0.50"), "{words}");
+
+        // An agent's figure is called an estimate, as on the project screen.
+        let mut estimate = RunTally::default();
+        estimate.add_turn(10, 10, false, Some(1.0), true);
+        assert!(estimate.words().unwrap().contains("(estimate)"));
+
+        for unpriced in [None, Some(f64::NAN), Some(-1.0)] {
+            let mut tally = priced.clone();
+            tally.add_turn(9_000, 3_000, false, unpriced, false);
+            let words = tally.words().unwrap();
+            assert!(words.contains("36k tokens") && words.contains("isn't known") && !words.contains('$'), "{unpriced:?}: {words}");
+        }
+
+        let mut partial = priced.clone();
+        partial.add_turn(0, 0, true, None, false);
+        assert!(partial.words().unwrap().contains("24k+ tokens"), "an unreported turn makes the count a lower bound");
+
+        let mut unknown = RunTally::default();
+        unknown.add_turn(0, 0, true, None, false);
+        let words = unknown.words().unwrap();
+        assert!(words.contains("didn't report") && !words.contains('0'), "{words}");
     }
 
     #[test]

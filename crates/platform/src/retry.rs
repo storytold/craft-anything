@@ -22,6 +22,13 @@ pub fn when_interrupted<T, E>(tries: u32, deadline: Instant, mut call: impl FnMu
     }
 }
 
+/// Whether an I/O failure is a blocking call cut short by a signal on this computer (EINTR).
+/// That says nothing about whoever is at the other end; a safe-to-repeat call should be made
+/// again rather than reported as unreachable.
+pub fn interrupted(e: &std::io::Error) -> bool {
+    e.kind() == std::io::ErrorKind::Interrupted
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -29,6 +36,13 @@ mod tests {
 
     fn is_interrupted(e: &Error) -> bool {
         e.kind() == ErrorKind::Interrupted
+    }
+
+    #[test]
+    fn an_interrupted_io_failure_is_a_signal_not_a_broken_peer() {
+        assert!(interrupted(&Error::from(ErrorKind::Interrupted)));
+        assert!(!interrupted(&Error::from(ErrorKind::ConnectionReset)));
+        assert!(!interrupted(&Error::from(ErrorKind::UnexpectedEof)));
     }
 
     #[test]

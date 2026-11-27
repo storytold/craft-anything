@@ -92,6 +92,21 @@ fn double_star_crosses_slashes_only_as_a_full_path_segment() {
     assert!(!escaped_slash.is_ignored("a/b.js", false), "escaped slash after ** preserves separate literal slash token");
 }
 
+/// Separated globstars can each consume no directories or several, without dropping literal separators.
+#[test]
+fn separated_globstars_keep_their_directory_boundaries() {
+    let mut ig = Ignore::default();
+    ig.add_file("", "pkg/**/generated/**/index.rs\n");
+    for path in ["pkg/generated/index.rs", "pkg/ui/generated/index.rs", "pkg/generated/deep/index.rs", "pkg/界面/generated/deep/nested/index.rs"] {
+        assert!(ig.is_ignored(path, false), "{path}");
+    }
+    for path in
+        ["pkg/generated_index.rs", "pkg/generatedindex.rs", "pkg/ui/generated/deep/index.rsx", "pkg/ui/generated/deep/other.rs", "other/pkg/generated/index.rs"]
+    {
+        assert!(!ig.is_ignored(path, false), "{path}");
+    }
+}
+
 /// Once an ancestor directory is ignored, all descendants are ignored and `!` child rules cannot re-include them unless the directory itself is unignored.
 #[test]
 fn ignored_parent_directories_propagate_to_descendants_and_block_child_reinclude() {

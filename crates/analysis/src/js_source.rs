@@ -106,6 +106,7 @@ fn glob_match(tokens: &[Tok], s: &str) -> bool {
     next[m] = true; // empty pattern matches empty string
     for i in (0..n).rev() {
         let mut cur = vec![false; m + 1];
+        let mut slash_suffix = false;
         for j in (0..=m).rev() {
             let c = s.get(j).copied();
             cur[j] = match tokens.get(i) {
@@ -117,8 +118,10 @@ fn glob_match(tokens: &[Tok], s: &str) -> bool {
                 Some(Tok::Star) => next[j] || (c.is_some_and(|c| c != '/') && cur.get(j + 1).copied().unwrap_or(false)),
                 Some(Tok::Globstar) => next[j] || (c.is_some() && cur.get(j + 1).copied().unwrap_or(false)),
                 Some(Tok::GlobstarSlash) => {
-                    // Empty, or any run ending in '/'.
-                    next[j] || (j..m).any(|k| s.get(k) == Some(&'/') && next.get(k + 1).copied().unwrap_or(false))
+                    // Empty, or a suffix after any slash at or beyond j. Keep that suffix
+                    // result while moving left instead of scanning the remaining path again.
+                    slash_suffix |= c == Some('/') && next.get(j + 1).copied().unwrap_or(false);
+                    next[j] || slash_suffix
                 }
                 None => false,
             };

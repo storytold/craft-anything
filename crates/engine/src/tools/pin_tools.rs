@@ -273,7 +273,7 @@ fn project_pin_open(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, Tool
     let p: OpenParams = parse_params(params)?;
     let ws = open_project(&p.project)?;
     let pin = pins::get(&ws, p.pin)?;
-    let launch = pin.launch(&ws, godot(ctx).as_deref())?;
+    let launch = pin.launch(&ws, godot(ctx).as_deref(), &ctx.session.cargo())?;
     let mut out = start_program(ctx, &pin.app_dir(&ws), &pin.log_path(&ws), p.another, &pin.name, launch)?;
     if let Some(o) = out.as_object_mut() {
         o.insert("pin".into(), json!(pin.id));

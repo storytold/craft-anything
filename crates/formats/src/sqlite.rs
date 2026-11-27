@@ -805,32 +805,18 @@ impl<'a> SqliteDb<'a> {
 
 /// Decode a SQLite record (the "payload") into column values, cutting text at `text_cap` bytes.
 fn parse_record(payload: &[u8], text_encoding: &str, text_cap: usize) -> Vec<CellValue> {
+    let Ok((header, body)) = craft_sqlite::split_record(payload) else {
+        return Vec::new();
+    };
     let mut out = Vec::new();
-    let Some((hdr_len, n)) = varint(payload, 0) else { return out };
-    let hdr_len = hdr_len as usize;
-    if hdr_len > payload.len() || hdr_len < n {
-        return out;
-    }
-    // First read the serial types from the header region.
-    let mut types = Vec::new();
-    let mut p = n;
-    while p < hdr_len {
-        let Some((st, used)) = varint(payload, p) else { break };
-        types.push(st);
-        p = match p.checked_add(used) {
-            Some(v) => v,
-            None => break,
-        };
-        if types.len() >= MAX_COLUMNS {
-            break;
-        }
-    }
-    // Then read each value from the body region.
-    let mut body = hdr_len;
-    for st in types {
-        let (val, size) = decode_serial(st, payload, body, text_encoding, text_cap);
+    let mut header_offset = 0;
+    let mut body_offset = 0;
+    while out.len() < MAX_COLUMNS {
+        let Some((serial, used)) = varint(header, header_offset) else { break };
+        let (val, size) = decode_serial(serial, body, body_offset, text_encoding, text_cap);
         out.push(val);
-        body = body.saturating_add(size);
+        header_offset += used;
+        body_offset = body_offset.saturating_add(size);
     }
     out
 }
@@ -1924,6 +1910,17 @@ fn starts_column_constraint(token: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_serial_type_cannot_continue_into_the_record_body() {
+        let complete = [3, 1, 9, 9];
+        assert_eq!(parse_record(&complete, "utf-8", MAX_TEXT), [CellValue::Int(9), CellValue::Int(1)]);
+
+        // The first body's integer would complete the unfinished second serial
+        // type as 9 if the parser read past the declared header.
+        let truncated = [3, 1, 0x80, 9];
+        assert_eq!(parse_record(&truncated, "utf-8", MAX_TEXT), [CellValue::Int(9)]);
+    }
 
     /// A TEXT value cut inside a character drops the incomplete character, not a U+FFFD that
     /// wasn't in the database.

@@ -403,6 +403,9 @@ fn main() {
     if want("make-deep-ready") {
         render(&out, "make-deep-ready", w, h, scale, move || {
             let mut a = engine_app(None, false);
+            let support = a.settings.engine_store_dir().join(craft_anything_engines::ghidra::get::ID).join("standin").join("support");
+            let launcher = if cfg!(windows) { "analyzeHeadless.bat" } else { "analyzeHeadless" };
+            let _ = std::fs::create_dir_all(&support).and_then(|_| std::fs::write(support.join(launcher), b""));
             a.settings.deep_mode = true;
             a
         });

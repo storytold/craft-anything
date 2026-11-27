@@ -102,15 +102,15 @@ fn an_instantiation_function_names_a_conformance() {
 fn a_type_declared_in_an_extension_leaves_out_the_extension_prefix() {
     assert_eq!(
         dm("_$s10Foundation15AttributeScopesO14XCUIAutomationE28SyntaxHighlightingAttributesVAfA0B5ScopeADWl"),
-        "lazy protocol witness table accessor for type Foundation.AttributeScopes.SyntaxHighlightingAttributes and conformance Foundation.AttributeScopes.SyntaxHighlightingAttributes : Foundation.AttributeScope in XCUIAutomation"
+        "lazy protocol witness table accessor for type (extension in XCUIAutomation):Foundation.AttributeScopes.SyntaxHighlightingAttributes and conformance (extension in XCUIAutomation):Foundation.AttributeScopes.SyntaxHighlightingAttributes : Foundation.AttributeScope in XCUIAutomation"
     );
     assert_eq!(
         dm("_$s10Foundation3URLV21XCSchemaSerializationE0D5ErrorOAA09LocalizedE0ADs0E0PWb"),
-        "base witness table accessor for Swift.Error in Foundation.URL.SerializationError : Foundation.LocalizedError in XCSchemaSerialization"
+        "base witness table accessor for Swift.Error in (extension in XCSchemaSerialization):Foundation.URL.SerializationError : Foundation.LocalizedError in XCSchemaSerialization"
     );
     assert_eq!(
         dm("_$s10RealityKit12MeshResourceC0A10FoundationE4PartVs12IdentifiableAD2IDsAGP_SHWT"),
-        "associated type witness table accessor for Swift.Identifiable.ID : Swift.Hashable in RealityKit.MeshResource.Part : Swift.Identifiable in RealityFoundation"
+        "associated type witness table accessor for Swift.Identifiable.ID : Swift.Hashable in (extension in RealityFoundation):RealityKit.MeshResource.Part : Swift.Identifiable in RealityFoundation"
     );
 }
 

@@ -96,6 +96,35 @@ fn enabling_a_toolset_counts_the_tools_listed() {
     assert_eq!(enabled["result"]["visible_tools"], json!(runs), "{enabled}");
 }
 
+/// #1825 through the MCP path: a client may send a number as text too, and `tools/call` goes
+/// through the same engine dispatch, so the schema reads `"5"` and `"0"` as the numbers asked for.
+#[test]
+fn numeric_strings_from_an_mcp_caller_are_read_as_numbers() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("image.bin");
+    std::fs::write(&path, b"Craft Anything firmware sample").unwrap();
+    let mut session = craft_anything_engine::testing::session();
+    session.settings.deep_mode = true;
+    let engine = Arc::new(Engine::new(session));
+    let input = format!(
+        "{}\n",
+        req(
+            1,
+            "tools/call",
+            json!({"name": "firmware_regions_list", "arguments": {
+                "path": path.to_string_lossy(),
+                "range": {"offset": "0", "length": "8"},
+                "limit": "5"
+            }})
+        )
+    );
+    let buf = Buf::default();
+    serve(engine, ServerOptions::default(), std::io::Cursor::new(input.into_bytes()), Box::new(buf.clone())).unwrap();
+    let out: Vec<Value> = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    let r = response(&out, 1)["result"].clone();
+    assert_eq!(r["isError"], false, "{r}");
+}
+
 fn tool_names(v: &Value) -> Vec<String> {
     v["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap().to_string()).collect()
 }
@@ -531,6 +560,9 @@ fn restricted_web_opens_never_use_a_saved_sign_in() {
     ] {
         assert_eq!(server.restricted_args("web_site_open", args).unwrap()["signed_in"], false);
     }
+    // The person's own browser holds their sign-ins too, so it's refused here.
+    let err = server.restricted_args("web_site_open", json!({"url": "https://example.com", "cdp_endpoint": "http://127.0.0.1:9222"})).unwrap_err();
+    assert_eq!(err.details.as_ref().map(|d| d["param"].clone()), Some(json!("cdp_endpoint")), "{err:?}");
     // Other tools and unrestricted servers are left alone.
     assert_eq!(server.restricted_args("core_session_show", json!({})).unwrap(), json!({}));
     let open = Server::new(engine, ServerOptions::default(), Box::new(Buf::default()));
