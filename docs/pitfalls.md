@@ -1149,6 +1149,16 @@ began with the project's path and went through; it had been noted as "only refus
 without trying a folder named like the project. Read arguments as the shell does, and test a
 path rule with the folder beside the target, not only the target.
 
+**A path read as outside before its `cd`.** Auto mode's delete check treated every `..` as
+outside, so `cd app && rm -r ../reports/<run>` (the project's own folder) was refused even though
+the shell runs it from app/. Resolve relative paths where the command would run them, but only
+after a `&&` (a failed `cd` doesn't reach the delete); keep `;`, `|` and newlines on the old,
+stricter reading, refuse the project folder itself when a full or climbing path reaches it, and
+follow links before comparing paths. Resolve from the folder the command will run in — a build
+command runs in app/, not the project root — and recheck a delete just before running it. Test the
+project's own folder, a path past it, the root, the temp folder, a link out, an unexpanded
+`$VAR`/`%VAR%` target, a `CDPATH` assignment, an attached `&`, and a grouped command.
+
 **A filter written for one kind of text, run on another.** The stand-in's secret scan was written for
 API answers, then also ran on recorded scripts: `this.token=t` became `[dropped]` and the scripts
 broke, and "Basic Membership" lost a word. It also tested whole tokens, so a secret inside a URL or

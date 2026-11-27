@@ -405,7 +405,17 @@ pub(crate) fn approve(ctx: &mut Ctx<'_>, tool: &str, input: &Value) -> Result<Re
     let (auto_mode, clean_room) = (ctx.session.settings.auto_mode, ctx.session.clean_room());
     let cancel = ctx.cancel.clone();
     let mut waiting = || ctx.report(None, "Waiting for your OK…");
-    approve_with(inbox, auto_mode, clean_room, tool, input, &|| cancel.is_cancelled(), &mut waiting)
+    approve_with_from(inbox, auto_mode, clean_room, tool, input, None, &|| cancel.is_cancelled(), &mut waiting)
+}
+
+/// [`approve`] for a command that runs in `from`, rather than the project folder (a build command
+/// runs in app/). The folder is a parameter, not part of the agent's input, so it can't be spoofed.
+pub(crate) fn approve_in(ctx: &mut Ctx<'_>, tool: &str, input: &Value, from: &Path) -> Result<Result<(), String>, ToolError> {
+    let inbox = inbox(ctx);
+    let (auto_mode, clean_room) = (ctx.session.settings.auto_mode, ctx.session.clean_room());
+    let cancel = ctx.cancel.clone();
+    let mut waiting = || ctx.report(None, "Waiting for your OK…");
+    approve_with_from(inbox, auto_mode, clean_room, tool, input, Some(from), &|| cancel.is_cancelled(), &mut waiting)
 }
 
 /// [`approve`] for callers outside a tool call (a client answering an agent's permission request
@@ -421,11 +431,25 @@ pub fn approve_with(
     cancelled: &dyn Fn() -> bool,
     waiting: &mut dyn FnMut(),
 ) -> Result<Result<(), String>, ToolError> {
+    approve_with_from(inbox, auto_mode, clean_room, tool, input, None, cancelled, waiting)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn approve_with_from(
+    inbox: Option<Inbox>,
+    auto_mode: bool,
+    clean_room: bool,
+    tool: &str,
+    input: &Value,
+    from: Option<&Path>,
+    cancelled: &dyn Fn() -> bool,
+    waiting: &mut dyn FnMut(),
+) -> Result<Result<(), String>, ToolError> {
     let mut ws = inbox.as_ref().and_then(workspace_of);
     if clean_room && let Some(why) = off_limits(ws.as_ref(), tool, input) {
         return Ok(Err(why));
     }
-    match outcome(ws.as_ref(), auto_mode, tool, input) {
+    match outcome_from(ws.as_ref(), auto_mode, tool, input, from) {
         Outcome::Allow => Ok(Ok(())),
         Outcome::Refuse(why) => Ok(Err(why)),
         Outcome::RefuseKind { why, kind } => {
@@ -470,7 +494,7 @@ enum Outcome {
 
 /// The policy ([`decide`]), then what the person always allowed, then the project's choice for
 /// the action's kind, or Auto mode's default for it.
-fn outcome(ws: Option<&Workspace>, auto_mode: bool, tool: &str, input: &Value) -> Outcome {
+fn outcome_from(ws: Option<&Workspace>, auto_mode: bool, tool: &str, input: &Value, from: Option<&Path>) -> Outcome {
     let (title, action) = match decide(ws, tool, input) {
         Decision::Allow => return Outcome::Allow,
         Decision::Deny(m) => return Outcome::Refuse(m),
@@ -482,7 +506,7 @@ fn outcome(ws: Option<&Workspace>, auto_mode: bool, tool: &str, input: &Value) -
         let chosen = ws.and_then(|w| w.manifest.approvals.get(&kind).copied());
         (kind, chosen, chosen.unwrap_or_else(|| kind.default_in(auto_mode)))
     };
-    let kinds = kinds_of(ws, tool, input);
+    let kinds = kinds_of_from(ws, tool, input, from);
     let Some((kind, chosen, approval)) = kinds.iter().map(|k| gets(*k)).fold(None, |best: Option<(ActionKind, Option<Approval>, Approval)>, next| match best {
         Some(b) if b.2.strictness() >= next.2.strictness() => Some(b),
         _ => Some(next),
@@ -499,6 +523,13 @@ fn outcome(ws: Option<&Workspace>, auto_mode: bool, tool: &str, input: &Value) -
         Approval::Refuse => Outcome::RefuseKind { why: refusal(kind, chosen.is_some()), kind },
         Approval::Ask => Outcome::Ask { title, remember: if remembers_actions(kind) { Remember::Action(action) } else { Remember::Kind(kind) } },
     }
+}
+
+/// The policy from the project folder (the agent's usual starting point), for tests and callers
+/// that don't know a different folder.
+#[cfg(test)]
+fn outcome(ws: Option<&Workspace>, auto_mode: bool, tool: &str, input: &Value) -> Outcome {
+    outcome_from(ws, auto_mode, tool, input, None)
 }
 
 /// What a Clean room builder is told when it reaches for the original.
@@ -598,6 +629,12 @@ pub fn kind_of(ws: Option<&Workspace>, tool: &str, input: &Value) -> ActionKind 
 /// a system change, `git push && craft-anything-cli …`), and each of their choices applies. The
 /// first is [`kind_of`]'s.
 pub fn kinds_of(ws: Option<&Workspace>, tool: &str, input: &Value) -> Vec<ActionKind> {
+    kinds_of_from(ws, tool, input, None)
+}
+
+/// [`kinds_of`], with the folder the shell will run in when the caller knows it (a build command
+/// runs in app/, not the project folder). It is a parameter, not part of the agent's input.
+fn kinds_of_from(ws: Option<&Workspace>, tool: &str, input: &Value, from: Option<&Path>) -> Vec<ActionKind> {
     if !matches!(tool, "Bash" | "PowerShell") {
         return vec![kind_of(ws, tool, input)];
     }
@@ -611,7 +648,7 @@ pub fn kinds_of(ws: Option<&Workspace>, tool: &str, input: &Value) -> Vec<Action
         kinds.push(ActionKind::System);
     }
     // Paths keep their case: on a Mac or Linux `/Users/x` isn't `/users/x`.
-    if DELETES.iter().any(|k| c.contains(k)) && deletes_outside(command, ws) {
+    if DELETES.iter().any(|k| c.contains(k)) && deletes_outside(command, ws, from) {
         kinds.push(ActionKind::DeleteOutside);
     }
     if kinds.is_empty() {
@@ -792,30 +829,204 @@ const SYSTEM_COMMANDS: &[&str] = &[
 ];
 const DELETES: &[&str] = &["rm ", "rmdir", "rd /s", "del ", "erase ", "remove-item", "ri ", "unlink "];
 
+/// Whether a backslash directly precedes a quote. Bash treats it as an escaped quote, while
+/// PowerShell and cmd keep the backslash and close the string; a path like `"C:\Build\"` therefore
+/// means different things. The delete guard can't know which shell will run the text, so it
+/// refuses such a command rather than guessing.
+fn has_ambiguous_quote(command: &str) -> bool {
+    let mut chars = command.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' && chars.peek().is_some_and(|next| *next == '"' || *next == '\'') {
+            return true;
+        }
+    }
+    false
+}
+
+/// Whether a shell token holds an unresolved variable expansion or substitution, which can't be
+/// checked as a path. A pair of `%` is cmd's `%VAR%`; a single `%` is literal.
+fn has_expansion(tok: &str) -> bool {
+    tok.contains(['$', '`']) || tok.matches('%').nth(1).is_some()
+}
+
+/// Whether a command starts a background list with `&`: a `&` outside quotes that isn't the
+/// second half of `&&` or the `&` of a `>&`/`<&` redirection.
+fn has_background(command: &str) -> bool {
+    let mut quote: Option<char> = None;
+    let mut previous: Option<char> = None;
+    let mut chars = command.chars().peekable();
+    while let Some(c) = chars.next() {
+        match quote {
+            Some(q) if c == q => quote = None,
+            Some(_) => {}
+            None if c == '"' || c == '\'' => quote = Some(c),
+            None if c == '&' => {
+                if chars.peek() == Some(&'&') {
+                    chars.next();
+                    previous = Some('&');
+                    continue;
+                }
+                if !matches!(previous, Some('>') | Some('<')) {
+                    return true;
+                }
+            }
+            None => {}
+        }
+        previous = Some(c);
+    }
+    false
+}
+
 /// Whether a deleting command reaches outside the project folder (and the temp folder): any
-/// absolute, home-relative or climbing path that isn't inside them.
-fn deletes_outside(command: &str, ws: Option<&Workspace>) -> bool {
+/// absolute, home-relative or climbing path that isn't inside them. A leading `cd` joined by `&&`
+/// moves where the paths after it land, so `cd app && rm -r ../reports/run` stays inside; other
+/// shell separators keep the old, stricter reading.
+fn deletes_outside(command: &str, ws: Option<&Workspace>, from: Option<&Path>) -> bool {
+    if has_ambiguous_quote(command) {
+        return true;
+    }
     let temp = std::env::temp_dir();
-    let roots: Vec<PathBuf> = ws.map(|w| w.root.clone()).into_iter().chain([temp, PathBuf::from("/tmp"), PathBuf::from("c:/tmp")]).collect();
-    shell_words(command).iter().any(|tok| {
-        let tok = tok.as_str();
+    // Follow links on both sides: macOS's temp folder is under /var, which is a link to
+    // /private/var, and a project can be opened through a link too. Keep both spellings, so an
+    // absolute path written as the person sees it still matches.
+    let real = |p: &Path| crate::workspace::real_path(p).unwrap_or_else(|| p.to_path_buf());
+    let raw_root = ws.map(|w| w.root.clone());
+    let root = raw_root.as_ref().map(|r| real(r));
+    let project_forms: Vec<PathBuf> = raw_root.iter().cloned().chain(root.iter().cloned()).collect();
+    let roots: Vec<PathBuf> =
+        project_forms.iter().cloned().chain([temp, PathBuf::from("/tmp"), PathBuf::from("c:/tmp")]).flat_map(|r| [r.clone(), real(&r)]).collect();
+    let same = |a: &Path, b: &Path| inside(a, b) && inside(b, a);
+    let is_root = |p: &Path| project_forms.iter().any(|r| same(r, p));
+    let from = from.map(real);
+    if from.as_ref().is_some_and(|p| !roots.iter().any(|r| inside(r, p))) {
+        return true;
+    }
+    // Only a chain of `&&` guarantees the `cd` succeeded before the delete runs. With `;`, `|`,
+    // a newline or a standalone `&`, the list or background part can leave the shell somewhere
+    // else, so keep reading every `..` as outside there.
+    let words = shell_words_spoken(command);
+    // `pushd`/`popd`, PowerShell's location changes and `chdir` move the shell too, but this
+    // check doesn't follow a directory stack; keep the stricter reading when they appear.
+    let location = words
+        .iter()
+        .any(|word| matches!(word.text.to_ascii_lowercase().as_str(), "pushd" | "popd" | "push-location" | "pop-location" | "set-location" | "sl" | "chdir"));
+    let chain = root.is_some() && !command.contains([';', '|', '\n', '(', ')']) && !has_background(command) && !location;
+    let search_path = std::env::var_os("CDPATH").is_some_and(|v| !v.is_empty()) || command.to_ascii_uppercase().contains("CDPATH");
+    let mut cwd = from.or_else(|| root.clone());
+    let mut start = true;
+    let mut i = 0;
+    while i < words.len() {
+        let tok = words[i].text.as_str();
+        if chain && start && tok == "cd" {
+            // A `cd` whose target isn't a plain, complete path leaves the shell somewhere
+            // unknown: refuse rather than keep the old directory and check the delete there.
+            let Some(dir) = words.get(i + 1).map(|word| word.text.as_str()) else { return true };
+            let plain = !dir.contains(['$', '%', '`', '*', '?', '[', ']', '{', '}']);
+            let ends = words.get(i + 2).is_none_or(|next| next.text == "&&" && !next.quoted);
+            if !plain
+                || !ends
+                || dir.is_empty()
+                || dir.starts_with('-')
+                || dir.contains(['<', '>', '&', ';', '|', '(', ')'])
+                || matches!(dir, "&&" | "||" | ";" | "|" | "&")
+            {
+                return true;
+            }
+            // On Unix a backslash escapes the next character; a path written with one can't be
+            // compared lexically with what the shell opens. Windows uses it as a separator.
+            if cfg!(not(windows)) && dir.contains('\\') {
+                return true;
+            }
+            let lower = dir.to_ascii_lowercase();
+            let home = dir.starts_with('~') || lower.contains("$home") || lower.contains("%userprofile%") || lower.contains("$env:");
+            if home {
+                return true;
+            }
+            // A plain relative name can be redirected by the shell's CDPATH; refuse to guess
+            // where it lands. Only `.`, `..`, `./…`, `../…` and absolute paths skip the search;
+            // a name like `.config` is searched.
+            let dot = dir == "." || dir == ".." || dir.starts_with("./") || dir.starts_with("../");
+            let searched = !dir.starts_with(['/', '~']) && !dot && !dir.get(1..3).is_some_and(|d| d == ":\\" || d == ":/");
+            if search_path && searched {
+                return true;
+            }
+            let Some(next) = cwd.as_ref().and_then(|c| resolve_as_opened(c, dir)) else { return true };
+            // The shell's `cd` is logical: a link before `..` isn't followed. If that reading
+            // and the physical one differ, the directory is ambiguous; refuse it.
+            if dir.contains("..") && cwd.as_ref().and_then(|c| resolve(c, dir)).as_ref() != Some(&next) {
+                return true;
+            }
+            if !roots.iter().any(|r| inside(r, &next)) {
+                return true;
+            }
+            cwd = Some(next);
+            i += 2;
+            start = false;
+            continue;
+        }
         let lower = tok.to_ascii_lowercase();
-        if tok.contains("..") || tok.starts_with('~') || lower.contains("$home") || lower.contains("%userprofile%") || lower.contains("$env:") {
+        let home = tok.starts_with('~') || lower.contains("$home") || lower.contains("%userprofile%") || lower.contains("$env:");
+        if home {
+            return true;
+        }
+        if has_expansion(tok) {
             return true;
         }
         // Git Bash writes C:\x as /c/x.
         let tok = tok.strip_prefix("/c/").or_else(|| tok.strip_prefix("/C/")).map(|r| format!("c:/{r}")).unwrap_or_else(|| tok.to_string());
         let absolute = tok.starts_with('/') || tok.get(1..3).is_some_and(|d| d == ":/" || d == ":\\");
-        absolute && !roots.iter().any(|r| inside(r, Path::new(&tok)))
-    })
+        if tok.contains("..") {
+            // Outside a `&&` chain a failed `cd` doesn't stop the delete, so keep the old,
+            // stricter reading. A variable, substitution, glob or nested command could make the
+            // path go anywhere, so keep the old refusal for it too.
+            if !chain || tok.contains(['$', '`', '%', '*', '?', '[', ']', '{', '}', '&', ';', '|', '(', ')']) || tok.chars().any(char::is_whitespace) {
+                return true;
+            }
+            // Resolve a climbing path where the shell would run it. Deleting the project folder
+            // itself stays refused even when the path reaches it from app/.
+            let base = match cwd.as_deref() {
+                Some(cwd) => cwd,
+                None if absolute => Path::new("/"),
+                None => return true,
+            };
+            let Some(p) = resolve_as_opened(base, &tok).and_then(|p| crate::workspace::real_path(&p)) else { return true };
+            if is_root(&p) || !roots.iter().any(|r| inside(r, &p)) {
+                return true;
+            }
+        } else if absolute {
+            // The project folder itself is never deleted, however it is written.
+            let path = Path::new(&tok);
+            if is_root(path) || !roots.iter().any(|r| inside(r, path)) {
+                return true;
+            }
+        }
+        start = tok == "&&" && !words[i].quoted;
+        i += 1;
+    }
+    false
+}
+
+/// Whether a command's delete operands reach outside, from the folder it will run in. Used again
+/// immediately before a build command runs.
+pub(crate) fn command_deletes_outside(command: &str, ws: &Workspace, from: &Path) -> bool {
+    deletes_outside(command, Some(ws), Some(from))
+}
+
+/// A shell word and whether any part of it was quoted, so a quoted `&&` stays an argument
+/// instead of becoming a control operator.
+#[derive(Debug, Clone)]
+struct ShellWord {
+    text: String,
+    quoted: bool,
 }
 
 /// A command's arguments the way a shell reads them: quoted text (`"a b"`, `'a b'`) and an escaped
 /// space (`a\ b`) stay in one argument, so a path with spaces is checked whole. A backslash before
 /// anything else is kept as it is (Windows paths).
-fn shell_words(command: &str) -> Vec<String> {
+fn shell_words_spoken(command: &str) -> Vec<ShellWord> {
     let mut words = Vec::new();
     let mut word = String::new();
+    let mut quoted = false;
     let mut started = false;
     let mut quote: Option<char> = None;
     let mut chars = command.chars().peekable();
@@ -825,6 +1036,7 @@ fn shell_words(command: &str) -> Vec<String> {
             Some(_) => word.push(c),
             None if c == '"' || c == '\'' => {
                 quote = Some(c);
+                quoted = true;
                 started = true;
             }
             None if c == '\\' && chars.peek().is_some_and(|n| n.is_whitespace()) => {
@@ -835,7 +1047,8 @@ fn shell_words(command: &str) -> Vec<String> {
             }
             None if c.is_whitespace() => {
                 if started {
-                    words.push(std::mem::take(&mut word));
+                    words.push(ShellWord { text: std::mem::take(&mut word), quoted });
+                    quoted = false;
                     started = false;
                 }
             }
@@ -846,9 +1059,14 @@ fn shell_words(command: &str) -> Vec<String> {
         }
     }
     if started {
-        words.push(word);
+        words.push(ShellWord { text: word, quoted });
     }
     words
+}
+
+/// The words alone, for callers that don't need to tell a quoted `&&` from an operator.
+fn shell_words(command: &str) -> Vec<String> {
+    shell_words_spoken(command).into_iter().map(|word| word.text).collect()
 }
 
 /// What the person said to an approval card.
@@ -1618,6 +1836,202 @@ mod tests {
         assert!(rm(format!("rm -rf \"{elsewhere}\"")).is_some(), "a neighbouring folder is still outside");
     }
 
+    /// A `cd` joined by `&&` moves where a later relative delete lands, so climbing out of `app/`
+    /// into the project's own folders is allowed while the project's root and paths beyond it stay
+    /// refused (#2485).
+    #[test]
+    fn auto_mode_resolves_a_delete_after_a_leading_cd() {
+        let (_d, mut w) = ws();
+        // A path outside the temp folder, as in the other auto-mode delete tests, so `..` can
+        // land somewhere the guard must refuse.
+        w.root = PathBuf::from(if cfg!(windows) { "D:/Projects/MyGame" } else { "/Users/Me/Projects/MyGame" });
+        let rm = |cmd: &str| never_unasked(Some(&w), "Bash", &json!({"command": cmd}));
+        for inside in ["rm -r app/../reports/run", "rm -r reports/100%", "export CDPATH=/tmp && cd ./app && rm -r ../reports/run"] {
+            assert_eq!(rm(inside), None, "{inside}");
+        }
+        // A shell profile can set CDPATH; a plain `cd app` is then refused, while `./app` isn't
+        // searched. Branch on what this process inherited rather than mutating the environment.
+        let cdpath = std::env::var_os("CDPATH").is_some_and(|v| !v.is_empty());
+        for chained in [
+            "cd app && rm -r ../reports/run",
+            "cd app && rm -r reports/run",
+            "cd app && cd .. && rm -r reports/run",
+            "cd app && rm -r ../reports/run && echo done",
+            "cd app && rm -r ../reports/run 2>&1",
+            "echo \"&&\" && cd app && rm -r ../reports/run",
+        ] {
+            if cdpath {
+                assert!(rm(chained).is_some(), "{chained} (inherited CDPATH)");
+            } else {
+                assert_eq!(rm(chained), None, "{chained}");
+            }
+        }
+        let temp = std::env::temp_dir();
+        assert_eq!(rm(&format!("cd \"{}\" && rm -r x", temp.display())), None, "the temp folder is allowed");
+        assert_eq!(rm(&format!("rm -rf \"{}/x\"", temp.display())), None, "an absolute temp child is allowed");
+        let root = w.root.display().to_string();
+        assert!(rm(&format!("rm -rf \"{root}\"")).is_some(), "the project folder itself");
+        assert_eq!(rm(&format!("rm -rf \"{root}/app/Build\"")), None, "a child is still the project's own");
+        for outside in [
+            "cd app && rm -r ../../outside",
+            "rm -r ../reports/run",
+            "cd .. && rm -r reports/run",
+            "cd app && rm -r ..",
+            "cd $APP && rm -r ../reports/run",
+            "cd app && rm -r ../$DIR/run",
+            "cd app && bash -c 'cd .. && rm -r ../outside'",
+            "cd app; rm -r ../reports/run",
+            "cd app | rm -r ../reports/run",
+            "cd app || rm -r ../reports/run",
+            "cd app\nrm -r ../reports/run",
+            "cd app & rm -r ../reports/run",
+            "cd app && echo hi & rm -r ../reports/run",
+            "cd app && echo hi& rm -r ../reports/run",
+            "cd - && rm -r ../reports/run",
+            "cd - && rm -r reports/run",
+            "cd -P && rm -r reports/run",
+            "cd >out && rm -r reports/run",
+            "cd app extra && rm -r ../reports/run",
+            "cd app extra && rm -r reports/run",
+            "cd $APP && rm -r reports/run",
+            "cd && rm -r reports/run",
+            "rm -r app/../reports/run; echo done",
+            "cd app && rm -r ../reports/run | tee",
+            "rm -r $TARGET",
+            "cd app && rm -r reports/$FILE",
+            "rm -r %TEMP%/x",
+            "export CDPATH=/tmp && cd app && rm -r ../reports/run",
+            "CDPATH=/tmp && cd app && rm -r ../reports/run",
+            "export CDPATH=/tmp && cd .config && rm -r ../reports/run",
+            "(cd app) && rm -r ../reports/run",
+            "cd app && (rm -r ../reports/run)",
+            "cd app && (cd .. && rm -r reports/run)",
+            "echo \"&&\" cd app && rm -r ../reports/run",
+            "cd app \"&&\" && rm -r ../reports/run",
+            "cd app&&rm -r ../reports/run",
+            "cd app && pushd /tmp && rm -r ../reports/run",
+            "cd app && pushd /tmp && popd && rm -r ../reports/run",
+            "cd app && push-location /tmp && rm -r ../reports/run",
+            "cd app && set-location /tmp && rm -r ../reports/run",
+            "cd app && Set-Location /tmp && rm -r ../reports/run",
+            "cd app && sl /tmp && rm -r ../reports/run",
+            "cd app && chdir /tmp && rm -r ../reports/run",
+        ] {
+            assert!(rm(outside).is_some(), "{outside}");
+        }
+    }
+
+    #[test]
+    fn ambiguous_quote_escapes_are_refused() {
+        assert!(has_ambiguous_quote(r#"echo "x\""#));
+        assert!(has_ambiguous_quote(r#"echo "C:\Build\""#));
+        assert!(!has_ambiguous_quote(r#"echo "C:\Build""#));
+        assert!(!has_ambiguous_quote(r"echo C:\path"));
+    }
+
+    #[test]
+    fn variable_expansions_are_told_apart() {
+        assert!(has_expansion("$TARGET"));
+        assert!(has_expansion("`cmd`"));
+        assert!(has_expansion("%TEMP%/x"));
+        assert!(!has_expansion("100%"), "a lone percent is literal");
+        assert!(!has_expansion("app/../reports/run"), "a literal .. is not an expansion");
+    }
+
+    #[test]
+    fn background_ampersands_are_told_apart() {
+        assert!(has_background("cd app && echo hi& rm x"), "an attached & backgrounds the list");
+        assert!(has_background("cd app && echo hi & rm x"), "a spaced & backgrounds the list");
+        assert!(!has_background("cd app && rm x 2>&1"), "a redirection is not background");
+        assert!(!has_background("echo '&' && cd app"), "a quoted & is text");
+        assert!(!has_background("cd app && rm x && echo y"), "&& stays in the foreground");
+    }
+
+    /// Bash reads `\"` as an escaped quote; PowerShell and cmd read the backslash literally. The
+    /// guard refuses the ambiguity, including a quoted Windows path ending in a backslash; the
+    /// same path without the trailing backslash still works.
+    #[test]
+    fn auto_mode_refuses_an_ambiguous_quote_escape() {
+        let (_d, w) = ws();
+        let rm = |cmd: &str| never_unasked(Some(&w), "Bash", &json!({"command": cmd}));
+        for cmd in [r#"cd ./app && echo "x\" && rm -r ../reports/run"#, r#"cd ./app && rm -r "reports\""#] {
+            assert!(rm(cmd).is_some(), "{cmd}");
+        }
+        assert_eq!(rm(r#"cd ./app && rm -r "reports""#), None, "an ordinary quoted path still works");
+    }
+
+    /// The starting folder is a parameter on the private approval path, not an agent input field;
+    /// an extra `cwd` in the agent's JSON must not move the guard.
+    #[test]
+    fn an_agent_cannot_move_the_guard_with_a_cwd_field() {
+        let (_d, mut w) = ws();
+        // Outside the temp folder, so `../reports` is outside from the project root but inside
+        // from app/.
+        w.root = PathBuf::from(if cfg!(windows) { "D:/Projects/MyGame" } else { "/Users/Me/Projects/MyGame" });
+        let input = json!({"command": "rm -r ../reports/run", "cwd": w.app_dir().display().to_string()});
+        assert_eq!(kind_of(Some(&w), "Bash", &input), ActionKind::DeleteOutside);
+    }
+
+    /// On Unix a backslash escapes the next character, so a `cd` target containing one can't be
+    /// compared lexically with the directory the shell opens; it is refused.
+    #[cfg(unix)]
+    #[test]
+    fn auto_mode_refuses_an_escaped_unix_cd_target() {
+        let (_d, w) = ws();
+        let rm = |cmd: &str| never_unasked(Some(&w), "Bash", &json!({"command": cmd}));
+        assert!(rm(r"cd app\/sub && rm -r ../reports/run").is_some(), "an escaped slash is ambiguous");
+        assert_eq!(rm("cd ./app && rm -r ../reports/run"), None, "an ordinary ./ chain still works");
+    }
+
+    /// A link inside the project doesn't make a climbing path safe: the shell follows it before
+    /// applying `..`, so `app/link/../victim` is beside the link's target, not inside app/.
+    #[cfg(unix)]
+    #[test]
+    fn auto_mode_does_not_take_a_link_for_a_folder_inside_the_project() {
+        let (_d, w) = ws();
+        std::fs::create_dir_all(w.app_dir().join("sub/deeper")).unwrap();
+        std::os::unix::fs::symlink("/", w.app_dir().join("link")).unwrap();
+        std::os::unix::fs::symlink(w.app_dir().join("sub/deeper"), w.app_dir().join("inside")).unwrap();
+        for cmd in ["rm -r app/link/../victim", "rm -r app/../app/link", "cd app && rm -r */../victim", "cd app/inside/.. && rm -r reports/run"] {
+            assert!(never_unasked(Some(&w), "Bash", &json!({"command": cmd})).is_some(), "{cmd}");
+        }
+    }
+
+    /// A project opened through a link still has its own folders: both sides of the check are
+    /// compared after links are followed.
+    #[cfg(unix)]
+    #[test]
+    fn auto_mode_keeps_a_project_root_reached_through_a_link() {
+        let (_d, mut w) = ws();
+        // Both sides are outside the temp folder, so neither the as-written link nor the real
+        // folder is allowed merely for being temp; the test discriminates both spellings.
+        let build = std::env::current_dir().unwrap().join("target");
+        std::fs::create_dir_all(&build).unwrap();
+        let base = tempfile::Builder::new().prefix("linked-base-").tempdir_in(&build).unwrap();
+        let real = tempfile::Builder::new().prefix("linked-root-").tempdir_in(&build).unwrap();
+        std::fs::create_dir_all(real.path().join("app")).unwrap();
+        let link = base.path().join("linked");
+        std::os::unix::fs::symlink(real.path(), &link).unwrap();
+        w.root = link;
+        let rm = |cmd: &str| never_unasked(Some(&w), "Bash", &json!({"command": cmd}));
+        assert_eq!(rm("cd ./app && rm -r ../reports/run"), None);
+        let root = w.root.display().to_string();
+        assert_eq!(rm(&format!("rm -rf \"{root}/app/Build\"")), None, "an absolute path through the link is inside");
+    }
+
+    /// A recheck before execution sees a link created after approval and refuses the climb.
+    #[cfg(unix)]
+    #[test]
+    fn a_link_created_after_approval_is_caught_when_rechecking() {
+        let (_d, w) = ws();
+        std::fs::create_dir_all(w.app_dir()).unwrap();
+        let link = w.root.join("link");
+        std::os::unix::fs::symlink(std::env::current_dir().unwrap(), &link).unwrap();
+        assert!(command_deletes_outside("rm -r ../link/../reports", &w, &w.app_dir()), "the link now leads outside");
+        std::fs::remove_file(&link).unwrap();
+        assert!(!command_deletes_outside("rm -r ../link/../reports", &w, &w.app_dir()), "without the link it stays inside");
+    }
+
     #[test]
     fn auto_mode_reads_a_quoted_path_with_spaces_as_one_path() {
         // Regression: arguments were split at every space, quotes included, so the first half of
@@ -1645,6 +2059,15 @@ mod tests {
         w.root = PathBuf::from(format!("{plain}/MyGame"));
         let beside = format!("rm -rf \"{plain}/MyGame Backup/report\"");
         assert!(never_unasked(Some(&w), "Bash", &json!({"command": beside})).is_some(), "{beside}");
+    }
+
+    #[test]
+    fn a_quoted_and_and_is_not_a_control_operator() {
+        let words = shell_words_spoken(r#"echo "&&" && cd app"#);
+        assert_eq!(
+            words.iter().map(|word| (word.text.as_str(), word.quoted)).collect::<Vec<_>>(),
+            [("echo", false), ("&&", true), ("&&", false), ("cd", false), ("app", false)]
+        );
     }
 
     #[test]
