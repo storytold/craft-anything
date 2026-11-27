@@ -874,6 +874,17 @@ mod unix {
     }
 
     pub fn capture(spec: Spec, cancel: Cancel) -> Result<Capture, ToolError> {
+        // Sandbox discovery. A helper another local account could have replaced is not run. Made
+        // absolute first: the trust check reads a relative PATH entry against this working folder,
+        // while the program would be started with `spec.cwd`, and it must be the same file. What
+        // is kept is the file the check trusted, symlinks followed, so that is what runs.
+        let found = crate::which::which("bwrap").map(|p| std::path::absolute(&p).unwrap_or(p));
+        capture_with(spec, cancel, found)
+    }
+
+    /// [`capture`] with the discovered `bwrap` given, so the refusal it records can be tested
+    /// without depending on what this machine has installed.
+    pub(super) fn capture_with(spec: Spec, cancel: Cancel, found: Option<PathBuf>) -> Result<Capture, ToolError> {
         spec.terminal.validate()?;
         for w in spec.events.windows(2) {
             if let [a, b] = w
@@ -887,8 +898,13 @@ mod unix {
         let started_at = now_unix_ms();
         let exe_sha = super::hash_file(std::path::Path::new(&spec.executable));
 
-        // Sandbox discovery.
-        let bwrap = crate::which::which("bwrap");
+        let (bwrap, refusal) = match found.as_deref() {
+            Some(path) => match crate::which::trusted_helper(path) {
+                Ok(helper) => (Some(helper), None),
+                Err(why) => (None, Some(why)),
+            },
+            None => (None, None),
+        };
         let (sandbox, program, pre_args) = match spec.sandbox {
             SandboxRequest::Off => (
                 Sandbox { available: bwrap.is_some(), used: false, kind: "none", reason: Some("sandbox not requested".into()) },
@@ -905,7 +921,15 @@ mod unix {
                     (Sandbox { available: true, used: true, kind: "bubblewrap", reason: None }, path.clone().into_os_string(), args)
                 }
                 None => (
-                    Sandbox { available: false, used: false, kind: "none", reason: Some("bubblewrap (bwrap) is not installed".into()) },
+                    Sandbox {
+                        available: false,
+                        used: false,
+                        kind: "none",
+                        reason: Some(match (&found, &refusal) {
+                            (Some(path), Some(why)) => format!("bubblewrap ({}) is not used as a sandbox: {why}", path.display()),
+                            _ => "bubblewrap (bwrap) is not installed".into(),
+                        }),
+                    },
                     spec.executable.clone(),
                     Vec::new(),
                 ),
@@ -1232,6 +1256,7 @@ mod unix {
 
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 mod tests {
+    use super::unix::capture_with;
     use super::*;
 
     fn no_cancel() -> Cancel {
@@ -1429,5 +1454,83 @@ mod tests {
         assert_eq!(file.kind, "file");
         assert_eq!(file.size, 12);
         assert_eq!(file.sha256.as_deref(), Some(sha256_hex(b"secret bytes").as_str()));
+    }
+
+    /// A `bwrap` in a folder another account can write is not run as the sandbox. That is not a
+    /// failure: as when `bwrap` isn't installed, the program runs unsandboxed and the result says
+    /// so. Running a helper another account could replace would be worse than running without it.
+    #[cfg(unix)]
+    #[test]
+    fn a_refused_helper_runs_the_program_without_a_sandbox() {
+        use std::os::unix::fs::PermissionsExt as _;
+        if !sh_available() {
+            return;
+        }
+        // Under the root-owned sticky `/tmp`, so the shared folder this test makes is the one
+        // that fails the check, not whatever temp folder the machine points at.
+        let dir = tempfile::Builder::new().prefix("craft-capture-").tempdir_in("/tmp").unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o777)).unwrap();
+        let helper = dir.path().join("bwrap");
+        std::fs::write(&helper, "#!/bin/sh\nexit 99\n").unwrap();
+        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let spec = Spec {
+            executable: "/bin/sh".into(),
+            args: vec!["-c".into(), "echo ran without the sandbox".into()],
+            cwd: None,
+            env: Vec::new(),
+            terminal: Terminal::default(),
+            events: Vec::new(),
+            timeout: Duration::from_secs(5),
+            idle_timeout: Duration::from_secs(5),
+            settle: Duration::from_millis(200),
+            finalization: Duration::ZERO,
+            observation_paths: Vec::new(),
+            limits: Limits::default(),
+            sandbox: SandboxRequest::IfAvailable,
+        };
+        let cap = capture_with(spec, no_cancel(), Some(helper)).unwrap();
+        assert_eq!(cap.exit.reason, "exited");
+        assert_eq!(cap.exit.code, Some(0), "the program ran, not the refused helper");
+        assert!(cap.terminal.lines.iter().any(|l| l.contains("ran without the sandbox")), "{:?}", cap.terminal.lines);
+        assert!(!cap.manifest.sandbox.available);
+        assert!(!cap.manifest.sandbox.used);
+        assert_eq!(cap.manifest.sandbox.kind, "none");
+    }
+
+    /// The reason the result records names the check that refused the helper, not a generic
+    /// "could be replaced": the person can see whether an owner, a permission or the account
+    /// lookup is what to change.
+    #[cfg(unix)]
+    #[test]
+    fn the_recorded_reason_names_the_check_that_refused_the_helper() {
+        use std::os::unix::fs::PermissionsExt as _;
+        if !sh_available() {
+            return;
+        }
+        let dir = tempfile::Builder::new().prefix("craft-capture-").tempdir_in("/tmp").unwrap();
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o777)).unwrap();
+        let helper = dir.path().join("bwrap");
+        std::fs::write(&helper, "#!/bin/sh\nexit 99\n").unwrap();
+        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let spec = Spec {
+            executable: "/bin/sh".into(),
+            args: vec!["-c".into(), "true".into()],
+            cwd: None,
+            env: Vec::new(),
+            terminal: Terminal::default(),
+            events: Vec::new(),
+            timeout: Duration::from_secs(5),
+            idle_timeout: Duration::from_secs(5),
+            settle: Duration::from_millis(200),
+            finalization: Duration::ZERO,
+            observation_paths: Vec::new(),
+            limits: Limits::default(),
+            sandbox: SandboxRequest::IfAvailable,
+        };
+        let cap = capture_with(spec, no_cancel(), Some(helper)).unwrap();
+        let reason = cap.manifest.sandbox.reason.unwrap_or_default();
+        assert!(reason.contains(&dir.path().display().to_string()), "names the folder that failed the check: {reason}");
+        assert!(reason.contains("writable by its group"), "names the permission check: {reason}");
+        assert!(!reason.contains("could be replaced by another user"), "not the old generic wording: {reason}");
     }
 }

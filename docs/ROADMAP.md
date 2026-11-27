@@ -859,6 +859,13 @@ Golden rule 3: the result is evidence. Each fix needs a Mac to test on.
       covering every breakpoint, and a failed lldb run is an error, not "0 calls"; only the live
       lldb run is still owed (R5.7)
       — claimed: mavericzz, branch docs/r5.6-stale-251; PR #1070
+- [x] A capture that found a `bwrap` it couldn't use says which trust check refused it (a
+      permission, an owner, or an account that can't be named) instead of "could be replaced by
+      another user", and goes on without a sandbox with `available: false`; a `bwrap` another
+      local account could replace is never run. Unit tests pin each refusal's wording, a refused
+      helper still running the program, and a parent folder of another account's (stand-in owner).
+      No live run with a setuid `bwrap`, on NixOS, or with a refused one (R5.7)
+      — claimed: gmrmad1, branch bugfix/bwrap-trusted-helper; PR #1906
 
 ### R5.7 Live checks owed
 Owner: open · Status: todo
@@ -1070,6 +1077,8 @@ yet, and the quick start is how every new person begins.
       Compare a real APK's components against another tool's reading
 - [ ] Stand-in backend: a browser-made HAR and a real front end talking to it (only a hand-written
       HAR so far); GraphQL and tRPC on real bundles (only hand-written minified shapes)
+- [ ] A live capture with sandboxing on: a setuid `bwrap`, on NixOS, and with a refused `bwrap`, to
+      see the program run unsandboxed and the reason name the failed check (not tried for PR #1906)
 - [ ] Check the Kimi Code, Factory Droid and WorkBuddy registrations in the real apps
 
 ---

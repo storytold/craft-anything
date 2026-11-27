@@ -448,6 +448,170 @@ fn is_executable(p: &Path) -> bool {
     p.is_file()
 }
 
+/// Why a helper another local account could replace was not trusted, naming the check that
+/// refused it. The wording is what a capture records, so a person on an unusual system (a
+/// `bwrap` owned by a package manager's own account, a group-writable `/usr/local`) can see what
+/// to change instead of a single generic refusal.
+#[cfg(unix)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum HelperRefusal {
+    /// `path` is relative, so it would be read against a different working folder than the one
+    /// the program is started in.
+    RelativePath,
+    /// `path` does not name a file that can be resolved (missing, or a link loop).
+    CannotResolve,
+    /// This process's account cannot be named, so no helper can be vouched for.
+    NoAccount,
+    /// The helper is not a regular file.
+    NotRegularFile,
+    /// The helper has no execute bit.
+    NotExecutable,
+    /// The helper's mode lets its group write it.
+    GroupWritable,
+    /// The helper's mode lets other accounts write it.
+    OtherWritable,
+    /// The helper belongs to another account (the user id given).
+    OtherOwner(u32),
+    /// A folder above the helper is not a folder.
+    NotAFolder(PathBuf),
+    /// A folder above the helper could not be read.
+    UnreadableFolder(PathBuf),
+    /// A folder above the helper belongs to another account (the user id given).
+    FolderOwnedByOther(PathBuf, u32),
+    /// A folder above the helper lets its group write it.
+    GroupWritableFolder(PathBuf),
+    /// A folder above the helper lets other accounts write it.
+    OtherWritableFolder(PathBuf),
+}
+
+#[cfg(unix)]
+impl std::fmt::Display for HelperRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::RelativePath => write!(f, "its path is relative, not absolute"),
+            Self::CannotResolve => write!(f, "the file it names cannot be resolved"),
+            Self::NoAccount => write!(f, "the current user cannot be named, so no helper can be trusted"),
+            Self::NotRegularFile => write!(f, "it is not a regular file"),
+            Self::NotExecutable => write!(f, "it is not executable"),
+            Self::GroupWritable => write!(f, "it is writable by its group"),
+            Self::OtherWritable => write!(f, "it is writable by other users"),
+            Self::OtherOwner(owner) => write!(f, "it is owned by user id {owner}, which is neither root nor the current user"),
+            Self::NotAFolder(path) => write!(f, "{} above it is not a folder", path.display()),
+            Self::UnreadableFolder(path) => write!(f, "{} above it cannot be read", path.display()),
+            Self::FolderOwnedByOther(path, owner) => {
+                write!(f, "{} above it is owned by user id {owner}, which is neither root nor the current user", path.display())
+            }
+            Self::GroupWritableFolder(path) => write!(f, "{} above it is writable by its group", path.display()),
+            Self::OtherWritableFolder(path) => write!(f, "{} above it is writable by other users", path.display()),
+        }
+    }
+}
+
+/// The file `path` names, symlinks followed, when a helper another local account could have
+/// replaced is not used: executable, root's or this account's, and named through folders only root
+/// or this account could have put an entry in (Unix). A `bwrap` planted in a folder anyone can
+/// write, or one another account owns, is not used as a sandbox: it would run in our place.
+///
+/// `path` must be absolute: a relative one is resolved against whatever working folder the
+/// program is started in, which need not be the one this check reads it against. On refusal the
+/// error names the check that failed, for the capture's recorded reason.
+#[cfg(unix)]
+pub fn trusted_helper(path: &Path) -> Result<PathBuf, HelperRefusal> {
+    trusted_helper_as(path, effective_uid())
+}
+
+/// [`trusted_helper`] for a given account: `me` is this process's effective user id, and nothing
+/// is trusted when it is unknown (a platform that cannot name the account vouches for no helper).
+/// Takes it as an argument so the refusals can be tested without a second account.
+#[cfg(unix)]
+fn trusted_helper_as(path: &Path, me: Option<u32>) -> Result<PathBuf, HelperRefusal> {
+    let me = me.ok_or(HelperRefusal::NoAccount)?;
+    if !path.is_absolute() {
+        return Err(HelperRefusal::RelativePath);
+    }
+    // A link is how the helper was found, not where it is: one of ours to a file root owns (as
+    // `~/.local/bin/bwrap -> /usr/bin/bwrap` and a Nix profile's are) is trusted by what it names.
+    let real = std::fs::canonicalize(path).map_err(|_| HelperRefusal::CannotResolve)?;
+    helper_in_place(&real, me)?;
+    Ok(real)
+}
+
+/// This account's effective user id, where the system says it in a file any process may read:
+/// `/proc/self/status` (`Uid:` is the real, effective, saved and filesystem ids). Linux is the one
+/// Unix `bwrap` runs on. A system that says nothing (no `/proc`, or another Unix) trusts no
+/// helper rather than trusting one on its mode bits alone.
+#[cfg(target_os = "linux")]
+fn effective_uid() -> Option<u32> {
+    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+    let ids = status.lines().find_map(|line| line.strip_prefix("Uid:"))?;
+    ids.split_whitespace().nth(1)?.parse().ok()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn effective_uid() -> Option<u32> {
+    None
+}
+
+/// Whether the file `path` and every folder above it are root's or `me`'s, and nobody else can
+/// write them: a folder's owner can rename or remove what it holds, and one another account can
+/// write can have an entry put in it. `path` is a canonical one ([`trusted_helper`]): a symlink in
+/// it now is another account swapping a folder or the file aside mid-check, so only regular files
+/// and folders count, read without following links.
+#[cfg(unix)]
+fn helper_in_place(path: &Path, me: u32) -> Result<(), HelperRefusal> {
+    use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+    let meta = std::fs::symlink_metadata(path).map_err(|_| HelperRefusal::CannotResolve)?;
+    let mode = meta.permissions().mode();
+    if !meta.is_file() {
+        return Err(HelperRefusal::NotRegularFile);
+    }
+    if mode & 0o111 == 0 {
+        return Err(HelperRefusal::NotExecutable);
+    }
+    if mode & 0o020 != 0 {
+        return Err(HelperRefusal::GroupWritable);
+    }
+    if mode & 0o002 != 0 {
+        return Err(HelperRefusal::OtherWritable);
+    }
+    // Root's or ours. A 0755 file of another account's in a folder root owns is one that account
+    // can change, and one in a folder of its own is one it can replace.
+    let owner = meta.uid();
+    if owner != 0 && owner != me {
+        return Err(HelperRefusal::OtherOwner(owner));
+    }
+    let mut dir = path.parent();
+    while let Some(d) = dir {
+        let m = std::fs::symlink_metadata(d).map_err(|_| HelperRefusal::UnreadableFolder(d.to_path_buf()))?;
+        if !m.is_dir() {
+            return Err(HelperRefusal::NotAFolder(d.to_path_buf()));
+        }
+        folder_in_trusted_place(d, m.uid(), m.permissions().mode(), me)?;
+        dir = d.parent();
+    }
+    Ok(())
+}
+
+/// Whether a folder on the helper's path is root's or `me`'s and not writable by its group or
+/// others, unless a sticky bit keeps its entries to their owners. The owner and mode are given so
+/// a folder of another account's can be tested without a second account or `chown`.
+#[cfg(unix)]
+fn folder_in_trusted_place(path: &Path, owner: u32, mode: u32, me: u32) -> Result<(), HelperRefusal> {
+    if owner != 0 && owner != me {
+        return Err(HelperRefusal::FolderOwnedByOther(path.to_path_buf(), owner));
+    }
+    // A sticky folder may be writable by everyone (like /tmp): only an entry's owner can rename
+    // or remove it there.
+    if mode & 0o020 != 0 && mode & 0o1000 == 0 {
+        return Err(HelperRefusal::GroupWritableFolder(path.to_path_buf()));
+    }
+    if mode & 0o002 != 0 && mode & 0o1000 == 0 {
+        return Err(HelperRefusal::OtherWritableFolder(path.to_path_buf()));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -538,6 +702,152 @@ mod tests {
         if canon.to_str().and_then(plain_form).is_some() {
             assert!(!p.to_string_lossy().starts_with(r"\\?\"), "{p:?}");
         }
+    }
+
+    /// A folder under `/tmp`, whose own chain is root's and sticky: the tests that expect a helper
+    /// to be trusted need one, whatever this machine's `TMPDIR` is (a group-writable checkout or
+    /// temp folder is not a place a helper could be trusted from, which the tests below cover).
+    #[cfg(unix)]
+    fn safe_tempdir() -> tempfile::TempDir {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::Builder::new().prefix("craft-helper-").tempdir_in("/tmp").unwrap();
+        // A umask of 002 makes folders group-writable, which is no place to trust a helper from.
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        dir
+    }
+
+    /// A file another local account could have replaced is not run as a helper: it would run
+    /// inside our process tree in our place, so a `bwrap` in a world-writable folder is skipped.
+    #[cfg(unix)]
+    #[test]
+    fn a_helper_another_local_account_could_write_is_not_trusted() {
+        use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+        let dir = safe_tempdir();
+        let helper = dir.path().join("bwrap");
+        std::fs::write(&helper, "#!/bin/sh\n").unwrap();
+        let mode = |m: u32| std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(m)).unwrap();
+        let me = std::fs::metadata(&helper).unwrap().uid();
+        mode(0o755);
+        assert!(trusted_helper_as(&helper, Some(me)).is_ok(), "root's or the account's own helper");
+        // A 0755 file the account the check runs as does not own: it can change it, so it is no
+        // helper (the uid is given here so no second account is needed). A fixture root owns is
+        // root's, which is trusted for every account, so only a suite that is not root can say.
+        if me != 0 {
+            assert_eq!(trusted_helper_as(&helper, Some(me.wrapping_add(1))), Err(HelperRefusal::OtherOwner(me)), "another account's file");
+        }
+        // A system that cannot name the account trusts no helper at all.
+        assert_eq!(trusted_helper_as(&helper, None), Err(HelperRefusal::NoAccount), "no account named");
+        mode(0o775);
+        assert_eq!(trusted_helper_as(&helper, Some(me)), Err(HelperRefusal::GroupWritable), "a group can replace it");
+        mode(0o757);
+        assert_eq!(trusted_helper_as(&helper, Some(me)), Err(HelperRefusal::OtherWritable), "anyone can replace it");
+        mode(0o644);
+        assert_eq!(trusted_helper_as(&helper, Some(me)), Err(HelperRefusal::NotExecutable), "not executable");
+        assert_eq!(trusted_helper_as(&dir.path().join("missing"), Some(me)), Err(HelperRefusal::CannotResolve));
+        // What runs is resolved against the program's working folder, not this one: a relative
+        // path is no helper whatever file it names here.
+        assert_eq!(trusted_helper_as(Path::new("bwrap"), Some(me)), Err(HelperRefusal::RelativePath), "a relative name");
+        assert_eq!(trusted_helper_as(Path::new("target/debug/bwrap"), Some(me)), Err(HelperRefusal::RelativePath), "a relative path");
+    }
+
+    /// A file of ours in a folder another account can write is as good as one of theirs: the check
+    /// reads every folder above the helper, not only its own mode bits, and follows a link to the
+    /// file that runs.
+    #[cfg(unix)]
+    #[test]
+    fn a_helper_in_a_folder_another_account_could_write_is_not_trusted() {
+        use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+        let dir = safe_tempdir();
+        let shared = dir.path().join("shared");
+        std::fs::create_dir(&shared).unwrap();
+        std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o777)).unwrap();
+        let helper = shared.join("bwrap");
+        std::fs::write(&helper, "#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let me = std::fs::metadata(&helper).unwrap().uid();
+        assert!(
+            matches!(trusted_helper_as(&helper, Some(me)), Err(HelperRefusal::GroupWritableFolder(p)) if p == shared),
+            "a folder anyone can write holds it"
+        );
+        // A link of ours to it in a folder of ours is no better: what runs is the file it names.
+        let link = dir.path().join("bwrap-link");
+        std::os::unix::fs::symlink(&helper, &link).unwrap();
+        assert!(
+            matches!(trusted_helper_as(&link, Some(me)), Err(HelperRefusal::GroupWritableFolder(p)) if p == shared),
+            "a link into a folder anyone can write"
+        );
+        // A link to a helper in a folder of ours is trusted by the file it names, and it is that
+        // file that runs: an install that links its own `bwrap` to one elsewhere is no helper of
+        // another account's (a system one is root's, and passes as this one does).
+        let ours = safe_tempdir();
+        let target = ours.path().join("bwrap");
+        std::fs::write(&target, "#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let to_target = dir.path().join("bwrap-elsewhere");
+        std::os::unix::fs::symlink(&target, &to_target).unwrap();
+        assert_eq!(
+            trusted_helper_as(&to_target, Some(me)),
+            std::fs::canonicalize(&target).map_err(|_| HelperRefusal::CannotResolve),
+            "a link to a trusted file"
+        );
+        // The sticky bit lets everyone write a folder without letting anyone but an entry's owner
+        // rename it (`/tmp`): the helper is ours, so it stays trusted.
+        std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o1777)).unwrap();
+        assert!(trusted_helper_as(&helper, Some(me)).is_ok(), "a sticky folder only an entry's owner can change");
+    }
+
+    /// A parent folder owned by another account can have the helper renamed or replaced, so it is
+    /// no place to trust one from even when the file's own mode and owner are ours. The owner and
+    /// mode stand in for a second account's folder: a normal user cannot `chown` one.
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_another_account_owns_is_not_trusted() {
+        let folder = Path::new("/home/other/bin");
+        assert_eq!(
+            folder_in_trusted_place(folder, 1001, 0o755, 1000),
+            Err(HelperRefusal::FolderOwnedByOther(folder.to_path_buf(), 1001)),
+            "its owner can replace what it holds"
+        );
+        // Root's and this account's are trusted; a shared folder only with the sticky bit.
+        assert!(folder_in_trusted_place(folder, 0, 0o755, 1000).is_ok(), "root's folder");
+        assert!(folder_in_trusted_place(folder, 1000, 0o755, 1000).is_ok(), "this account's folder");
+        assert!(folder_in_trusted_place(folder, 0, 0o1777, 1000).is_ok(), "root's sticky folder");
+        assert_eq!(
+            folder_in_trusted_place(folder, 1000, 0o775, 1000),
+            Err(HelperRefusal::GroupWritableFolder(folder.to_path_buf())),
+            "its group can replace what it holds"
+        );
+        assert_eq!(
+            folder_in_trusted_place(folder, 1000, 0o757, 1000),
+            Err(HelperRefusal::OtherWritableFolder(folder.to_path_buf())),
+            "anyone can replace what it holds"
+        );
+    }
+
+    /// The typed refusal is what a capture records, so every case must say which check failed.
+    #[cfg(unix)]
+    #[test]
+    fn each_refusal_names_the_check_that_failed() {
+        let folder = Path::new("/usr/local/bin");
+        for (refusal, expected) in [
+            (HelperRefusal::RelativePath, "relative"),
+            (HelperRefusal::CannotResolve, "cannot be resolved"),
+            (HelperRefusal::NoAccount, "current user cannot be named"),
+            (HelperRefusal::NotRegularFile, "not a regular file"),
+            (HelperRefusal::NotExecutable, "not executable"),
+            (HelperRefusal::GroupWritable, "writable by its group"),
+            (HelperRefusal::OtherWritable, "writable by other users"),
+            (HelperRefusal::OtherOwner(1001), "owned by user id 1001"),
+            (HelperRefusal::NotAFolder(folder.to_path_buf()), "not a folder"),
+            (HelperRefusal::UnreadableFolder(folder.to_path_buf()), "cannot be read"),
+            (HelperRefusal::FolderOwnedByOther(folder.to_path_buf(), 1001), "owned by user id 1001"),
+            (HelperRefusal::GroupWritableFolder(folder.to_path_buf()), "writable by its group"),
+            (HelperRefusal::OtherWritableFolder(folder.to_path_buf()), "writable by other users"),
+        ] {
+            let text = refusal.to_string();
+            assert!(text.contains(expected), "{refusal:?} should say {expected:?}: {text}");
+        }
+        assert!(HelperRefusal::FolderOwnedByOther(folder.to_path_buf(), 1001).to_string().contains("/usr/local/bin"));
     }
 
     #[test]
