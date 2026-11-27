@@ -99,11 +99,14 @@ struct HttpFetch<'a> {
 }
 
 impl Fetch for HttpFetch<'_> {
+    /// Read one address, with the same short limit a probe had before; a signal-cut GET is retried
+    /// inside it.
     fn get(&self, url: &str) -> Option<Value> {
         if let Some(v) = self.seen.borrow().get(url) {
             return v.clone();
         }
-        let v = crate::http::get_json(&self.agent, "the model server", url, self.headers).ok();
+        let deadline = std::time::Instant::now() + ASK_TIMEOUT;
+        let v = crate::http::get_json(&self.agent, "the model server", url, self.headers, deadline).ok();
         self.seen.borrow_mut().insert(url.to_string(), v.clone());
         v
     }

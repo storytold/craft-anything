@@ -139,7 +139,7 @@ pub(crate) fn menu(app: &mut CraftApp, ui: &mut Ui, root: &Path) {
                 ui.label(RichText::new(tr(label(row.kind))).size(theme::SMALL));
                 let now = chosen.get(&row.kind).copied();
                 let sel = CHOICES.iter().position(|(_, c)| *c == now).unwrap_or(0);
-                // Every row has the same labels, which `segmented` makes its ids from.
+                // Keep the row's controls keyed to its action.
                 ui.push_id(row.name, |ui| {
                     if let Some(c) = widgets::segmented(ui, &names, sel, theme::ControlSize::Small).and_then(|i| CHOICES.get(i)) {
                         picked = Some((row.kind, c.1));

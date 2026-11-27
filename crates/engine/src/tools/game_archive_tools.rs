@@ -187,7 +187,7 @@ fn read_at(file: &mut File, path: &Path, at: u64, len: u64) -> Result<Vec<u8>, T
 }
 
 /// An opened pak: its footer and the files its index lists.
-struct Pak {
+pub(super) struct Pak {
     file: File,
     path: PathBuf,
     len: u64,
@@ -954,10 +954,10 @@ fn game_unity_asset_export(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutpu
 /// The largest sound taken out (256 MiB).
 const MAX_SOUND_BYTES: u64 = 256 * 1024 * 1024;
 
-/// `out` ending in `.extension`: a `.wav` or `.fsb` it has is swapped, any other dot in its name kept.
-fn with_sound_extension(out: &Path, extension: &str) -> PathBuf {
+/// `out` ending in `.extension`: a `.wav`, `.fsb` or `.ogg` it has is swapped, any other dot in its name kept.
+pub(super) fn with_sound_extension(out: &Path, extension: &str) -> PathBuf {
     match out.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref() {
-        Some("wav" | "fsb") => out.with_extension(extension),
+        Some("wav" | "fsb" | "ogg") => out.with_extension(extension),
         _ => {
             let mut name = out.as_os_str().to_owned();
             name.push(".");
@@ -1071,7 +1071,7 @@ pub struct UnrealTextureParams {
 }
 
 /// Where a package's files come from.
-enum PackageSource {
+pub(super) enum PackageSource {
     /// Inside a pak: the entries named `<stem>.<extension>` (`stem` lower case, as shown).
     Pak { pak: Box<Pak>, stem: String },
     /// Loose files: `<stem>.<extension>` on disk.
@@ -1080,7 +1080,7 @@ enum PackageSource {
 
 impl PackageSource {
     /// One of the package's files, or None when it has none with that extension.
-    fn part(&mut self, extension: &str, cancel: &CancelToken) -> Result<Option<Vec<u8>>, ToolError> {
+    pub(super) fn part(&mut self, extension: &str, cancel: &CancelToken) -> Result<Option<Vec<u8>>, ToolError> {
         match self {
             PackageSource::Pak { pak, stem } => {
                 let want = format!("{stem}.{extension}");
@@ -1100,19 +1100,35 @@ impl PackageSource {
     }
 }
 
-fn game_unreal_texture_export(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
-    let p: UnrealTextureParams = parse_params(params)?;
-    if !p.permission {
-        return Err(ToolError::new(
-            ErrorCode::ConsentRequired,
-            "Unpacking a game's files needs your confirmation that you may: you made the game, or its rights holder allows it.",
-        )
-        .with_remediation("If that's so, ask again with permission set to true."));
+/// Unpacking a game's files needs the person's word that they may.
+pub(super) fn unpack_permission(permission: bool) -> Result<(), ToolError> {
+    if permission {
+        return Ok(());
     }
-    let out = new_output(&p.output)?;
-    let raw = PathBuf::from(&p.path);
+    Err(ToolError::new(
+        ErrorCode::ConsentRequired,
+        "Unpacking a game's files needs your confirmation that you may: you made the game, or its rights holder allows it.",
+    )
+    .with_remediation("If that's so, ask again with permission set to true."))
+}
+
+/// A cooked package's first export of one class, with where its other files are.
+pub(super) struct UnrealExport {
+    pub(super) source: PackageSource,
+    /// The package as the person named it.
+    pub(super) shown_name: String,
+    pub(super) names: Vec<String>,
+    pub(super) export: unreal_texture::Export,
+    /// The export's data, from the .uexp.
+    pub(super) data: Vec<u8>,
+}
+
+/// Open `path` (a .pak with the package's .uasset `file` inside, or a loose .uasset) and read its
+/// first export of `class`, a `what` (texture, sound) to the person.
+pub(super) fn unreal_export(ctx: &mut Ctx<'_>, path: &str, file: Option<&str>, class: &str, what: &str) -> Result<UnrealExport, ToolError> {
+    let raw = PathBuf::from(path);
     if !raw.is_absolute() {
-        return Err(ToolError::invalid(format!("{:?} is not an absolute path", p.path)).with_remediation("Pass the full path of the .pak or .uasset file."));
+        return Err(ToolError::invalid(format!("{path:?} is not an absolute path")).with_remediation("Pass the full path of the .pak or .uasset file."));
     }
     let cancel = ctx.cancel.clone();
     let loose = raw.extension().is_some_and(|x| x.eq_ignore_ascii_case("uasset"));
@@ -1120,12 +1136,12 @@ fn game_unreal_texture_export(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOu
         let name = raw.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         (PackageSource::Loose { stem: raw.with_extension("") }, name)
     } else {
-        let pak = open_pak(ctx, &p.path)?;
+        let pak = open_pak(ctx, path)?;
         if pak.footer.encrypted_index {
             return Err(ToolError::unsupported(format!("{}'s index is encrypted, so its files can't be found without the game's AES key.", pak.name)));
         }
-        let file = p.file.as_deref().map(str::trim).filter(|f| !f.is_empty()).ok_or_else(|| {
-            ToolError::invalid("file is needed for a pak: the texture's .uasset path inside it")
+        let file = file.map(str::trim).filter(|f| !f.is_empty()).ok_or_else(|| {
+            ToolError::invalid(format!("file is needed for a pak: the {what}'s .uasset path inside it"))
                 .with_remediation("game_pak_list shows the paths; filter it by .uasset.")
         })?;
         let lower = file.trim_start_matches("../").to_lowercase();
@@ -1135,21 +1151,31 @@ fn game_unreal_texture_export(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOu
     ctx.report(None, format!("Reading {shown_name}"));
     let missing = |ext: &str| {
         ToolError::new(ErrorCode::NotFound, format!("There's no .{ext} for {shown_name}."))
-            .with_remediation("A cooked texture is a .uasset with a .uexp beside it; game_pak_list shows what the pak holds.")
+            .with_remediation(format!("A cooked {what} is a .uasset with a .uexp beside it; game_pak_list shows what the pak holds."))
     };
     let uasset = source.part("uasset", &cancel)?.ok_or_else(|| missing("uasset"))?;
     let uexp = source.part("uexp", &cancel)?.ok_or_else(|| missing("uexp"))?;
     let package = unreal_texture::package(&uasset).map_err(|e| format_err(e, "an Unreal package"))?;
-    let export = package.exports.iter().find(|e| e.class == "Texture2D").ok_or_else(|| {
+    let export = package.exports.iter().find(|e| e.class == class).cloned().ok_or_else(|| {
         let classes: Vec<&str> = package.exports.iter().map(|e| e.class.as_str()).collect();
-        ToolError::unsupported(format!("{shown_name} isn't a texture (it holds {}).", classes.join(", ")))
+        ToolError::unsupported(format!("{shown_name} isn't a {what} (it holds {}).", classes.join(", ")))
     })?;
-    let start = export.serial_offset.checked_sub(package.header_size).ok_or_else(|| damaged("a texture's data lies before its .uexp"))?;
+    let start = export.serial_offset.checked_sub(package.header_size).ok_or_else(|| damaged(format!("a {what}'s data lies before its .uexp")))?;
     let data = usize::try_from(start)
         .ok()
         .and_then(|s| uexp.get(s..s.checked_add(usize::try_from(export.serial_size).ok()?)?))
-        .ok_or_else(|| damaged("a texture's data lies outside its .uexp"))?;
-    let texture = unreal_texture::texture(data, &package.names).map_err(|e| format_err(e, "an Unreal texture"))?;
+        .ok_or_else(|| damaged(format!("a {what}'s data lies outside its .uexp")))?
+        .to_vec();
+    Ok(UnrealExport { source, shown_name, names: package.names, export, data })
+}
+
+fn game_unreal_texture_export(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
+    let p: UnrealTextureParams = parse_params(params)?;
+    unpack_permission(p.permission)?;
+    let out = new_output(&p.output)?;
+    let UnrealExport { mut source, shown_name, names, export, data } = unreal_export(ctx, &p.path, p.file.as_deref(), "Texture2D", "texture")?;
+    let cancel = ctx.cancel.clone();
+    let texture = unreal_texture::texture(&data, &names).map_err(|e| format_err(e, "an Unreal texture"))?;
     let layout = unreal_texture::layout(&texture.pixel_format)
         .ok_or_else(|| ToolError::unsupported(format!("{} is a {} texture, which isn't decoded here.", export.name, texture.pixel_format)))?;
     // The largest mip whose pixels the game ships (bigger ones can be stripped or kept elsewhere).
@@ -1351,13 +1377,13 @@ fn game_archives_list(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, To
     Ok(ToolOutput::evidence(b.build()?))
 }
 
-fn damaged(what: impl Into<String>) -> ToolError {
+pub(super) fn damaged(what: impl Into<String>) -> ToolError {
     ToolError::new(ErrorCode::NotSupported, format!("The pak looks damaged: {}", what.into()))
         .with_remediation("Check the game's files (Steam: Verify integrity).")
 }
 
 /// A new output file's path: absolute, not there yet, in a folder that is.
-fn new_output(raw: &str) -> Result<PathBuf, ToolError> {
+pub(super) fn new_output(raw: &str) -> Result<PathBuf, ToolError> {
     let out = PathBuf::from(raw);
     if !out.is_absolute() {
         return Err(ToolError::invalid("output must be an absolute path"));

@@ -3,6 +3,7 @@
 
 use crate::binary::{Binary, Format};
 use crate::find_bytes;
+use crate::packed::PackedFormat;
 use serde::Serialize;
 
 /// How far into the file byte searches look.
@@ -34,17 +35,34 @@ pub fn detect(b: &Binary, data: &[u8]) -> Vec<Hint> {
     let lib = |n: &str| b.libraries.iter().find(|l| l.to_ascii_lowercase().contains(&n.to_ascii_lowercase())).cloned();
     let imp = |n: &str| b.imports.iter().any(|i| i.name == n || i.name.strip_prefix('_') == Some(n));
     let bytes = |n: &[u8]| find_bytes(data, n, SCAN_LIMIT).is_some();
+    // Packers and installers put their marker in the header or in data appended after the
+    // program; inside its sections it's one of the program's own strings, such as a detector's
+    // (#2226). Raw code and DOS programs (one section made up for the whole image, where a DOS
+    // packer's marker sits) and a file with no sections are searched whole.
+    let placed = b.sections.iter().filter_map(|s| Some((usize::try_from(s.file_offset?).ok()?, usize::try_from(s.file_size).ok()?)));
+    let first = placed.clone().map(|(o, _)| o).min();
+    let last_end = placed.map(|(o, n)| o.saturating_add(n)).max();
+    let outside_sections = |n: &[u8]| match (first, last_end) {
+        (Some(first), Some(last_end)) if !matches!(b.format, Format::Raw | Format::DosMz | Format::DosCom) => {
+            let found = |part: Option<&[u8]>| part.is_some_and(|d| find_bytes(d, n, SCAN_LIMIT).is_some());
+            found(data.get(..first.min(data.len()))) || found(data.get(last_end..))
+        }
+        _ => bytes(n),
+    };
     let push = |out: &mut Vec<Hint>, h: Hint| {
         if !out.iter().any(|x| x.id == h.id) {
             out.push(h);
         }
     };
 
-    // Go
+    // Go. The build-info marker alone isn't Go: a program that looks for it holds the same bytes
+    // (#2249), so it counts only where the build-info reader decodes a block with a Go version.
+    let go_report = find_bytes(data, b"\xff Go buildinf:", SCAN_LIMIT).and_then(|_| crate::go::inspect(data, None).ok());
+    let go_block = go_report.as_ref().and_then(|r| r.buildinfo.as_ref()).filter(|b| b.has_go_version());
     if sec(".go.buildinfo") || sec("__go_buildinfo") {
         push(&mut out, hint("go", "language", "Go", "strong", "Go build-info section"));
-    } else if let Some(at) = find_bytes(data, b"\xff Go buildinf:", SCAN_LIMIT) {
-        push(&mut out, hint("go", "language", "Go", "strong", format!("Go build-info marker at file offset {at:#x}")));
+    } else if let Some(b) = go_block {
+        push(&mut out, hint("go", "language", "Go", "strong", format!("Go build-info block at file offset {:#x}", b.offset)));
     } else if sec(".gopclntab") || sec("__gopclntab") || sym("runtime.main") {
         push(&mut out, hint("go", "language", "Go", "strong", "Go runtime symbols or pclntab section"));
     }
@@ -52,12 +70,10 @@ pub fn detect(b: &Binary, data: &[u8]) -> Vec<Hint> {
         // Prefer the version the build-info reader extracts (#1397): it reads the build-info
         // section, so an unrelated `go1.` that happens to come earlier in the file (a constant,
         // a path, a debug string) can't be mistaken for the toolchain version.
-        let (version, from_build_info) = match crate::go::inspect(data, None) {
-            Ok(report) => match report.buildinfo.and_then(|b| b.go_version) {
-                Some(v) if !v.is_empty() => (Some(v), true),
-                _ => (None, false),
-            },
-            Err(_) => (None, false),
+        let report = go_report.or_else(|| crate::go::inspect(data, None).ok());
+        let (version, from_build_info) = match report.and_then(|r| r.buildinfo).and_then(|b| b.go_version) {
+            Some(v) if !v.is_empty() => (Some(v), true),
+            _ => (None, false),
         };
         let version = version.or_else(|| {
             // Fall back to scanning bytes only when there is no build info to read. Start after
@@ -132,10 +148,16 @@ pub fn detect(b: &Binary, data: &[u8]) -> Vec<Hint> {
         push(&mut out, hint("node", "runtime", "Node.js runtime", "weak", "Node.js symbols or library"));
     }
     // Flutter / Dart
-    if lib("libflutter").is_some() || lib("Flutter.framework").is_some() {
-        push(&mut out, hint("flutter", "framework", "Flutter (Dart)", "strong", "links the Flutter engine"));
+    // Android and iOS link libflutter.so / Flutter.framework; desktop builds link
+    // flutter_windows.dll, libflutter_linux_gtk.so or FlutterMacOS.framework (#2227).
+    let flutter_engine = ["libflutter", "Flutter.framework", "flutter_windows.dll", "FlutterMacOS.framework"].into_iter().find_map(lib);
+    if let Some(engine) = flutter_engine {
+        push(&mut out, hint("flutter", "framework", "Flutter (Dart)", "strong", format!("links the Flutter engine ({engine})")));
     } else if sym("kDartVmSnapshotData") || sym("_kDartVmSnapshotData") || sym("kDartIsolateSnapshotInstructions") {
         push(&mut out, hint("flutter", "framework", "Flutter (Dart AOT snapshot)", "strong", "Dart snapshot symbols"));
+    } else if let Some(marker) = FLUTTER_STRINGS.into_iter().find(|m| bytes(m)) {
+        let marker = String::from_utf8_lossy(marker);
+        push(&mut out, hint("flutter", "framework", "Flutter (Dart)", "weak", format!("Flutter text in the data ({marker})")));
     }
     // Swift / Objective-C
     if let Some(s) = sec_prefix("__swift5") {
@@ -150,7 +172,7 @@ pub fn detect(b: &Binary, data: &[u8]) -> Vec<Hint> {
         push(&mut out, hint("delphi", "language", "Delphi or C++Builder", if sec(".itext") { "strong" } else { "weak" }, ev));
     }
     // Python bundlers
-    if bytes(b"MEI\x0c\x0b\x0a\x0b\x0e") || bytes(b"_MEIPASS") {
+    if crate::pyinstaller::PyInstaller.detect(data) {
         push(&mut out, hint("pyinstaller", "packer", "PyInstaller (a bundled Python program)", "strong", "PyInstaller archive cookie"));
     } else if imp("Py_Initialize") || lib("python3").is_some() {
         push(&mut out, hint("python", "runtime", "Embedded Python", "weak", "Python runtime import"));
@@ -214,14 +236,14 @@ pub fn detect(b: &Binary, data: &[u8]) -> Vec<Hint> {
             push(&mut out, hint(id, cat, label, "strong", format!("section {}", s.name)));
         }
     }
-    if !out.iter().any(|h| h.id == "upx") && bytes(b"UPX!") && b.format != Format::Raw {
+    if !out.iter().any(|h| h.id == "upx") && outside_sections(b"UPX!") && b.format != Format::Raw {
         push(&mut out, hint("upx", "packer", "UPX", "weak", "UPX! marker in the data"));
     }
     // Installers
-    if bytes(b"Nullsoft") {
+    if outside_sections(b"Nullsoft") {
         push(&mut out, hint("nsis", "installer", "NSIS installer", "weak", "Nullsoft marker"));
     }
-    if bytes(b"Inno Setup") {
+    if outside_sections(b"Inno Setup") {
         push(&mut out, hint("inno", "installer", "Inno Setup installer", "weak", "Inno Setup marker"));
     }
     if bytes(b"AU3!") {
@@ -243,6 +265,10 @@ pub fn detect(b: &Binary, data: &[u8]) -> Vec<Hint> {
     out
 }
 
+/// Text a Flutter program or its engine carries. Any program could quote these, so finding one
+/// without the engine in the imports is only a weak hint.
+const FLUTTER_STRINGS: [&[u8]; 5] = [b"flutter_assets", b"flutter_windows.dll", b"libflutter_linux_gtk.so", b"FlutterMacOS", b"FlutterDesktop"];
+
 /// A version token the byte scan may accept: `go1.<digits>(.<digits>)*`.
 fn is_go_version(v: &str) -> bool {
     let Some(rest) = v.strip_prefix("go1.") else {
@@ -262,7 +288,7 @@ mod tests {
         let (elf, _) = craft_anything_testkit::elf64(craft_anything_testkit::ElfArch::X86_64, true);
         let mut go = elf.clone();
         go.extend_from_slice(b"go1.190119941996 ");
-        go.extend_from_slice(b"\xff Go buildinf:\x08\x02go1.22.3\0");
+        go_block(&mut go);
         let b = crate::parse_binary(&go).unwrap();
         let hints = detect(&b, &go);
         let g = hints.iter().find(|h| h.id == "go").unwrap();
@@ -281,18 +307,91 @@ mod tests {
         assert_eq!(g.strength, "strong", "{g:?}");
     }
 
+    /// A Go 1.18+ build-info block on a 16-byte boundary, as the Go linker writes it.
+    fn go_block(data: &mut Vec<u8>) {
+        data.resize(data.len().next_multiple_of(16), 0);
+        data.extend_from_slice(&craft_anything_testkit::formats::go_buildinfo_inline("go1.22.3", ""));
+    }
+
+    #[test]
+    fn a_program_holding_only_the_marker_is_not_go() {
+        // A detector compiled into a program keeps the marker in its read-only data (#2249).
+        let (mut elf, _) = craft_anything_testkit::elf64(craft_anything_testkit::ElfArch::X86_64, true);
+        elf.resize(elf.len().next_multiple_of(16), 0);
+        elf.extend_from_slice(b"\xff Go buildinf:\0\0find_bytes\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0");
+        let b = crate::parse_binary(&elf).unwrap();
+        let hints = detect(&b, &elf);
+        assert!(hints.iter().all(|h| h.id != "go"), "{hints:?}");
+    }
+
+    #[test]
+    fn a_block_without_a_go_version_does_not_hide_a_real_one() {
+        for decoy in ["not-a-version", "gopher"] {
+            let (mut elf, _) = craft_anything_testkit::elf64(craft_anything_testkit::ElfArch::X86_64, true);
+            elf.resize(elf.len().next_multiple_of(16), 0);
+            elf.extend_from_slice(&craft_anything_testkit::formats::go_buildinfo_inline(decoy, ""));
+            go_block(&mut elf);
+            let b = crate::parse_binary(&elf).unwrap();
+            let hints = detect(&b, &elf);
+            let g = hints.iter().find(|h| h.id == "go").unwrap_or_else(|| panic!("{decoy}: {hints:?}"));
+            assert_eq!(g.label, "Go (go1.22.3)", "{decoy}: {g:?}");
+        }
+    }
+
     #[test]
     fn finds_markers() {
         let (elf, _) = craft_anything_testkit::elf64(craft_anything_testkit::ElfArch::X86_64, true);
         let b = crate::parse_binary(&elf).unwrap();
         assert!(detect(&b, &elf).iter().all(|h| h.id != "go"));
         let mut go = elf.clone();
-        go.extend_from_slice(b"\xff Go buildinf:\x08\x02go1.22.3\0");
+        go_block(&mut go);
         let hints = detect(&b, &go);
         let g = hints.iter().find(|h| h.id == "go").unwrap();
         assert_eq!(g.label, "Go (go1.22.3)");
         let pe = craft_anything_testkit::pe64();
         let b = crate::parse_binary(&pe).unwrap();
         let _ = detect(&b, &pe);
+    }
+
+    #[test]
+    fn markers_in_a_programs_own_strings_are_not_a_packer() {
+        // #2226: a program that mentions packers in its own data (a detector's vocabulary) isn't
+        // packed; the same markers in the header or appended data are where those tools put them.
+        let pe = craft_anything_testkit::pe64();
+        let b = crate::parse_binary(&pe).unwrap();
+        let s = b.sections.iter().find(|s| s.file_offset.is_some() && s.file_size >= 64).expect("a section with data");
+        let at = usize::try_from(s.file_offset.unwrap()).unwrap();
+        let markers: [&[u8]; 5] = [b"UPX!", b"Nullsoft", b"Inno Setup", b"_MEIPASS", b"MEI\x0c\x0b\x0a\x0b\x0e"];
+        let mut strings = pe.clone();
+        let mut pos = at;
+        for m in markers {
+            strings[pos..pos + m.len()].copy_from_slice(m);
+            pos += m.len() + 1;
+        }
+        let packed = |data: &[u8]| -> Vec<&'static str> {
+            let b = crate::parse_binary(data).unwrap();
+            detect(&b, data).into_iter().filter(|h| matches!(h.category, "packer" | "installer")).map(|h| h.id).collect()
+        };
+        assert!(packed(&strings).is_empty(), "{:?}", packed(&strings));
+        let mut appended = pe.clone();
+        appended.extend_from_slice(b"\xef\xbe\xad\xdeNullsoftInst\0Inno Setup Setup Data (6.4.0)\0UPX!");
+        let found = packed(&appended);
+        for id in ["nsis", "inno", "upx"] {
+            assert!(found.contains(&id), "{id} in appended data: {found:?}");
+        }
+        // Raw code has no header or appended data of its own: it's searched whole, as before.
+        let raw = b"\x90\x90Nullsoft\0Inno Setup\0";
+        let rb = Binary::raw(crate::binary::Arch::X86_64, 0, raw.len() as u64, 0);
+        let ids: Vec<&str> = detect(&rb, raw).into_iter().map(|h| h.id).collect();
+        assert!(ids.contains(&"nsis") && ids.contains(&"inno"), "{ids:?}");
+        // A DOS packer's marker is inside the load module.
+        let mut mz = vec![0u8; 64];
+        mz[..2].copy_from_slice(b"MZ");
+        mz[2] = 64; // bytes in the last (only) page
+        mz[4] = 1; // pages
+        mz[8] = 2; // header paragraphs: 32 bytes
+        mz[40..44].copy_from_slice(b"UPX!");
+        let mb = crate::dos::mz_binary(&mz).unwrap();
+        assert!(detect(&mb, &mz).iter().any(|h| h.id == "upx"));
     }
 }

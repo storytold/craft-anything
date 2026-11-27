@@ -14,10 +14,17 @@ use std::ops::Range;
 
 /// Lines kept in memory for the screen; the log has them all.
 const KEPT_LINES: usize = 1000;
-/// The longest line kept, in characters.
-const LONGEST_LINE: usize = 600;
-/// The longest thing an action names, in characters.
-const LONGEST_OBJECT: usize = 200;
+/// The longest line kept, in characters: room for a finished tool's action, how long it took and
+/// its result all together, so a long command never takes the result's room.
+const LONGEST_LINE: usize = LONGEST_WORDS + LONGEST_RESULT + 100;
+/// The longest thing an action names, in characters: room for a long command (the details box
+/// wraps it or scrolls sideways).
+const LONGEST_OBJECT: usize = 500;
+/// The longest action in words: its verb or the tool's name, then what it names.
+const LONGEST_WORDS: usize = LONGEST_OBJECT + 100;
+/// The longest result said after a tool's action. A longer one keeps its start and its end,
+/// where an error usually is.
+const LONGEST_RESULT: usize = 400;
 /// A log this long is set aside as `build-activity.old.log` and a new one started.
 const LOG_LIMIT: u64 = 8 << 20;
 
@@ -224,13 +231,15 @@ impl Activity {
                     let found = state.going.iter().rposition(|g| g.call_id == *call_id).map(|i| state.going.remove(i));
                     let took = found.as_ref().map(|g| g.since.elapsed()).filter(|d| *d >= Duration::from_secs(1));
                     let action = found.map_or_else(|| Action { tool: tool.clone(), verb: None, object: None }, |g| g.action);
-                    let mut line = action.words();
+                    // The action and its result are each cut to their own length, so the line as
+                    // a whole is never cut and a long command leaves the result whole.
+                    let mut line = cut(&action.words(), LONGEST_WORDS);
                     if let Some(d) = took {
                         line.push_str(&format!(" ({} s)", d.as_secs()));
                     }
-                    let summary = summary.trim();
+                    let summary = one_line(summary);
                     if !summary.is_empty() {
-                        line.push_str(&format!(": {summary}"));
+                        line.push_str(&format!(": {}", cut_middle(&journal::scrubbed_line(&summary), LONGEST_RESULT)));
                     }
                     new.push((if *ok { LineKind::Done } else { LineKind::Failed }, line));
                     state.last = Some(action);
@@ -317,6 +326,20 @@ fn cut(s: &str, most: usize) -> String {
         Some((end, _)) => format!("{}…", s.get(..end).unwrap_or_default()),
         None => s.to_string(),
     }
+}
+
+/// `s` cut to `most` characters by taking out its middle: its start and its end stay, with a mark
+/// where the rest was.
+fn cut_middle(s: &str, most: usize) -> String {
+    let count = s.chars().count();
+    if count <= most {
+        return s.to_string();
+    }
+    let head = most / 2;
+    let tail = most.saturating_sub(head);
+    let start: String = s.chars().take(head).collect();
+    let end: String = s.chars().skip(count.saturating_sub(tail)).collect();
+    format!("{start} … {end}")
 }
 
 /// The run's side of `build-activity.log`, appended to as it goes. Readable only by its owner: it
@@ -423,6 +446,11 @@ mod tests {
         assert_eq!(describe("Edit", &json!({"file_path": "/projects/x/app/src/main.rs"}), &roots).words(), "Editing src/main.rs");
         assert_eq!(describe("Read", &json!({"file_path": "/projects/x/capture/a.png"}), &roots).words(), "Reading capture/a.png");
         assert_eq!(describe("Grep", &json!({"pattern": "horse"}), &roots).words(), "Searching for horse");
+        // A long command stays whole, up to a point.
+        let long = format!("cargo build --features {}", "f,".repeat(200));
+        assert_eq!(describe("Bash", &json!({"command": long}), &roots).words(), format!("Running {long}"));
+        let longer = "x".repeat(LONGEST_OBJECT * 2);
+        assert_eq!(describe("Bash", &json!({"command": longer}), &roots).object.unwrap().chars().count(), LONGEST_OBJECT + 1);
         // Tools without words: the tool's own title, when the caller has one.
         let ours = describe("web_site_open", &json!({"url": "http://x.test/"}), &roots);
         assert_eq!(ours.words(), "web site open: http://x.test/");
@@ -448,6 +476,56 @@ mod tests {
         let lines = a.lines_in(0..10);
         assert_eq!(lines.iter().map(|l| l.kind).collect::<Vec<_>>(), [LineKind::Started, LineKind::Started, LineKind::Done, LineKind::Failed]);
         assert_eq!(lines[3].text, "Running npm test: 1 test failed");
+    }
+
+    /// The longest command a line names, and a result the length it often is.
+    fn long_command_and_result() -> (String, String) {
+        let command: String = format!("cargo test --features {}", "f,".repeat(LONGEST_OBJECT)).chars().take(LONGEST_OBJECT).collect();
+        let result = format!("{} error[E0308]: mismatched types", "w".repeat(119));
+        assert_eq!((command.chars().count(), result.chars().count()), (LONGEST_OBJECT, 150));
+        (command, result)
+    }
+
+    #[test]
+    fn a_long_command_leaves_its_result_whole_on_the_screen_and_in_the_log() {
+        let d = tempfile::tempdir().unwrap();
+        let a = Activity::new(Vec::new());
+        let mut file = ActivityFile::new(d.path());
+        let (command, result) = long_command_and_result();
+        let whole = format!("Running {command}: {result}");
+        for (ok, kind) in [(true, LineKind::Done), (false, LineKind::Failed)] {
+            a.record(&started("Bash", json!({ "command": command })));
+            let lines = a.record(&finished("Bash", ok, &result));
+            file.append(&lines, &a);
+            assert_eq!(lines.iter().map(|l| (l.kind, l.text.as_str())).collect::<Vec<_>>(), [(kind, whole.as_str())]);
+        }
+        let log = std::fs::read_to_string(d.path().join(ACTIVITY_LOG)).unwrap();
+        let done = log.lines().filter(|l| l.contains(" done ") && l.ends_with(&whole)).count();
+        let failed = log.lines().filter(|l| l.contains(" FAIL ") && l.ends_with(&whole)).count();
+        assert_eq!((done, failed), (1, 1), "{log}");
+    }
+
+    #[test]
+    fn a_long_result_keeps_its_start_and_its_end() {
+        let d = tempfile::tempdir().unwrap();
+        let a = Activity::new(Vec::new());
+        let mut file = ActivityFile::new(d.path());
+        let (command, _) = long_command_and_result();
+        // Longer than its room, in characters that take more than one byte.
+        let result = format!("Compiling crates {}\nerror: could not compile `app` (bin \"app\")", "é ".repeat(LONGEST_RESULT));
+        a.record(&started("Bash", json!({ "command": command })));
+        let lines = a.record(&finished("Bash", false, &result));
+        file.append(&lines, &a);
+        let text = &lines[0].text;
+        assert!(text.starts_with(&format!("Running {command}: Compiling crates é")), "{text}");
+        assert!(text.ends_with("é error: could not compile `app` (bin \"app\")"), "{text}");
+        assert!(text.contains(" … "), "{text}");
+        assert!(text.chars().count() < LONGEST_LINE, "the line itself was never cut: {text}");
+        let log = std::fs::read_to_string(d.path().join(ACTIVITY_LOG)).unwrap();
+        assert!(log.lines().any(|l| l.ends_with(text.as_str())), "{log}");
+        // A result within its room is kept as it is.
+        assert_eq!(cut_middle("short", 10), "short");
+        assert_eq!(cut_middle("abcdefghij", 4), "ab … ij");
     }
 
     #[test]

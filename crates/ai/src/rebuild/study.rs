@@ -325,10 +325,11 @@ impl Worker {
     /// Deep mode with Ghidra installed: run Ghidra's one-time analysis of `program` on its own
     /// thread; the receiver gets its result. The builder's tools share the analysis (waiting for it
     /// rather than starting another), and it carries on if the person pauses, so nothing is lost.
-    /// It stops once `project`'s record is gone: a deleted project needs it no more (#948).
+    /// It stops once `project` is deleted or the person stops it, and isn't started for a project
+    /// it was stopped for until a new request (#948).
     pub(super) fn prepare_ghidra(&self, program: &Path, project: &Path) -> Option<Receiver<Result<(), String>>> {
         // A folder (nothing in it recognised as the program) isn't something Ghidra can open.
-        if !program.is_file() || is_electron_runtime(program) {
+        if !program.is_file() || is_electron_runtime(program) || craft_anything_engine::tools::deep::stopped(project) {
             return None;
         }
         let settings = {
@@ -339,7 +340,7 @@ impl Worker {
             s.settings.clone()
         };
         let program = program.to_path_buf();
-        let record = project.join(craft_anything_engine::workspace::MANIFEST);
+        let project = project.to_path_buf();
         let (tx, rx) = std::sync::mpsc::channel();
         let (feed, events, wake) = (self.feed.clone(), self.tx.clone(), self.wake.clone());
         std::thread::Builder::new()
@@ -356,10 +357,7 @@ impl Worker {
                             emit_event(&feed, &events, &wake, RunEvent::Step { step: Step::Study, text: m.to_string() });
                         }
                     };
-                    craft_anything_engine::tools::deep::prepare(&settings, &bytes, &sha, &said, &|| {
-                        // Only a record known to be gone: a drive that can't be read for a moment isn't a delete.
-                        matches!(record.try_exists(), Ok(false))
-                    })
+                    craft_anything_engine::tools::deep::prepare(&settings, &bytes, &sha, &project, &said)
                 });
                 if let Err(e) = &result {
                     log::warn!("Ghidra's analysis of {} failed: {e}", program.display());

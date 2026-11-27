@@ -1,7 +1,8 @@
 //! Synthetic Flutter samples: an AArch64 `libapp.so` exporting the four Dart snapshot symbols
 //! (with section headers, or section-stripped with only `PT_DYNAMIC` + `DT_HASH`/`DT_GNU_HASH`),
-//! a `libflutter.so` carrying a Dart version string, a toolchain string and a GNU build id, and an
-//! APK holding them.
+//! a `libflutter.so` carrying a Dart version string, a toolchain string and a GNU build id, an
+//! APK holding them, and the desktop runners that link the engine (an ELF needing
+//! `libflutter_linux_gtk.so`, a Mach-O loading `FlutterMacOS.framework`).
 
 pub const SNAPSHOT_HASH: &str = "8ee4ef7a67df9845fba331734198a953";
 pub const FEATURES: &str = "product no-code_coverage arm64 android compressed-pointers null-safety";
@@ -53,7 +54,13 @@ fn put_u64(v: &mut [u8], off: usize, x: u64) {
 
 /// A little-endian ELF64 AArch64 shared object. `symbols` are exported objects with their bytes;
 /// `rodata` is extra content. Virtual addresses equal file offsets (one PT_LOAD).
+/// [`elf_so_needing`] adds the libraries the program needs.
 pub fn elf_so(symbols: &[(&str, Vec<u8>)], rodata: &[u8], table: SymbolTable) -> Vec<u8> {
+    elf_so_needing(symbols, rodata, table, &[])
+}
+
+/// [`elf_so`] with the libraries the program needs (`DT_NEEDED`), as a program links the engine.
+pub fn elf_so_needing(symbols: &[(&str, Vec<u8>)], rodata: &[u8], table: SymbolTable, needed: &[&str]) -> Vec<u8> {
     let mut f = vec![0u8; 0x100];
     // .dynstr
     let dynstr_off = f.len();
@@ -61,6 +68,12 @@ pub fn elf_so(symbols: &[(&str, Vec<u8>)], rodata: &[u8], table: SymbolTable) ->
     f.push(0);
     for (n, _) in symbols {
         name_offs.push(f.len() - dynstr_off);
+        f.extend_from_slice(n.as_bytes());
+        f.push(0);
+    }
+    let mut needed_offs = Vec::new();
+    for n in needed {
+        needed_offs.push(f.len() - dynstr_off);
         f.extend_from_slice(n.as_bytes());
         f.push(0);
     }
@@ -102,7 +115,8 @@ pub fn elf_so(symbols: &[(&str, Vec<u8>)], rodata: &[u8], table: SymbolTable) ->
     // .dynamic
     align(&mut f, 8);
     let dyn_off = f.len();
-    let mut dynv: Vec<(u64, u64)> = vec![(5, dynstr_off as u64), (6, dynsym_off as u64), (10, dynstr_size as u64), (11, 24)];
+    let mut dynv: Vec<(u64, u64)> = needed_offs.iter().map(|o| (1, *o as u64)).collect();
+    dynv.extend([(5, dynstr_off as u64), (6, dynsym_off as u64), (10, dynstr_size as u64), (11, 24)]);
     match table {
         SymbolTable::Sections | SymbolTable::DynamicHash => dynv.push((4, hash_off as u64)),
         SymbolTable::DynamicGnuHash => dynv.push((0x6fff_fef5, gnu_off as u64)),
@@ -229,6 +243,24 @@ pub fn libflutter_so() -> Vec<u8> {
     elf_so(&[("FlutterEngineRun", vec![0xc0, 0x03, 0x5f, 0xd6])], &ro, SymbolTable::Sections)
 }
 
+/// A Linux Flutter runner: an ELF64 program that needs the Flutter engine
+/// (`libflutter_linux_gtk.so`), the library a Flutter desktop build links on Linux.
+pub fn flutter_linux_exe() -> Vec<u8> {
+    elf_so_needing(&[], b"", SymbolTable::Sections, &["libflutter_linux_gtk.so", "libc.so.6"])
+}
+
+/// A macOS Flutter runner: a Mach-O program that loads the Flutter engine
+/// (`@rpath/FlutterMacOS.framework/Versions/A/FlutterMacOS`), the framework a Flutter desktop
+/// build links on macOS.
+pub fn flutter_macos_exe() -> Vec<u8> {
+    crate::apple::macho_min(
+        crate::apple::CPU_ARM64,
+        2, // MH_EXECUTE
+        &[crate::apple::lc_dylib(0xc, "@rpath/FlutterMacOS.framework/Versions/A/FlutterMacOS")],
+        &[],
+    )
+}
+
 /// An APK with Flutter libraries for arm64-v8a and armeabi-v7a.
 pub fn flutter_apk() -> Vec<u8> {
     let app = libapp_so(SymbolTable::Sections);
@@ -247,4 +279,23 @@ pub fn flutter_apk() -> Vec<u8> {
 /// An APK with no Flutter libraries.
 pub fn plain_apk() -> Vec<u8> {
     crate::electron::zip_stored(&[("AndroidManifest.xml", b"\x03\x00\x08\x00"), ("lib/arm64-v8a/libnative.so", b"\x7fELF")])
+}
+
+/// A Windows Flutter runner: [`crate::pe64`] with its import moved from msvcrt.dll to
+/// `flutter_windows.dll` (the name lives in `.data`, RVA 0x3000, file offset 0x800).
+pub fn flutter_windows_exe() -> Vec<u8> {
+    let mut pe = crate::pe64();
+    // The import descriptor sits at `.rdata` + 0x100 (file 0x700); its Name field is at +0x0c.
+    pe[0x70c..0x710].copy_from_slice(&0x3000u32.to_le_bytes());
+    let name = b"flutter_windows.dll\0";
+    pe[0x800..0x800 + name.len()].copy_from_slice(name);
+    pe
+}
+
+/// [`crate::pe64`] that only mentions Flutter in its data, with no Flutter import.
+pub fn pe_mentioning_flutter() -> Vec<u8> {
+    let mut pe = crate::pe64();
+    let text = b"data\\flutter_assets\0";
+    pe[0x800..0x800 + text.len()].copy_from_slice(text);
+    pe
 }

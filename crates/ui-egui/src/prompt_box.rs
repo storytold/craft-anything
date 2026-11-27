@@ -49,7 +49,8 @@ pub struct PromptBox<'a> {
 
 /// How much text the editor can show before it scrolls.
 pub enum ViewportHeight {
-    Pane,
+    /// Docked in a scrollable region. Size against the full pane above that region.
+    Pane(f32),
     PaneWithRowFloor(usize),
     Rows(usize),
 }
@@ -333,7 +334,7 @@ fn fit(size: egui::Vec2, max: egui::Vec2) -> egui::Vec2 {
 /// Keep the empty editor and its padding visible when other controls need the space.
 fn text_viewport_height(line: f32, min_rows: usize, pane_height: f32, height: ViewportHeight, limit: Option<f32>) -> f32 {
     let cap = match height {
-        ViewportHeight::Pane => (pane_height * 0.4).max(theme::PROMPT_VIEWPORT_FLOOR),
+        ViewportHeight::Pane(full_height) => (full_height * 0.4).max(theme::PROMPT_VIEWPORT_FLOOR),
         ViewportHeight::PaneWithRowFloor(rows) => tallest_text(line, rows, pane_height) + 4.0,
         ViewportHeight::Rows(rows) => line * rows as f32 + 4.0,
     };
@@ -433,14 +434,14 @@ mod tests {
         assert_eq!(tallest_text(20.0, 8, 300.0), 160.0, "a small window keeps the box's own limit");
         assert_eq!(tallest_text(20.0, 8, 1400.0), 560.0, "a tall one shows up to two-fifths of it");
         assert_eq!(tallest_text(20.0, 30, 1000.0), 600.0, "a box allowed more keeps it");
-        assert_eq!(text_viewport_height(20.0, 2, 300.0, ViewportHeight::Pane, None), 208.0);
-        assert_eq!(text_viewport_height(20.0, 2, 1400.0, ViewportHeight::Pane, None), 560.0);
-        assert_eq!(text_viewport_height(20.0, 2, 500.0, ViewportHeight::Pane, Some(90.0)), 90.0);
+        assert_eq!(text_viewport_height(20.0, 2, 300.0, ViewportHeight::Pane(300.0), None), 208.0);
+        assert_eq!(text_viewport_height(20.0, 2, 300.0, ViewportHeight::Pane(1400.0), None), 560.0);
+        assert_eq!(text_viewport_height(20.0, 2, 500.0, ViewportHeight::Pane(500.0), Some(90.0)), 90.0);
     }
 
     #[test]
     fn an_explicit_height_limit_still_leaves_room_for_the_minimum_rows() {
-        assert_eq!(text_viewport_height(20.0, 2, 500.0, ViewportHeight::Pane, Some(10.0)), 44.0);
+        assert_eq!(text_viewport_height(20.0, 2, 500.0, ViewportHeight::Pane(500.0), Some(10.0)), 44.0);
     }
 
     #[test]
@@ -456,7 +457,7 @@ mod tests {
                             name: "Box",
                             hint: String::new(),
                             min_rows: 2,
-                            viewport_height: ViewportHeight::Pane,
+                            viewport_height: ViewportHeight::Pane(500.0),
                             text_height_limit: Some(90.0),
                             attach: None,
                             previews: &[],

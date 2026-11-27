@@ -229,9 +229,185 @@ impl CraftApp {
     }
 
     /// Settings: stop listing a folder's projects (nothing is deleted).
+    ///
+    /// If the currently open project is no longer listed under `projects_dir` or any remaining
+    /// `project_folders` entry, close it and return to Home so closing/restarting the app does not
+    /// restore it through `last_project` and silently add it back to `project_folders` (#2340).
     pub fn remove_project_folder(&mut self, folder: &std::path::Path) {
-        self.settings.project_folders.retain(|f| f != folder);
+        let target = workspace::normalized(folder);
+        self.settings.project_folders.retain(|f| workspace::normalized(f) != target);
+        if let Some(ws) = self.workspace.as_ref().filter(|ws| !self.settings.lists_project(&ws.root)) {
+            let root = ws.root.clone();
+            let typed = (std::mem::take(&mut self.state.project_input), std::mem::take(&mut self.state.project_attachments));
+            if !typed.0.trim().is_empty() || !typed.1.is_empty() {
+                self.state.unsent.insert(root, typed);
+            }
+            self.workspace = None;
+            self.preview = None;
+            self.state.feed.clear();
+            if self.state.screen == crate::state::Screen::Project {
+                self.state.screen = crate::state::Screen::Home;
+            }
+        }
         self.settings_changed();
         self.refresh_projects();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::demo;
+    use crate::state::Screen;
+    use craft_anything_engine::workspace::{TargetRef, Workspace};
+
+    struct MemStorage(std::collections::HashMap<String, String>);
+    impl eframe::Storage for MemStorage {
+        fn get_string(&self, key: &str) -> Option<String> {
+            self.0.get(key).cloned()
+        }
+        fn set_string(&mut self, key: &str, value: String) {
+            self.0.insert(key.into(), value);
+        }
+        fn remove_string(&mut self, key: &str) {
+            self.0.remove(key);
+        }
+        fn flush(&mut self) {}
+    }
+
+    fn store_prefs(prefs: &crate::Prefs) -> MemStorage {
+        let mut s = MemStorage(std::collections::HashMap::new());
+        s.0.insert(crate::PREFS_KEY.into(), serde_json::to_string(prefs).unwrap());
+        s
+    }
+
+    fn make_app(default_projects: &std::path::Path, folders: Vec<std::path::PathBuf>) -> crate::CraftApp {
+        let engine = demo::engine(craft_anything_engine::Mode::Beginner, true);
+        {
+            let mut s = engine.session();
+            s.settings.projects_dir = Some(default_projects.to_path_buf());
+            s.settings.project_folders = folders;
+        }
+        let mut app = demo::app(engine);
+        app.settings.projects_dir = Some(default_projects.to_path_buf());
+        app
+    }
+
+    /// #2340: clicking "Stop listing" on the active external project (or the listed parent folder
+    /// containing it) closes the now-unlisted project so a restart does not reopen and re-add it,
+    /// while stopping an unrelated folder leaves a project inside `projects_dir` open.
+    #[test]
+    fn stopping_a_listed_project_folder_closes_unlisted_active_project_and_stays_unlisted_after_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let default_projects = dir.path().join("default-projects");
+        let external_parent = dir.path().join("external");
+        let ws = Workspace::create(&external_parent, "Picked", "Build a clock", TargetRef::None).unwrap();
+
+        // Direct project folder listed and open: "Stop listing" (even via a non-normalized path)
+        // closes it, clears preview/feed, stashes unsent input without leaking it to a new project,
+        // and clears `last_project`.
+        let mut app = make_app(&default_projects, Vec::new());
+        app.open_workspace(ws.clone());
+        assert_eq!(app.state.screen, Screen::Project);
+        assert!(app.settings.project_folders.contains(&ws.root), "opening an external project lists it");
+        app.preview = Some("http://127.0.0.1:4321".into());
+        app.state.feed.push(crate::state::FeedItem::User(crate::state::UserItem::Text("Hello P".into())));
+        app.state.project_input = "draft for P".into();
+
+        app.remove_project_folder(&ws.root.join("."));
+        assert!(!app.settings.project_folders.contains(&ws.root), "removed from project_folders via normalized match");
+        assert!(app.workspace.is_none(), "unlisted open project is closed");
+        assert!(app.preview.is_none(), "preview cleared when open project closes");
+        assert!(app.state.feed.is_empty(), "feed cleared when open project closes");
+        assert!(app.state.project_input.is_empty(), "project_input cleared so it cannot leak into another project");
+        assert_eq!(app.state.unsent.get(&ws.root).map(|(t, _)| t.as_str()), Some("draft for P"), "unsent draft preserved for P");
+        assert_eq!(app.state.screen, Screen::Home, "closing the open project returns to Home");
+        let saved_prefs = app.prefs();
+        assert_eq!(saved_prefs.last_project, None, "prefs no longer point at the unlisted project");
+
+        let saved_store = store_prefs(&saved_prefs);
+        let mut restarted = make_app(&default_projects, app.settings.project_folders.clone());
+        restarted.load_prefs(Some(&saved_store));
+        assert!(!restarted.settings.project_folders.contains(&ws.root), "restart must not re-add P");
+        assert!(restarted.workspace.is_none());
+
+        // Listed parent folder removed while a child project is open on another screen (e.g. Ask):
+        // closes the child workspace without forcibly overriding the active non-Project screen.
+        let mut parent_app = make_app(&default_projects, vec![external_parent.clone()]);
+        parent_app.open_workspace(ws.clone());
+        parent_app.state.screen = Screen::Ask;
+        assert_eq!(parent_app.settings.project_folders, vec![external_parent.clone()]);
+        parent_app.remove_project_folder(&external_parent);
+        assert!(parent_app.workspace.is_none(), "removing listed parent closes active child project");
+        assert_eq!(parent_app.state.screen, Screen::Ask, "non-Project screen is preserved");
+
+        // Removing an unrelated external folder keeps an active project inside `projects_dir` open.
+        let default_ws = Workspace::create(&default_projects, "Default", "Build a timer", TargetRef::None).unwrap();
+        let mut keep_app = make_app(&default_projects, vec![external_parent.clone()]);
+        keep_app.open_workspace(default_ws.clone());
+        keep_app.remove_project_folder(&external_parent);
+        assert_eq!(keep_app.workspace.as_ref().map(|w| &w.root), Some(&default_ws.root));
+        assert_eq!(keep_app.state.screen, Screen::Project);
+    }
+
+    /// #2340: if `project_folders` was edited out of `config.toml` while UI prefs still hold
+    /// `last_project`, startup restore must not silently re-add the unlisted project to
+    /// `project_folders` or the sidebar project list (even after `refresh_projects` finishes),
+    /// whereas a still-listed project is shown in the sidebar and explicit `open_workspace` still
+    /// adds an external project back.
+    #[test]
+    fn restoring_last_project_does_not_relist_unlisted_project_folders() {
+        let dir = tempfile::tempdir().unwrap();
+        let default_projects = dir.path().join("default-projects");
+        let external_parent = dir.path().join("external");
+        let ws = Workspace::create(&external_parent, "Picked", "Build a clock", TargetRef::None).unwrap();
+        let listed_ws = Workspace::create(&default_projects, "Listed", "Build a timer", TargetRef::None).unwrap();
+
+        let mut app = make_app(&default_projects, Vec::new());
+        let mut stale_prefs = app.prefs();
+        stale_prefs.last_project = Some(ws.root.clone());
+        let stale_store = store_prefs(&stale_prefs);
+
+        app.load_prefs(Some(&stale_store));
+        assert!(!app.settings.project_folders.contains(&ws.root), "stale last_project must not re-add an unlisted folder");
+        assert!(!app.projects.iter().any(|p| p.root == ws.root), "unlisted project is not inserted back into sidebar list");
+
+        // Running `refresh_projects()` (`Done::Projects`) must also keep the unlisted workspace out
+        // of `app.projects`.
+        app.refresh_projects();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let mut drained = false;
+        while std::time::Instant::now() < deadline {
+            let finished = app.jobs.poll();
+            if !finished.is_empty() {
+                for f in finished {
+                    app.handle_done(f);
+                }
+                drained = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(drained, "refresh_projects job completed");
+        assert!(!app.projects.iter().any(|p| p.root == ws.root), "Done::Projects must not re-insert unlisted workspace into sidebar");
+
+        // Restoring a project that IS still listed puts it into `app.projects` immediately.
+        let mut listed_app = make_app(&default_projects, Vec::new());
+        let mut listed_prefs = listed_app.prefs();
+        listed_prefs.last_project = Some(listed_ws.root.clone());
+        let listed_store = store_prefs(&listed_prefs);
+        listed_app.load_prefs(Some(&listed_store));
+        assert!(listed_app.projects.iter().any(|p| p.root == listed_ws.root), "listed project restored on startup appears in sidebar");
+
+        // Explicitly opening the external project again still remembers it in `project_folders`.
+        app.open_workspace(ws.clone());
+        assert!(app.settings.project_folders.contains(&ws.root));
+        assert_eq!(app.workspace.as_ref().map(|w| &w.root), Some(&ws.root));
+
+        // Stale `Done::Projects` snapshot arriving after "Stop listing" must not put the unlisted
+        // folder's project back into `app.projects`, while still keeping listed projects visible.
+        app.remove_project_folder(&ws.root);
+        app.handle_done(crate::jobs::Finished { job: 99, result: Ok(crate::Done::Projects(vec![ws.clone(), listed_ws.clone()])) });
+        assert!(!app.projects.iter().any(|p| p.root == ws.root), "stale Done::Projects snapshot must not re-add unlisted project");
+        assert!(app.projects.iter().any(|p| p.root == listed_ws.root), "still-listed project remains in sidebar");
     }
 }

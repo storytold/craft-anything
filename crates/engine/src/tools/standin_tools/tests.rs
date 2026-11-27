@@ -71,7 +71,7 @@ fn build_start_request_show_stop_through_the_engine() {
         assert!(r["routes"].as_array().unwrap().iter().any(|x| x["template"] == "/users/{id}" && x["method"] == "GET"), "{r}");
         assert_eq!(r["dropped"]["headers"], 12, "two on each of six entries");
         let codes: Vec<&str> = built["limitations"].as_array().unwrap().iter().filter_map(|l| l["code"].as_str()).collect();
-        assert!(codes.contains(&"only_what_was_recorded") && codes.contains(&"read_only_replay") && codes.contains(&"secrets_dropped"), "{codes:?}");
+        assert!(codes.contains(&"only_what_was_recorded") && codes.contains(&"replay_follows_recording") && codes.contains(&"secrets_dropped"), "{codes:?}");
 
         let written = std::fs::read_to_string(standin_file(&out)).unwrap();
         assert!(!written.contains("sk-test"), "{written}");
@@ -93,7 +93,7 @@ fn build_start_request_show_stop_through_the_engine() {
         // A recorded 404 is the original's answer.
         let gone = get(&url, "/gone");
         assert!(gone.starts_with("HTTP/1.1 404") && gone.contains("X-Craft-Anything-Stand-In: recorded") && gone.contains("not found"), "{gone}");
-        // A write replays and changes nothing.
+        // A write replays what was recorded; nothing recorded after it for this path, so reads keep their answer.
         let post = http(&url, "POST /users HTTP/1.1\r\nHost: {HOST}\r\nContent-Length: 2\r\n\r\n{}");
         assert!(post.starts_with("HTTP/1.1 201") && post.contains(r#"{"id":3}"#), "{post}");
         assert!(get(&url, "/users/2").contains("Sam"));
@@ -126,6 +126,52 @@ fn build_start_request_show_stop_through_the_engine() {
         // That its port is freed is tested where the server is (`dropping_a_server_frees_its_port`):
         // here, among tests that all take free ports, another one may be handed it at once.
         assert_eq!(call(&e, "web_standin_show", json!({})).unwrap()["result"]["servers"], json!([]));
+    });
+}
+
+#[test]
+fn a_write_moves_later_reads_on_over_loopback() {
+    within(60, || {
+        let dir = crate::testing::temp_dir();
+        let har = json!({"log": {"version": "1.2", "entries": [
+            entry("GET", "https://api.example.test/todos", 200, r#"{"todos":[]}"#),
+            entry("POST", "https://api.example.test/todos", 201, r#"{"id":1}"#),
+            entry("GET", "https://api.example.test/todos", 200, r#"{"todos":[1]}"#),
+        ]}});
+        let path = dir.join("todos.har");
+        std::fs::write(&path, har.to_string()).unwrap();
+        let out = dir.join("standin");
+        let e = Engine::new(crate::testing::session());
+        call(&e, "web_standin_build", json!({"path": path, "output_dir": out})).unwrap();
+        let written: Value = serde_json::from_str(&std::fs::read_to_string(standin_file(&out)).unwrap()).unwrap();
+        assert_eq!(written["version"], 2);
+
+        let started = call(&e, "web_standin_start", json!({"path": out})).unwrap();
+        let url = started["result"]["url"].as_str().unwrap().to_string();
+        assert!(get(&url, "/todos").contains(r#"{"todos":[]}"#));
+        assert_eq!(call(&e, "web_standin_show", json!({})).unwrap()["result"]["servers"][0]["recording_position"], Value::Null);
+        let post = http(&url, "POST /todos HTTP/1.1\r\nHost: {HOST}\r\nContent-Length: 2\r\n\r\n{}");
+        assert!(post.starts_with("HTTP/1.1 201") && post.contains(r#"{"id":1}"#), "{post}");
+        assert!(get(&url, "/todos").contains(r#"{"todos":[1]}"#), "the read recorded after the write");
+        assert_eq!(call(&e, "web_standin_show", json!({})).unwrap()["result"]["servers"][0]["recording_position"], 1);
+        // A second add was never recorded: it's refused, says so, and is counted.
+        let again = http(&url, "POST /todos HTTP/1.1\r\nHost: {HOST}\r\nContent-Length: 2\r\n\r\n{}");
+        assert!(again.starts_with("HTTP/1.1 404") && again.contains("write_not_recorded") && again.contains("No write like this was recorded"), "{again}");
+        assert!(get(&url, "/todos").contains(r#"{"todos":[1]}"#), "a refused write changes nothing");
+        // Every refused write is counted, whatever the recording lacks; a read with no answer isn't.
+        let elsewhere = http(&url, "POST /elsewhere HTTP/1.1\r\nHost: {HOST}\r\nContent-Length: 2\r\n\r\n{}");
+        assert!(elsewhere.starts_with("HTTP/1.1 404") && elsewhere.contains("path_not_recorded"), "{elsewhere}");
+        let unread = http(&url, "GET /elsewhere HTTP/1.1\r\nHost: {HOST}\r\n\r\n");
+        assert!(unread.starts_with("HTTP/1.1 404"), "{unread}");
+        let shown = call(&e, "web_standin_show", json!({})).unwrap();
+        assert_eq!(shown["result"]["servers"][0]["writes_refused"], 2, "{shown}");
+        assert_eq!(shown["result"]["servers"][0]["requests_with_no_answer"], 3, "{shown}");
+
+        // Started again, it goes back to the beginning.
+        call(&e, "web_standin_stop", json!({})).unwrap();
+        let again = call(&e, "web_standin_start", json!({"path": out})).unwrap();
+        assert!(get(again["result"]["url"].as_str().unwrap(), "/todos").contains(r#"{"todos":[]}"#));
+        call(&e, "web_standin_stop", json!({})).unwrap();
     });
 }
 
@@ -343,7 +389,11 @@ fn file_versions() {
     for bad in [&br#"{"routes": []}"#[..], br#"{"version": "1"}"#, br#"{"version": 0}"#, br#"{"version": -1}"#, br#"{"version": 99999999999}"#, b"[]", b""] {
         assert_eq!(parse_standin(bad).unwrap_err().code, ErrorCode::GarbledOutput, "{}", String::from_utf8_lossy(bad));
     }
-    let newer = parse_standin(br#"{"version": 2, "routes": [], "from_the_future": true}"#).unwrap_err();
+    // A version-1 file has no places in the recording and replays as it did.
+    let v1 =
+        parse_standin(br#"{"version": 1, "routes": [{"method": "GET", "template": "/a", "samples": [{"path": "/a", "status": 200, "text": "x"}]}]}"#).unwrap();
+    assert_eq!(v1.routes[0].samples[0].order, None);
+    let newer = parse_standin(br#"{"version": 3, "routes": [], "from_the_future": true}"#).unwrap_err();
     assert_eq!(newer.code, ErrorCode::NotSupported);
     assert!(newer.remediation.as_deref().unwrap_or_default().contains("Update Craft Anything"), "{newer:?}");
 }
@@ -353,7 +403,7 @@ fn a_newer_file_is_not_written_over() {
     let dir = crate::testing::temp_dir();
     let e = Engine::new(crate::testing::session());
     let har = recording(&dir);
-    let newer = r#"{"version": 2, "theirs": true}"#;
+    let newer = r#"{"version": 3, "theirs": true}"#;
     std::fs::write(standin_file(&dir), newer).unwrap();
     assert_eq!(call(&e, "web_standin_build", json!({"path": har, "output_dir": dir})).unwrap_err().code, ErrorCode::NotSupported);
     assert_eq!(std::fs::read_to_string(standin_file(&dir)).unwrap(), newer);

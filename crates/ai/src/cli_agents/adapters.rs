@@ -12,6 +12,7 @@ mod devin;
 mod dsh;
 mod grok;
 mod hermes;
+mod kimi_code;
 mod maki;
 mod opencode;
 pub use aider::Aider;
@@ -21,6 +22,7 @@ pub use devin::Devin;
 pub use dsh::DeepSeekHarness;
 pub use grok::Grok;
 pub use hermes::Hermes;
+pub use kimi_code::KimiCode;
 pub use maki::Maki;
 pub use opencode::OpenCode;
 
@@ -311,7 +313,8 @@ impl Default for AgentAdapters {
 }
 
 impl AgentAdapters {
-    /// The built-in coding agents, including the ACP-only Copilot and Grok Build adapters and Devin's.
+    /// The built-in coding agents, including the ACP-only Copilot, Grok Build and Kimi Code
+    /// adapters and Devin's.
     pub fn built_in() -> AgentAdapters {
         AgentAdapters {
             adapters: vec![
@@ -327,6 +330,7 @@ impl AgentAdapters {
                 Arc::new(Grok),
                 Arc::new(DeepSeekHarness),
                 Arc::new(Devin),
+                Arc::new(KimiCode),
             ],
         }
     }
@@ -388,6 +392,10 @@ const CHANGING_TOOLS: &[&str] =
 /// Claude Code's tools that read files, refused outright in Clean room (#564): its defaults let it
 /// read in its own folder and refuse elsewhere only until a release or a setting changes that.
 const READING_TOOLS: &[&str] = &["Read", "Glob", "Grep", "LS", "NotebookRead"];
+
+/// How a Claude Code builder waits for the background subagents it started: Claude Code wakes it
+/// with each one's result, and after its last turn waits for them (`CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS`).
+const SUBAGENT_WAIT: &str = "While background subagents work, don't wait for them with sleep loops or by checking their output files, and don't keep your turn open for them: carry on with other work or end your turn. Each one's result comes back to you as a notification when it finishes, and the run waits for them.";
 
 /// Claude Code answering a question about a build: the builder's session copied
 /// (`--fork-session`) and the copy not kept, no tool server, and only Read, Glob and Grep (none in
@@ -486,7 +494,18 @@ impl AgentAdapter for ClaudeCode {
             return question_args(a, cx);
         }
         let mcp_json = json!({"mcpServers": {MCP_NAME: {"command": cx.mcp.command, "args": cx.mcp.args}}}).to_string();
-        a.extend(["-p".into(), "--output-format".into(), "stream-json".into(), "--verbose".into(), "--append-system-prompt".into(), cx.preamble.to_string()]);
+        // A builder with subagents was left to sleep in loops or poll their output files (#2428).
+        let preamble = if cx.builder && !cx.reads_checked {
+            format!(
+                "{}
+
+{SUBAGENT_WAIT}",
+                cx.preamble
+            )
+        } else {
+            cx.preamble.to_string()
+        };
+        a.extend(["-p".into(), "--output-format".into(), "stream-json".into(), "--verbose".into(), "--append-system-prompt".into(), preamble]);
         // Omit --model unless config.toml names one: users may have custom models configured in
         // Claude Code, and forcing a hardcoded default blocks them.
         if let Some(model) = cx.options.cli_model.as_deref().filter(|m| !m.trim().is_empty()) {
@@ -608,7 +627,8 @@ impl AgentAdapter for ClaudeCode {
                         .get("input_tokens")
                         .and_then(Value::as_u64)
                         .unwrap_or(0)
-                        .saturating_add(u.get("cache_read_input_tokens").and_then(Value::as_u64).unwrap_or(0));
+                        .saturating_add(u.get("cache_read_input_tokens").and_then(Value::as_u64).unwrap_or(0))
+                        .saturating_add(u.get("cache_creation_input_tokens").and_then(Value::as_u64).unwrap_or(0));
                     p.output_tokens = u.get("output_tokens").and_then(Value::as_u64).unwrap_or(0);
                 }
                 if v.get("is_error").and_then(Value::as_bool).unwrap_or(false) && no_such_session(v) {

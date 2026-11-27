@@ -1,7 +1,8 @@
 //! Maki (`maki -p`).
 //!
-//! `-p/--print` is a switch: the prompt is Maki's positional argument, so it goes last. Plain
-//! `maki <prompt>` opens its terminal interface instead of answering.
+//! `-p/--print` is a switch. With no prompt argument, `maki -p` reads the whole message from
+//! stdin, so a long one can't pass Windows' command-line limit (#402); plain `maki <prompt>`
+//! opens its terminal interface instead of answering.
 //!
 //! Maki lets its file tools write anywhere under its working folder without asking, and in `-p`
 //! nothing can ask. So outside a build its tools that change something are switched off with
@@ -34,8 +35,16 @@ impl AgentAdapter for Maki {
             v.extend(["--disallowed-tools".into(), CHANGES.into()]);
         }
         v.extend(cx.options.args.iter().cloned());
-        v.extend(["-p".into(), format!("{}{}", cx.preamble, cx.prompt)]);
+        v.push("-p".into());
         v
+    }
+
+    fn prompt_on_stdin(&self) -> bool {
+        true
+    }
+
+    fn stdin_text(&self, preamble: &str, prompt: &str) -> String {
+        format!("{preamble}{prompt}")
     }
 
     fn required_flags(&self) -> (&'static [&'static str], &'static [&'static str]) {
@@ -72,17 +81,19 @@ mod tests {
     }
 
     #[test]
-    fn the_prompt_goes_last_after_print_and_the_flags() {
-        assert_eq!(args(true, &BackendOptions::default()), ["-p", "PRE make a game"]);
+    fn the_message_goes_on_stdin_not_in_argv() {
+        assert_eq!(args(true, &BackendOptions::default()), ["-p"]);
         let options =
             BackendOptions { cli_model: Some("anthropic/claude-sonnet-4-6".into()), args: vec!["--max-turns".into(), "40".into()], ..Default::default() };
-        assert_eq!(args(true, &options), ["-m", "anthropic/claude-sonnet-4-6", "--max-turns", "40", "-p", "PRE make a game"]);
+        assert_eq!(args(true, &options), ["-m", "anthropic/claude-sonnet-4-6", "--max-turns", "40", "-p"]);
+        assert!(Maki.prompt_on_stdin());
+        assert_eq!(Maki.stdin_text("PRE ", "make a game"), "PRE make a game");
     }
 
     #[test]
     fn outside_a_build_maki_can_only_read() {
         let a = args(false, &BackendOptions::default());
-        assert_eq!(a, ["--disallowed-tools", CHANGES, "-p", "PRE make a game"]);
+        assert_eq!(a, ["--disallowed-tools", CHANGES, "-p"]);
         for tool in ["write", "edit", "multiedit", "edit_lines", "bash", "code_execution"] {
             assert!(CHANGES.split(',').any(|t| t == tool), "{tool} is switched off");
         }

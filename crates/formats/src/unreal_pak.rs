@@ -83,7 +83,7 @@ pub struct Index {
     pub plain: Vec<Entry>,
 }
 
-/// A bounds-checked little-endian cursor (shared with [`crate::unreal_iostore`]).
+/// A bounds-checked little-endian cursor for Unreal packages, archives and textures.
 pub(crate) struct Cur<'a> {
     data: &'a [u8],
     pos: usize,
@@ -92,6 +92,9 @@ pub(crate) struct Cur<'a> {
 impl<'a> Cur<'a> {
     pub(crate) fn new(data: &'a [u8]) -> Self {
         Cur { data, pos: 0 }
+    }
+    pub(crate) fn position(&self) -> usize {
+        self.pos
     }
     pub(crate) fn take(&mut self, n: usize, what: &str) -> Result<&'a [u8], FormatError> {
         let end = self.pos.checked_add(n).filter(|e| *e <= self.data.len()).ok_or_else(|| FormatError::Truncated(what.to_string()))?;
@@ -112,6 +115,9 @@ impl<'a> Cur<'a> {
     pub(crate) fn u64(&mut self, what: &str) -> Result<u64, FormatError> {
         let b = self.take(8, what)?;
         Ok(u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]))
+    }
+    pub(crate) fn i64(&mut self, what: &str) -> Result<i64, FormatError> {
+        Ok(self.u64(what)? as i64)
     }
     /// A count that must be non-negative and plausible for what's left (`min_each` bytes each).
     pub(crate) fn count(&mut self, what: &str, min_each: usize) -> Result<usize, FormatError> {

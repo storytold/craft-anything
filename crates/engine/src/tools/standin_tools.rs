@@ -35,12 +35,18 @@ const MAX_LOGGED_QUERY_NAMES: usize = 32;
 /// Tells a client which kind of answer it got: a recorded 404 and "nothing recorded" look alike otherwise.
 const ANSWER_HEADER: &str = "X-Craft-Anything-Stand-In";
 
-/// Steps that bring an older file to the current version (none yet).
-const STANDIN_STEPS: &[Step<Value>] = &[];
+/// Steps that bring an older file to the current version.
+const STANDIN_STEPS: &[Step<Value>] = &[v1_places_unknown];
 const FIRST_STANDIN_VERSION: u32 = 1;
 const _: () = assert!(FIRST_STANDIN_VERSION as usize + STANDIN_STEPS.len() == STANDIN_VERSION as usize);
 
-const REPLAY_LIMIT: &str = "Replay is read-only: POST, PUT, PATCH and DELETE answer what was recorded and don't change what later reads return. Nothing here models the backend's state.";
+const REPLAY_LIMIT: &str = "Replay follows the recording: a POST, PUT, PATCH or DELETE the original accepted moves later reads of its path, and of paths above or under it, on to the answers recorded after it. Nothing is worked out from what is sent: a write steps to the next recorded write of its kind whatever it carries, one with no recorded match changes nothing, and a write to an unrelated path (a sign-in changing /me) isn't seen. A running stand-in keeps one place in the recording for all its clients; a build's check starts the stand-ins the app itself runs from the beginning, and stopping and starting one does too.";
+
+/// Version 1 kept no places in the recording: its answers replay in turn, and a write gets each
+/// one once ([`standin::answer`]), so there is nothing to rewrite.
+fn v1_places_unknown(_: &mut Value) -> Result<(), String> {
+    Ok(())
+}
 
 pub fn specs() -> Vec<ToolSpec> {
     vec![
@@ -58,7 +64,7 @@ pub fn specs() -> Vec<ToolSpec> {
         spec(
             "web_standin_start",
             "Start a stand-in backend",
-            "Answer HTTP requests on this computer from a file written by web_standin_build, and return its URL to point a rebuilt front end at. Listens on 127.0.0.1 only, refuses requests addressed to any other host and pages from other computers, and allows local pages through CORS. Stays running for this session, or until web_standin_stop. A request with no recorded answer gets a 404 with the nearest routes as JSON. Writes replay what was recorded and change nothing. Runs no code from the recording.",
+            "Answer HTTP requests on this computer from a file written by web_standin_build, and return its URL to point a rebuilt front end at. Listens on 127.0.0.1 only, refuses requests addressed to any other host and pages from other computers, and allows local pages through CORS. Stays running for this session, or until web_standin_stop. A request with no recorded answer gets a 404 with the nearest routes as JSON. A write the original accepted moves later reads of the same path, or of paths above or under it, on to what was recorded after it; nothing is worked out from what is sent. A write past the recorded ones of its kind gets a 404 with reason write_not_recorded and changes nothing; web_standin_show counts every write it refused in writes_refused. Runs no code from the recording.",
             "Start a local stand-in for a website's backend, answering from a recording.",
             Toolset::Browser,
             Effects::MUTATES_SESSION.union(Effects::ACCESSES_NETWORK),
@@ -227,7 +233,7 @@ fn web_standin_build(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, Too
         .confidence(Confidence::Observed)
         .authority(Authority::EarlierRecord)
         .limitation(Limitation::new("only_what_was_recorded", "This knows only the requests in the recording. A page or action nobody used while recording has no answer here, and an {id} in a template is inferred from how paths varied."))
-        .limitation(Limitation::new("read_only_replay", REPLAY_LIMIT))
+        .limitation(Limitation::new("replay_follows_recording", REPLAY_LIMIT))
         .limitation(Limitation::new("secrets_dropped", format!("{dropped} credential or secret-shaped value(s) were dropped, so anything that needs a real session won't work. Other response text is kept as recorded, and may hold personal data: name it in hidden_values, and don't commit this file.")))
         .coverage(Coverage::page(shown, total as u64, p.offset as u64))
         .location(Location::new("path", out.display().to_string()));
@@ -270,6 +276,8 @@ struct Log {
     answered_without_body: u64,
     by_route: BTreeMap<String, u64>,
     no_answer: u64,
+    /// Of those, writes, whatever the recording lacks for them: none of them changes anything.
+    writes_refused: u64,
     missing: BTreeMap<(String, String), MissingRow>,
     missing_not_listed: u64,
 }
@@ -312,6 +320,10 @@ impl Answerer for Replay {
             }
             Answer::NoMatch(n) => {
                 log.no_answer = log.no_answer.saturating_add(1);
+                let refused_write = standin::is_write_request(&r.method, &r.body);
+                if refused_write {
+                    log.writes_refused = log.writes_refused.saturating_add(1);
+                }
                 // What a client asks for is only its names and path: never query values or bodies.
                 let path = clip(&standin::safe_path(&r.path), MAX_LOGGED_PATH);
                 let key = (r.method.to_ascii_uppercase(), path.clone());
@@ -336,7 +348,11 @@ impl Answerer for Replay {
                         "method": r.method,
                         "path": path,
                         "nearest": n.nearest,
-                        "message": "The recording behind this stand-in has no replayable answer for this request.",
+                        "message": if refused_write {
+                            "No write like this was recorded, so the stand-in can't say how the original answered it: nothing was changed."
+                        } else {
+                            "The recording behind this stand-in has no replayable answer for this request."
+                        },
                     }),
                 );
                 response.headers.push((ANSWER_HEADER.into(), "no-recorded-answer".into()));
@@ -368,7 +384,9 @@ impl Running {
             "requests_answered": log.answered,
             "answered_without_their_body": log.answered_without_body,
             "requests_with_no_answer": log.no_answer,
+            "writes_refused": log.writes_refused,
             "requests_refused": self.server.refused(),
+            "recording_position": guard.0.position(),
         })
     }
 }
@@ -389,6 +407,28 @@ fn stand_ins(ctx: &mut Ctx<'_>) -> Arc<StandIns> {
             s
         }
     }
+}
+
+/// For a build's check: put every stand-in this session runs back at the start of its recording,
+/// so the check reads from a known place whatever was written before it. Returns how many writes
+/// they have refused so far, for [`writes_refused`] to count the check's own from.
+pub fn start_of_check(session: &crate::Session) -> u64 {
+    refused_by_each(session, |turns| *turns = Turns::default())
+}
+
+/// How many writes the stand-ins this session runs have refused, all told.
+pub fn writes_refused(session: &crate::Session) -> u64 {
+    refused_by_each(session, |_| ())
+}
+
+fn refused_by_each(session: &crate::Session, mut each: impl FnMut(&mut Turns)) -> u64 {
+    let Some(all) = session.ext.get::<StandIns>() else { return 0 };
+    let running = all.running.lock().unwrap_or_else(PoisonError::into_inner);
+    running.values().fold(0, |sum, r| {
+        let mut state = r.replay.state.lock().unwrap_or_else(PoisonError::into_inner);
+        each(&mut state.0);
+        sum.saturating_add(state.1.writes_refused)
+    })
 }
 
 // ---------------------------------------------------------------------------------------------

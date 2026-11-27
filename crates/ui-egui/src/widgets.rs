@@ -89,18 +89,42 @@ fn popup_fade(ui: &Ui) -> f32 {
 /// One row of a dropdown's list or of a menu: a soft fill eases in under the pointer, and the chosen row has a
 /// tick at its end (so it doesn't rely on colour alone). `text` is shown as given.
 pub fn menu_item(ui: &mut Ui, selected: bool, text: impl Into<String>) -> Response {
+    menu_item_layout(ui, selected, text.into(), false)
+}
+
+/// A dropdown row bounded to the list's width. Keep the full accessible name when its
+/// painted label needs an ellipsis (for example, a server's long model identifier).
+pub fn menu_item_truncated(ui: &mut Ui, selected: bool, text: impl Into<String>) -> Response {
+    menu_item_layout(ui, selected, text.into(), true)
+}
+
+fn menu_item_layout(ui: &mut Ui, selected: bool, text: String, truncate: bool) -> Response {
     let t = Tokens::get(ui.ctx());
-    let text = text.into();
     ui.set_opacity(popup_fade(ui));
     // Rows sit close together, whatever list they are in.
     ui.spacing_mut().item_spacing.y = theme::space::XXS;
     let size = ControlSize::Medium;
-    let galley = ui.painter().layout_no_wrap(text.clone(), egui::FontId::proportional(size.text()), t.text);
     let tick = size.icon() + theme::space::SM;
+    let galley = if truncate {
+        egui::WidgetText::from(RichText::new(&text).font(egui::FontId::proportional(size.text())).color(t.text)).into_galley(
+            ui,
+            Some(egui::TextWrapMode::Truncate),
+            (ui.available_width() - theme::space::SM * 2.0 - tick).max(0.0),
+            egui::FontSelection::Default,
+        )
+    } else {
+        ui.painter().layout_no_wrap(text.clone(), egui::FontId::proportional(size.text()), t.text)
+    };
     let wanted = galley.size().x + theme::space::SM * 2.0 + tick;
     // As wide as the list, which is as wide as its widest row: while the list is being measured
     // a row asks only for what it needs, or a menu would open at its widest.
-    let width = if ui.is_sizing_pass() { wanted } else { wanted.max(ui.available_width()) };
+    let width = if truncate {
+        ui.available_width()
+    } else if ui.is_sizing_pass() {
+        wanted
+    } else {
+        wanted.max(ui.available_width())
+    };
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(width, size.height()), Sense::click());
     let h = hover_t(ui, &resp);
     let fill = if resp.is_pointer_button_down_on() { t.pressed } else { theme::mix(Color32::TRANSPARENT, t.hover, h) };
@@ -451,11 +475,10 @@ pub fn segmented_scaled(ui: &mut Ui, options: &[&str], selected: usize, height: 
         segments.push((seg, resp));
         x += w;
     }
-    // The card slides to the chosen segment (measured from the switch's own
-    // left edge, so moving the whole switch doesn't set it off). Named by its options, not by
-    // where it is drawn, so it keeps its place when the screen around it changes.
+    // The row scopes its controls with push_id. Keep the same animation as the layout moves,
+    // while letting rows with identical options slide independently.
     let before: f32 = widths.iter().take(selected).sum();
-    let slide = |part: &str, to: f32| ui.ctx().animate_value_with_time(egui::Id::new(("seg-slide", part, options)), to, SLIDE);
+    let slide = |part: &str, to: f32| ui.ctx().animate_value_with_time(ui.id().with(("seg-slide", part, options)), to, SLIDE);
     let (card_x, card_w) = (slide("x", before), slide("w", widths.get(selected).copied().unwrap_or_default()));
     let card = egui::Rect::from_min_size(egui::pos2(rect.left() + pad + card_x, rect.top() + pad), Vec2::new(card_w, height - 2.0 * pad));
     ui.painter().rect(card, t.radius_sm, t.field, Stroke::new(scale, t.card_border), egui::StrokeKind::Inside);
@@ -878,6 +901,31 @@ mod tests {
     /// spend drawing (`predicted_dt`, a 60th of a second here) off it.
     fn paced(wait: Duration, every: Duration) -> bool {
         wait <= every && wait + Duration::from_millis(17) >= every
+    }
+
+    #[test]
+    fn identical_switches_draw_their_own_selected_cards() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            for (row, selected) in [0, 2].into_iter().enumerate() {
+                ui.push_id(row, |ui| {
+                    segmented(ui, &["Allow", "Ask", "Refuse"], selected, ControlSize::Small);
+                });
+            }
+        });
+        output.textures_delta.clear();
+        let field = Tokens::get(&ctx).field;
+        let cards: Vec<_> = output
+            .shapes
+            .iter()
+            .filter_map(|shape| match &shape.shape {
+                egui::Shape::Rect(r) if r.fill == field => Some(r.rect),
+                _ => None,
+            })
+            .collect();
+        let [first, second] = cards.as_slice() else { panic!("expected two selection cards, got {cards:?}") };
+        assert!(first.right() < second.left(), "each card should sit on its own choice: {cards:?}");
     }
 
     /// #579: egui's `Spinner` asks to be redrawn at once, every frame, for as long as it shows;

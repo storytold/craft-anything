@@ -9,10 +9,11 @@ use crate::state::{FeedItem, MakeDraft, Modal, PlanStatus, PlanStep, Screen, Use
 use crate::theme::{self, Tokens};
 use crate::{CraftApp, Done, chat, icons, prompt_box, widgets};
 use craft_anything_ai::AgentEvent;
-use craft_anything_ai::rebuild::activity::{Action, ActivityNow, LineKind};
+use craft_anything_ai::rebuild::activity::{Action, ActivityNow};
 use craft_anything_ai::rebuild::feed::{self, apply};
 use craft_anything_ai::rebuild::{self, AppKind, KindRegistry, KindWords, Note, RebuildRun, RunEvent, RunOptions, Started, Step, Stopped, TargetKind};
 use craft_anything_engine::inbox::{Answer, Inbox, Request, RequestKind};
+use craft_anything_engine::outputs::CargoEnv;
 use craft_anything_engine::workspace::{CheckResult, Status, TargetRef, Workspace, suggest_name};
 use egui::{Color32, RichText, Ui, Vec2};
 use std::path::{Path, PathBuf};
@@ -184,6 +185,11 @@ impl CraftApp {
     /// Start a run, or queue it when as many as Settings allows are already building.
     fn launch(&mut self, ws: Workspace, opts: RunOptions) -> Result<Started, craft_anything_engine::evidence::ToolError> {
         self.runs.set_limit(self.settings.build.parallel);
+        // Cleared even when the start fails, so an error card never shows an earlier run's use,
+        // but not for a second start of a project already building, which is turned down.
+        if !self.runs.is_running(&ws.root) && self.runs.position(&ws.root).is_none() {
+            self.last_run.remove(&ws.root);
+        }
         self.runs.start(&self.hub, ws, opts)
     }
 
@@ -209,6 +215,13 @@ impl CraftApp {
     /// Show a project: a building one's conversation comes from its run, any other's from what
     /// was saved. Other projects keep building meanwhile.
     pub fn open_workspace(&mut self, ws: Workspace) {
+        self.open_workspace_mode(ws, true);
+    }
+
+    /// Open a workspace, optionally remembering its folder in `settings.project_folders`.
+    /// Startup restoration passes `remember = false` so `last_project` never silently re-adds an
+    /// unlisted folder (#2340).
+    pub(crate) fn open_workspace_mode(&mut self, ws: Workspace, remember: bool) {
         let root = ws.root.clone();
         let same = self.workspace.as_ref().is_some_and(|w| w.root == ws.root);
         if !same {
@@ -230,10 +243,14 @@ impl CraftApp {
             self.load_asked(&ws);
         }
         self.workspace = Some(ws.clone());
-        if !self.projects.iter().any(|p| p.root == ws.root) {
+        if remember {
+            if !self.projects.iter().any(|p| p.root == ws.root) {
+                self.projects.insert(0, ws);
+            }
+            self.remember_project(&root);
+        } else if self.settings.lists_project(&root) && !self.projects.iter().any(|p| p.root == ws.root) {
             self.projects.insert(0, ws);
         }
-        self.remember_project(&root);
         self.refresh_side_panel();
         self.state.screen = Screen::Project;
         // A Send pressed before its picture checks finished, on a project they left: send now.
@@ -336,6 +353,7 @@ impl CraftApp {
                     clock.saved_again(root, true);
                     self.session_usage.tokens_incomplete |= *tokens_unknown;
                     self.session_usage.add_turn(*input_tokens, *output_tokens, *cost_usd, *cost_is_estimate);
+                    self.last_run.entry(root.clone()).or_default().add_turn(*input_tokens, *output_tokens, *tokens_unknown, *cost_usd, *cost_is_estimate);
                 }
                 // A run's first event is its first step: the clock starts there.
                 _ if !clock.working() => clock.saved_again(root, true),
@@ -357,6 +375,7 @@ impl CraftApp {
             let join = |part: fn(&Note) -> &str| left.iter().map(part).collect::<Vec<_>>().join("\n\n");
             let (message, shown) = (join(|n| &n.text), join(|n| &n.shown));
             let pictures: Vec<PathBuf> = left.iter().flat_map(|n| n.pictures.clone()).collect();
+            let carried_notes = left.iter().map(rebuild::notes::Carried::from).collect();
             if open.as_ref() == Some(&root) {
                 if let Some(ws) = self.workspace.as_mut() {
                     let _ = ws.reload();
@@ -366,13 +385,13 @@ impl CraftApp {
                         self.state.feed.pop();
                     }
                     self.state.feed.push(FeedItem::User(UserItem::new(shown.clone(), pictures.clone())));
-                    self.resume(Some(message), Some(shown), pictures);
+                    self.resume_with_notes(Some(message), Some(shown), pictures, carried_notes);
                 }
             } else if !left.is_empty() {
                 // Another project's notes start its next run in the background.
                 let Ok(ws) = Workspace::open(&root) else { continue };
                 let Some(backend) = self.builder_backend(ws.manifest.builder.as_deref()) else { continue };
-                let opts = self.run_options(Some(backend), Some(message), Some(shown), pictures);
+                let opts = RunOptions { carried_notes, ..self.run_options(Some(backend), Some(message), Some(shown), pictures) };
                 if let Err(e) = self.launch(ws, opts) {
                     self.toast(e.message, true);
                 }
@@ -772,13 +791,13 @@ pub struct Facts {
 }
 
 impl Facts {
-    pub fn read(ws: &Workspace, godot: Option<&Path>) -> Facts {
+    pub fn read(ws: &Workspace, godot: Option<&Path>, cargo: &CargoEnv) -> Facts {
         let dir = ws.app_dir();
         let a = ws.assets();
         Facts {
             root: ws.root.clone(),
             site: rebuild::site_dir(&dir).is_some(),
-            program: rebuild::launch(&dir, godot).is_some(),
+            program: craft_anything_engine::outputs::launch_in(&dir, godot, cargo).is_some(),
             references: ws.references().len(),
             // Summed from +0.0: an empty f64 `sum()` is -0.0, shown as "$-0.00".
             assets: (a.len(), a.iter().fold(0.0, |s, x| s + x.cost_usd)),
@@ -811,9 +830,10 @@ impl CraftApp {
             return;
         }
         let godot = self.game_engines.as_ref().and_then(|i| i.best(craft_anything_engines::game::Builder::Godot)).map(|i| i.program.clone());
+        let cargo = self.cargo_env.clone();
         r.wanted = false;
         r.at = Some(std::time::Instant::now());
-        r.job = Some(self.jobs.spawn("Read the project", false, move |_| Ok(Done::Facts(Facts::read(&ws, godot.as_deref())))));
+        r.job = Some(self.jobs.spawn("Read the project", false, move |_| Ok(Done::Facts(Facts::read(&ws, godot.as_deref(), &cargo)))));
     }
 
     pub(crate) fn facts_read(&mut self, job: u64, facts: Option<Facts>) {
@@ -889,6 +909,8 @@ fn current_step(app: &CraftApp, ws: &Workspace) -> Option<(Step, bool)> {
 /// The side panel's width, and the room the screen needs to keep it beside the feed.
 const SIDE_W: f32 = 300.0;
 const SIDE_BESIDE: f32 = 860.0;
+/// The least the feed keeps when a tall composer needs the room: a few lines, still scrollable.
+const MIN_FEED_HEIGHT: f32 = 80.0;
 
 pub fn show(app: &mut CraftApp, ui: &mut Ui) {
     let Some(ws) = app.workspace.clone() else {
@@ -914,20 +936,23 @@ pub fn show(app: &mut CraftApp, ui: &mut Ui) {
         let max_w = width.min(720.0);
         let pad = ((width - max_w) / 2.0).max(0.0);
         // The feed gets what the prompt box leaves; the box grows with its text, so its height
-        // is measured each frame and used on the next.
+        // is measured each frame and used on the next. It keeps a few lines even when a tall
+        // composer needs the room, and the composer scrolls instead.
         let comp_id = ui.id().with("project-composer-h");
         let text_id = comp_id.with("text-height");
         let comp_h = ui.data(|d| d.get_temp::<f32>(comp_id)).unwrap_or(110.0);
         let text_h = ui.data(|d| d.get_temp::<f32>(text_id)).unwrap_or_default();
-        let height = ui.available_height() - chat::COMPOSER_GAP;
-        let min_feed = 40.0;
+        let available = ui.available_height().max(0.0);
+        let min_feed = MIN_FEED_HEIGHT.min(available * 0.5);
+        let room_for_feed_and_composer = available - chat::COMPOSER_GAP - ui.spacing().item_spacing.y;
         // Pinned plans, picture tiles and controls share the same height as the draft. Use
         // their measured height so a draft cannot grow into space they already occupy.
-        let text_limit = height - min_feed - ui.spacing().item_spacing.y - (comp_h - text_h);
-        let rest = Vec2::new(width, (height - comp_h).max(min_feed));
-        ui.allocate_ui_with_layout(rest, egui::Layout::top_down(egui::Align::Min), |ui| {
+        let text_limit = room_for_feed_and_composer - min_feed - (comp_h - text_h);
+        let feed_h = (room_for_feed_and_composer - comp_h).max(min_feed);
+        let rest = Vec2::new(width, feed_h);
+        let feed_area = ui.allocate_ui_with_layout(rest, egui::Layout::top_down(egui::Align::Min), |ui| {
             ui.set_min_height(rest.y);
-            egui::ScrollArea::vertical().auto_shrink([false, false]).stick_to_bottom(true).show(ui, |ui| {
+            egui::ScrollArea::vertical().min_scrolled_height(0.0).max_height(rest.y).auto_shrink([false, false]).stick_to_bottom(true).show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.add_space(pad);
                     ui.vertical(|ui| {
@@ -942,18 +967,28 @@ pub fn show(app: &mut CraftApp, ui: &mut Ui) {
                         feed(app, ui, &ws, &waiting);
                     });
                 });
-            });
+            })
         });
         ui.add_space(chat::COMPOSER_GAP);
-        let r = ui.horizontal(|ui| {
-            ui.add_space(pad);
-            ui.vertical(|ui| composer(app, ui, max_w, &t, waiting.last(), text_limit)).inner
+        let room = ui.available_height().max(0.0);
+        let r = egui::ScrollArea::vertical().id_salt("project-composer").min_scrolled_height(0.0).max_height(room).auto_shrink([false, true]).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.add_space(pad);
+                ui.vertical(|ui| composer(app, ui, max_w, &t, waiting.last(), available, text_limit)).inner
+            })
+            .inner
         });
-        ui.data_mut(|d| d.insert_temp(text_id, r.inner));
         if (text_h - r.inner).abs() > 0.5 {
             ui.ctx().request_discard("the project draft changed height");
         }
-        chat::remember_composer_height(ui, comp_id, comp_h, r.response.rect.height());
+        chat::remember_composer_height(ui, comp_id, comp_h, r.content_size.y);
+        // The layout regressions check the composer's own viewport, not only the window.
+        ui.data_mut(|d| {
+            d.insert_temp(text_id, r.inner);
+            d.insert_temp(egui::Id::new("project-feed-height"), feed_area.inner.inner_rect.height());
+            d.insert_temp(egui::Id::new("project-composer-clip"), r.inner_rect);
+            d.insert_temp(egui::Id::new("project-composer-content"), r.content_size.y);
+        });
     });
 }
 
@@ -1335,10 +1370,10 @@ fn now_words(app: &CraftApp, now: &ActivityNow) -> Option<String> {
 /// whole log to open. Inside the feed's scroll area, so it can never push the prompt box away.
 /// `status_row`: the row above already says what it's on.
 fn run_details(app: &mut CraftApp, ui: &mut Ui, status_row: bool) {
-    const LINE: f32 = 18.0;
-    const MOST_SHOWN: f32 = 260.0;
     let t = Tokens::get(ui.ctx());
     let running = app.running();
+    let Some(ws) = app.workspace.as_ref() else { return };
+    let (root, name) = (ws.root.clone(), ws.manifest.name.clone());
     let Some(run) = app.open_run() else { return };
     let count = run.activity_len();
     if count == 0 {
@@ -1353,38 +1388,12 @@ fn run_details(app: &mut CraftApp, ui: &mut Ui, status_row: bool) {
     };
     let log = run.activity_log();
     let mut open_log = false;
+    let mut pop_out = false;
     egui::CollapsingHeader::new(RichText::new(title).color(t.text_dim).size(theme::CAPTION)).id_salt("run_details").icon(widgets::disclosure_icon).show(
         ui,
         |ui| {
-            widgets::card(&t).inner_margin(theme::pad::TIGHT).show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                // The rows are exactly this tall, or the scroll area miscounts them.
-                ui.spacing_mut().item_spacing.y = 0.0;
-                ui.spacing_mut().interact_size.y = LINE;
-                egui::ScrollArea::vertical().id_salt("run_details_lines").max_height(MOST_SHOWN).auto_shrink([false, true]).stick_to_bottom(true).show_rows(
-                    ui,
-                    LINE,
-                    count,
-                    |ui, range| {
-                        for line in run.activity_lines(range) {
-                            let (colour, words) = match line.kind {
-                                LineKind::Failed | LineKind::Problem => (t.warning, t.text),
-                                LineKind::Done => (t.success, t.text_dim),
-                                LineKind::Stage => (t.accent_ink, t.text),
-                                LineKind::Started | LineKind::Said => (t.text_dim, t.text),
-                                LineKind::Note | LineKind::Output => (t.text_faint, t.text_dim),
-                            };
-                            ui.horizontal(|ui| {
-                                ui.set_height(LINE);
-                                ui.label(RichText::new(crate::usage::duration_words(line.at)).font(theme::mono(theme::CAPTION)).color(t.text_faint));
-                                ui.label(RichText::new(line.kind.tag()).font(theme::mono(theme::CAPTION)).color(colour));
-                                ui.add(egui::Label::new(RichText::new(&line.text).font(theme::mono(theme::CAPTION)).color(words)).truncate())
-                                    .on_hover_text(&line.text);
-                            });
-                        }
-                    },
-                );
-            });
+            // Each project's box keeps its own height and wrapping.
+            pop_out = crate::activity_box::inline(ui, run, egui::Id::new(("run_details", &root)));
             ui.horizontal(|ui| {
                 ui.label(RichText::new(tr("A command's output shows here when it finishes.")).color(t.text_faint).size(theme::CAPTION));
                 open_log = widgets::open_log_button(ui, &log);
@@ -1397,6 +1406,56 @@ fn run_details(app: &mut CraftApp, ui: &mut Ui, status_row: bool) {
     if open_log {
         app.open_log(&log);
     }
+    if pop_out {
+        crate::activity_box::pop_out(app, root, name);
+    }
+}
+
+/// How tall each item of a conversation was last drawn, while what decides that (the project, the
+/// column's width, the scale, the font, the mode and the language) stays the same.
+#[derive(Default)]
+pub(crate) struct FeedHeights {
+    key: Option<(PathBuf, [u32; 3], bool, String)>,
+    /// With the item's [`size_mark`] then: entries move when a folded checklist is replaced.
+    heights: Vec<Option<(SizeMark, f32)>>,
+}
+
+type SizeMark = (std::mem::Discriminant<FeedItem>, usize, usize);
+
+/// What tells an item from another that may take its place or a later state of itself, for the
+/// kinds that can be skipped out of view. The rarer kinds ask or load something.
+// shortcut: lengths, not the words; another item of the same kind and length keeps the old height until it's in view.
+fn size_mark(item: &FeedItem) -> Option<SizeMark> {
+    let (a, b) = match item {
+        FeedItem::User(u) => (u.text().len(), 0),
+        FeedItem::Step { text, .. } | FeedItem::Agent { text, streaming: false } => (text.len(), 0),
+        FeedItem::Work { tools, notes } => (tools.len() + notes.len(), tools.iter().filter(|(_, d)| *d == Some(false)).count()),
+        FeedItem::Paused => (0, 0),
+        _ => return None,
+    };
+    Some((std::mem::discriminant(item), a, b))
+}
+
+/// Whether items out of view are needed this frame: a screen reader reads them, the keyboard may
+/// move into them or be in them, and a selection that loses an end is dropped.
+fn needs_whole_feed(ui: &Ui) -> bool {
+    let ctx = ui.ctx();
+    let moves = ui.input(|i| {
+        i.events.iter().any(|e| {
+            matches!(
+                e,
+                egui::Event::Key {
+                    key: egui::Key::Tab | egui::Key::ArrowUp | egui::Key::ArrowDown | egui::Key::ArrowLeft | egui::Key::ArrowRight,
+                    pressed: true,
+                    ..
+                }
+            )
+        })
+    });
+    moves
+        || (ctx.memory(|m| m.focused().is_some()) && !ctx.text_edit_focused())
+        || ctx.plugin_opt::<egui::text_selection::LabelSelectionState>().is_some_and(|p| p.lock().has_selection())
+        || ctx.accesskit_node_builder(ui.unique_id(), |_| ()).is_some()
 }
 
 /// Each item of the feed, in order. Answers and "Try again" are collected, to act on afterwards.
@@ -1419,9 +1478,29 @@ fn draw_items(
             next_asked += 1;
         }
     };
+    let width = ui.available_width();
+    let sizes = [width, ui.ctx().pixels_per_point(), ui.text_style_height(&egui::TextStyle::Body)].map(f32::to_bits);
+    let key = (ws.root.clone(), sizes, advanced, crate::i18n::language());
+    let mut heights = std::mem::take(&mut app.feed_heights);
+    if heights.key.as_ref() != Some(&key) {
+        heights = FeedHeights { key: Some(key), heights: Vec::new() };
+    }
+    heights.heights.resize(items.len(), None);
+    let whole = needs_whole_feed(ui);
     for (i, item) in items.iter().enumerate() {
         questions_up_to(app, ui, i);
-        ui.push_id(i, |ui| match item {
+        // The last item may still be growing.
+        let mark = size_mark(item).filter(|_| i + 1 < items.len());
+        if let Some((_, h)) = heights.heights[i].filter(|(m, _)| !whole && mark == Some(*m)) {
+            let size = Vec2::new(width, h);
+            if !ui.is_rect_visible(egui::Rect::from_min_size(ui.cursor().min, size)) {
+                // One id, as drawing it takes, so the items after it keep theirs.
+                ui.allocate_space(size);
+                ui.add_space(chat::MESSAGE_GAP);
+                continue;
+            }
+        }
+        let drawn = ui.push_id(i, |ui| match item {
             FeedItem::User(text) => chat::user_bubble(ui, text.text(), false),
             FeedItem::Step { text, .. } => chat::activity_row(ui, RichText::new(text).color(t.text_dim).size(theme::SMALL)),
             FeedItem::Paused => chat::activity_row(ui, RichText::new(tr("Paused.")).color(t.text_dim).size(theme::SMALL)),
@@ -1480,12 +1559,17 @@ fn draw_items(
                                     ui.ctx().copy_text(cmd.to_string());
                                 }
                             });
+                            if let Some(words) = app.last_run.get(&ws.root).and_then(crate::usage::RunTally::words) {
+                                ui.add(egui::Label::new(RichText::new(words).color(t.text_dim).size(theme::SMALL)).wrap());
+                            }
                         }
                     });
             }
         });
+        heights.heights[i] = size_mark(item).map(|m| (m, drawn.response.rect.height()));
         ui.add_space(chat::MESSAGE_GAP);
     }
+    app.feed_heights = heights;
     questions_up_to(app, ui, usize::MAX);
 }
 
@@ -1814,7 +1898,7 @@ fn waiting_notes(app: &mut CraftApp, ui: &mut Ui, waiting: &[Note], t: &Tokens) 
     }
 }
 
-fn composer(app: &mut CraftApp, ui: &mut Ui, width: f32, t: &Tokens, last_waiting: Option<&Note>, text_limit: f32) -> f32 {
+fn composer(app: &mut CraftApp, ui: &mut Ui, width: f32, t: &Tokens, last_waiting: Option<&Note>, pane_height: f32, text_limit: f32) -> f32 {
     let running = app.running();
     if let Some(steps) = plan(&app.state.feed).filter(|p| running || p.iter().any(|s| s.status != PlanStatus::Done)) {
         let began = app.open_run().filter(|_| running).map(RebuildRun::started);
@@ -1841,6 +1925,20 @@ fn composer(app: &mut CraftApp, ui: &mut Ui, width: f32, t: &Tokens, last_waitin
                 trf("Waiting for other builds to finish: {n} in line.", &[("n", &n.to_string())])
             };
             ui.label(RichText::new(line).color(t.text_dim).size(theme::SMALL));
+        });
+        ui.add_space(theme::space::XS);
+    }
+    // Ghidra's analysis goes on after Pause, so nothing is lost: this is the way to stop it (#948).
+    if let Some(root) = app.workspace.as_ref().map(|w| w.root.clone()).filter(|r| craft_anything_engine::tools::deep::analysing_for(r)) {
+        ui.horizontal_wrapped(|ui| {
+            icons::show(ui, "activity", theme::icon::MD, t.accent_ink);
+            ui.label(RichText::new(tr("Ghidra is analysing the original. Pausing doesn't stop it, so nothing is lost.")).color(t.text_dim).size(theme::SMALL));
+            if widgets::link(ui, "Stop the analysis")
+                .on_hover_text(tr("Ghidra stays off for this project until your next request, which starts it again from the beginning. Until then, decompiling uses the built-in engine."))
+                .clicked()
+            {
+                app.act("engines_analysis_stop", serde_json::json!({"project": root}), tr("Stop the analysis"));
+            }
         });
         ui.add_space(theme::space::XS);
     }
@@ -1875,7 +1973,7 @@ fn composer(app: &mut CraftApp, ui: &mut Ui, width: f32, t: &Tokens, last_waitin
                 name: "Ask for a change",
                 hint,
                 min_rows: 2,
-                viewport_height: prompt_box::ViewportHeight::Pane,
+                viewport_height: prompt_box::ViewportHeight::Pane(pane_height),
                 text_height_limit: Some(text_limit),
                 attach: Some("Attach pictures (or drop or paste them here)"),
                 previews: &previews,
@@ -1968,8 +2066,8 @@ fn questions_switch(app: &mut CraftApp, ui: &mut Ui) {
     ui.add_space(theme::space::XS);
     let (sending, asking) = (["Change it", "Just ask"], ["Ask me", "Decide yourself"]);
     let title = widgets::label_galley(ui, &tr(QUESTIONS_TITLE), theme::SMALL, t.text_dim).size().x;
-    // The approvals menu's link, the space before it and one more item gap.
-    let approvals = widgets::label_galley(ui, &tr("Approvals"), theme::BODY, t.text).size().x + 8.0;
+    // The approvals menu's link, the space after it and one more item gap.
+    let approvals = widgets::label_galley(ui, &tr("Approvals"), theme::BODY, t.text).size().x + theme::space::SM;
     // Room for the gaps and for enough of the hint to read: squeezed to nothing it sat on the title.
     let gaps = ui.spacing().item_spacing.x * 4.0 + theme::space::XXL;
     let title = title + approvals;
@@ -1982,6 +2080,10 @@ fn questions_switch(app: &mut CraftApp, ui: &mut Ui) {
     };
     let right = egui::Layout::right_to_left(egui::Align::Center);
     ui.horizontal(|ui| {
+        // The approvals menu starts the row, at the end away from Send: under Send, a click a
+        // little low opened it instead of sending (#2435).
+        crate::approvals::menu(app, ui, &root);
+        ui.add_space(theme::space::SM);
         // What sending does: ask for a change, or just ask about the build.
         if let Some(i) = widgets::segmented(ui, &sending, usize::from(app.state.just_ask), theme::ControlSize::Small) {
             app.state.just_ask = i == 1;
@@ -2005,9 +2107,6 @@ const QUESTIONS_TITLE: &str = "Builder's questions:";
 
 fn questions_controls(app: &mut CraftApp, ui: &mut Ui, now: craft_anything_engine::workspace::Questions, root: &Path, t: &Tokens) {
     use craft_anything_engine::workspace::Questions;
-    // Right to left: the approvals menu at the end of the row.
-    crate::approvals::menu(app, ui, root);
-    ui.add_space(theme::space::SM);
     {
         let sel = usize::from(now == Questions::Decide);
         if let Some(i) = widgets::segmented(ui, &["Ask me", "Decide yourself"], sel, theme::ControlSize::Small) {
@@ -2241,10 +2340,15 @@ impl CraftApp {
     /// Start another run on the open project: with a message (already shown in the app's feed;
     /// `shown` puts it in the saved one, with `pictures`), or none to try again.
     fn resume(&mut self, message: Option<String>, shown: Option<String>, pictures: Vec<PathBuf>) {
+        self.resume_with_notes(message, shown, pictures, Vec::new());
+    }
+
+    fn resume_with_notes(&mut self, message: Option<String>, shown: Option<String>, pictures: Vec<PathBuf>, carried_notes: Vec<rebuild::notes::Carried>) {
         let Some(ws) = self.workspace.clone() else { return };
         let ws = Workspace::open(&ws.root).unwrap_or(ws);
         let Some(backend) = self.builder_backend(ws.manifest.builder.as_deref()) else { return self.need_builder(false) };
-        self.start_run(ws, Some(backend), message, shown, pictures);
+        let opts = RunOptions { carried_notes, ..self.run_options(Some(backend), message, shown, pictures) };
+        self.start_run_with(ws, opts);
     }
 }
 
@@ -2252,6 +2356,108 @@ impl CraftApp {
 mod tests {
     use super::*;
     use craft_anything_ai::AgentEvent;
+
+    /// Every item used to be drawn on every frame, so a long conversation made each frame slow
+    /// (#2448). What needs the items out of view still gets them, and nothing moves.
+    #[test]
+    fn a_long_conversation_draws_what_is_in_view() {
+        let d = tempfile::tempdir().unwrap();
+        let ws = Workspace::create(d.path(), "Game", "Make a game", TargetRef::None).unwrap();
+        let mut app = crate::demo::app(crate::demo::engine(craft_anything_engine::Mode::Experienced, true));
+        app.workspace = Some(ws);
+        app.state.screen = Screen::Project;
+        app.state.feed.push(FeedItem::Plan(Vec::new()));
+        for i in 0..200 {
+            app.state.feed.push(FeedItem::Agent { text: format!("Answer {i} with some `code` in it."), streaming: false });
+            app.state.feed.push(FeedItem::Work { tools: vec![(format!("tool_{i}"), Some(true)); 3], notes: Vec::new() });
+        }
+        let ctx = egui::Context::default();
+        CraftApp::setup_context(&ctx);
+        // How many widgets the frame made, and the text it showed with where each piece is.
+        let mut frame = |events: Vec<egui::Event>, remove_first: bool| {
+            if remove_first {
+                app.state.feed.remove(0);
+            }
+            let screen_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(1280.0, 820.0)));
+            let mut out = ctx.run_ui(egui::RawInput { screen_rect, events, ..Default::default() }, |ui| app.show(ui));
+            out.textures_delta.clear();
+            let shown: Vec<_> = out
+                .shapes
+                .iter()
+                .filter_map(|s| match &s.shape {
+                    egui::Shape::Text(t) => Some((t.galley.text().to_string(), t.pos.x.round(), t.pos.y.round())),
+                    _ => None,
+                })
+                .filter(|(text, ..)| text.contains("tool ") || text.starts_with("Answer"))
+                .collect();
+            (ctx.viewport(|v| v.prev_pass.widgets.layers().map(|(_, w)| w.len()).sum::<usize>()), shown)
+        };
+        for _ in 0..8 {
+            frame(Vec::new(), false);
+        }
+        let (in_view, shown) = frame(Vec::new(), false);
+        assert!(!shown.is_empty());
+        let key = |key| egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE };
+        // Keyboard navigation can go to any item.
+        let (all, shown_whole) = frame(vec![key(egui::Key::Tab)], false);
+        assert!(in_view * 5 < all, "{in_view} of {all} widgets");
+        assert_eq!(shown, shown_whole, "what's in view stays where it is");
+        ctx.memory_mut(|m| m.stop_text_input());
+        assert!(frame(Vec::new(), false).0 * 5 < all);
+        // A folded checklist is replaced: what follows it moves up, and keeps its own heights.
+        frame(Vec::new(), true);
+        frame(Vec::new(), false);
+        let (_, shown) = frame(Vec::new(), false);
+        assert_eq!(shown, frame(vec![key(egui::Key::Tab)], false).1);
+        // A screen reader reads all of it.
+        ctx.enable_accesskit();
+        assert!(frame(Vec::new(), false).0 * 2 > all);
+    }
+
+    #[test]
+    fn automatically_forwarded_notes_keep_their_saved_identities() {
+        use craft_anything_ai::{AiConfig, BackendConfig, BackendEntry, BackendKind};
+        use craft_anything_platform::sync::Mutex;
+        use std::sync::Arc;
+        for opened in [true, false] {
+            let d = tempfile::tempdir().unwrap();
+            let ws = Workspace::create(d.path(), "Notes", "A notes app", TargetRef::None).unwrap();
+            let engine = Arc::new(craft_anything_engine::Engine::new(craft_anything_engine::testing::session()));
+            let mut app = crate::demo::app(engine);
+            let backend =
+                BackendConfig { name: "Agent".into(), kind: BackendKind::AgentCli, model: "claude-code".into(), base_url: None, ssh_host: None, enabled: true };
+            app.backends = vec![backend.clone()];
+            let mut cfg = AiConfig::default();
+            cfg.upsert(BackendEntry { config: backend, options: Default::default() });
+            app.hub.save_config(&cfg).unwrap();
+            let fake = rebuild::StandIns::new();
+            let mut start = fake.starter();
+            let seen = Arc::new(Mutex::new(Vec::new()));
+            let requests = seen.clone();
+            app.runs = rebuild::RunSet::new(1).with_starter(Box::new(move |hub, ws, opts| {
+                requests.lock().unwrap().push((opts.message.clone(), opts.carried_notes.clone()));
+                start(hub, ws, opts)
+            }));
+            if opened {
+                app.open_workspace(ws.clone());
+            }
+            app.runs.start(&app.hub, ws.clone(), RunOptions::default()).unwrap();
+            let mut left = rebuild::notes::Left {
+                text: "Make the header blue".into(),
+                shown: "Use this blue".into(),
+                pictures: vec![ws.root.join("blue.png")],
+                added: None,
+            };
+            let id = app.runs.get(&ws.root).unwrap().add_note(left.text.clone(), left.shown.clone(), left.pictures.clone());
+            left.added = Some(app.runs.get(&ws.root).unwrap().waiting().into_iter().find(|note| note.id == id).unwrap().added);
+            fake.finish(&ws.root);
+            app.poll_run();
+            let seen = seen.lock().unwrap();
+            assert_eq!(seen.len(), 2, "the waiting note starts a follow-up");
+            assert_eq!(seen[1].0.as_deref(), Some(left.text.as_str()));
+            assert_eq!(seen[1].1, [rebuild::notes::Carried { id, note: left }]);
+        }
+    }
 
     #[test]
     fn the_app_starts_with_the_persons_settings_while_the_engine_is_busy() {

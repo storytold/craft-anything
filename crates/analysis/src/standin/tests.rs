@@ -585,23 +585,293 @@ fn turns_do_not_grow_with_requests() {
         let _ = get(&s, &mut t, &format!("/users/{i}"), &format!("x={i}"));
         let _ = get(&s, &mut t, &format!("/nothing/{i}"), "");
     }
-    assert!(t.0.len() <= 3, "{}", t.0.len());
+    assert!(t.turns.len() <= 3, "{}", t.turns.len());
+    // Moving through a recording doesn't grow them past what it holds either.
+    let s = notes_recording();
+    let mut t = Turns::default();
+    for _ in 0..500 {
+        let _ = answer(&s, &mut t, "POST", "/notes", "", b"");
+        let _ = answer(&s, &mut t, "DELETE", "/notes/7", "", b"");
+        let _ = get(&s, &mut t, "/notes", "");
+    }
+    assert!(t.turns.len() <= 7 * 3, "{}", t.turns.len());
+}
+
+/// A to-do list recorded while two notes were added and one taken away.
+fn notes_recording() -> StandIn {
+    built(vec![
+        entry("GET", &format!("{A}/notes"), 200, r#"{"notes":[]}"#),
+        entry("POST", &format!("{A}/notes"), 201, r#"{"id":7}"#),
+        entry("GET", &format!("{A}/notes"), 200, r#"{"notes":[7]}"#),
+        entry("POST", &format!("{A}/notes"), 201, r#"{"id":8}"#),
+        entry("GET", &format!("{A}/notes"), 200, r#"{"notes":[7,8]}"#),
+        entry("DELETE", &format!("{A}/notes/7"), 204, ""),
+        entry("GET", &format!("{A}/notes"), 200, r#"{"notes":[8]}"#),
+    ])
+}
+
+fn read_notes(s: &StandIn, t: &mut Turns) -> String {
+    body(&found(get(s, t, "/notes", "")))
 }
 
 #[test]
-fn writes_replay_and_do_not_change_later_reads() {
-    let s = built(vec![
-        entry("GET", &format!("{A}/notes"), 200, r#"{"notes":[]}"#),
-        entry("POST", &format!("{A}/notes"), 201, r#"{"id":7}"#),
-        entry("DELETE", &format!("{A}/notes/7"), 204, ""),
-    ]);
+fn a_write_moves_later_reads_on_to_what_was_recorded_after_it() {
+    let s = notes_recording();
     let before = s.clone();
     let mut t = Turns::default();
+    assert_eq!(read_notes(&s, &mut t), r#"{"notes":[]}"#);
+    assert_eq!(read_notes(&s, &mut t), r#"{"notes":[]}"#, "reads alone don't move on");
     let created = found(answer(&s, &mut t, "POST", "/notes", "", br#"{"text":"anything"}"#));
     assert_eq!((created.status, body(&created).as_str()), (201, r#"{"id":7}"#));
-    assert_eq!(found(answer(&s, &mut t, "DELETE", "/notes/99", "", b"")).status, 204);
-    assert_eq!(body(&found(get(&s, &mut t, "/notes", ""))), r#"{"notes":[]}"#, "the read still says what was recorded");
-    assert_eq!(s, before);
+    assert_eq!(read_notes(&s, &mut t), r#"{"notes":[7]}"#);
+    assert_eq!(read_notes(&s, &mut t), r#"{"notes":[7]}"#);
+    assert_eq!(body(&found(answer(&s, &mut t, "post", "/notes", "", b"{}"))), r#"{"id":8}"#, "the next write is the next one recorded");
+    assert_eq!(read_notes(&s, &mut t), r#"{"notes":[7,8]}"#);
+    assert_eq!(found(answer(&s, &mut t, "DELETE", "/notes/7", "", b"")).status, 204);
+    assert_eq!(read_notes(&s, &mut t), r#"{"notes":[8]}"#);
+    assert_eq!(t.position(), Some(5));
+    assert_eq!(s, before, "the stand-in itself never changes");
+    // Another client starts at the beginning.
+    assert_eq!(read_notes(&s, &mut Turns::default()), r#"{"notes":[]}"#);
+}
+
+#[test]
+fn a_write_past_the_recorded_ones_is_refused_and_time_never_goes_back() {
+    let s = notes_recording();
+    let mut t = Turns::default();
+    for _ in 0..2 {
+        let _ = found(answer(&s, &mut t, "POST", "/notes", "", b""));
+    }
+    // No third add was recorded: answering it with a recorded success would say it worked.
+    let third = missing(answer(&s, &mut t, "POST", "/notes", "", b""));
+    assert_eq!(third.reason, NoMatchReason::WriteNotRecorded);
+    assert_eq!(read_notes(&s, &mut t), r#"{"notes":[7,8]}"#, "and it changes nothing");
+    // The delete was recorded later than both posts; posting again doesn't take the reads back.
+    let _ = found(answer(&s, &mut t, "DELETE", "/notes/7", "", b""));
+    assert_eq!(missing(answer(&s, &mut t, "DELETE", "/notes/7", "", b"")).reason, NoMatchReason::WriteNotRecorded, "nor a second delete");
+    assert_eq!(missing(answer(&s, &mut t, "POST", "/notes", "", b"")).reason, NoMatchReason::WriteNotRecorded);
+    assert_eq!(read_notes(&s, &mut t), r#"{"notes":[8]}"#);
+    assert_eq!(t.position(), Some(5));
+}
+
+#[test]
+fn a_write_the_client_skips_still_ends_the_reads_before_it() {
+    let s = notes_recording();
+    let mut t = Turns::default();
+    // Deleting first jumps over both posts: the reads after the delete are the ones that apply.
+    let _ = answer(&s, &mut t, "DELETE", "/notes/7", "", b"");
+    assert_eq!(read_notes(&s, &mut t), r#"{"notes":[8]}"#);
+    // Posts step through their own recorded answers, and reads don't go back before the delete.
+    assert_eq!(body(&found(answer(&s, &mut t, "POST", "/notes", "", b""))), r#"{"id":7}"#);
+    assert_eq!(read_notes(&s, &mut t), r#"{"notes":[8]}"#);
+}
+
+#[test]
+fn a_refused_write_changes_nothing() {
+    let s = built(vec![
+        entry("GET", &format!("{A}/cart"), 200, r#"{"items":0}"#),
+        entry("POST", &format!("{A}/cart"), 422, r#"{"error":"out of stock"}"#),
+        entry("GET", &format!("{A}/cart"), 200, r#"{"items":0,"seen":2}"#),
+        entry("POST", &format!("{A}/cart"), 200, r#"{"items":1}"#),
+        entry("GET", &format!("{A}/cart"), 200, r#"{"items":1}"#),
+    ]);
+    let mut t = Turns::default();
+    let refused = found(answer(&s, &mut t, "POST", "/cart", "", b"{}"));
+    assert_eq!(refused.status, 422);
+    assert_eq!(t.position(), None, "the original refused it, so later reads stay where they were");
+    // Both reads before the accepted write still apply, in turn.
+    let reads: Vec<String> = (0..3).map(|_| body(&found(get(&s, &mut t, "/cart", "")))).collect();
+    assert_eq!(reads, [r#"{"items":0}"#, r#"{"items":0,"seen":2}"#, r#"{"items":0}"#]);
+    assert_eq!(found(answer(&s, &mut t, "POST", "/cart", "", b"{}")).status, 200);
+    assert_eq!(body(&found(get(&s, &mut t, "/cart", ""))), r#"{"items":1}"#);
+}
+
+#[test]
+fn graphql_queries_sent_by_post_are_reads_and_mutations_are_writes() {
+    let gql = |text: &str, resp: &str| {
+        let mut e = entry("POST", &format!("{A}/graphql"), 200, resp);
+        e["request"]["postData"] = json!({"mimeType": "application/json", "text": text});
+        e
+    };
+    let list = r#"{"query":"query Todos { todos { id } }"}"#;
+    let add = r#"{"query":"mutation Add($t: String) { add(text: $t) { id } }","variables":{"t":"x"}}"#;
+    let s = built(vec![gql(list, r#"{"data":{"todos":[]}}"#), gql(add, r#"{"data":{"add":{"id":1}}}"#), gql(list, r#"{"data":{"todos":[{"id":1}]}}"#)]);
+    let samples = &s.routes[0].samples;
+    assert_eq!(samples.iter().map(|x| x.write).collect::<Vec<_>>(), [false, true, false]);
+    let mut t = Turns::default();
+    let ask = |t: &mut Turns, text: &str| body(&found(answer(&s, t, "POST", "/graphql", "", text.as_bytes())));
+    assert_eq!(ask(&mut t, list), r#"{"data":{"todos":[]}}"#);
+    assert_eq!(ask(&mut t, list), r#"{"data":{"todos":[]}}"#, "a query moves nothing on");
+    assert_eq!(ask(&mut t, add), r#"{"data":{"add":{"id":1}}}"#);
+    assert_eq!(ask(&mut t, list), r#"{"data":{"todos":[{"id":1}]}}"#);
+    // A query sent only by name, or one we can't read, can't be told from a write: it goes as one.
+    let only_reads = |b: &[u8]| json_body(b).is_some_and(|v| graphql_reads(&v));
+    assert!(!only_reads(br#"{"operationName":"Todos","extensions":{"persistedQuery":{"sha256Hash":"ab"}}}"#));
+    assert!(!only_reads(br#"[{"query":"query A { a }"},{"query":"mutation B { b }"}]"#));
+    assert!(only_reads(br#"[{"query":"query A { a }"},{"query":"{ b }"}]"#));
+    assert!(!only_reads(b"not json") && !only_reads(b""));
+}
+
+#[test]
+fn an_unrelated_write_moves_nothing() {
+    let track = |n: u32| entry("POST", &format!("{A}/track"), 204, &n.to_string());
+    let s = built(vec![
+        entry("GET", &format!("{A}/notes"), 200, r#"{"notes":[]}"#),
+        track(1),
+        entry("POST", &format!("{A}/notes"), 201, r#"{"id":7}"#),
+        entry("GET", &format!("{A}/notes"), 200, r#"{"notes":[7]}"#),
+        track(2),
+        entry("GET", &format!("{A}/notes"), 200, r#"{"notes":[7]}"#),
+    ]);
+    let notes = s.routes.iter().find(|r| r.template == "/notes" && r.method == "GET").unwrap();
+    assert_eq!(notes.samples.len(), 2, "a beacon between two equal reads doesn't keep both");
+    assert_eq!(s.routes.iter().find(|r| r.template == "/track").unwrap().samples.len(), 2, "writes are each kept");
+    let mut t = Turns::default();
+    for _ in 0..3 {
+        let _ = answer(&s, &mut t, "POST", "/track", "", b"");
+    }
+    assert_eq!(read_notes(&s, &mut t), r#"{"notes":[]}"#, "no note was added");
+    assert_eq!(body(&found(answer(&s, &mut t, "POST", "/notes", "", b""))), r#"{"id":7}"#, "its own first post");
+    assert_eq!(read_notes(&s, &mut t), r#"{"notes":[7]}"#);
+    for (a, b, yes) in [
+        ("/notes", "/notes/{id}", true),
+        ("/cart/items", "/cart", true),
+        ("/notes", "/notes", true),
+        ("/notes", "/notesx", false),
+        ("/track", "/notes", false),
+        ("/", "/a", true),
+    ] {
+        assert_eq!((related(a, b), related(b, a)), (yes, yes), "{a} {b}");
+    }
+}
+
+#[test]
+fn a_query_named_only_by_its_operation_reads_like_the_recording_did() {
+    let mut e = entry("POST", &format!("{A}/graphql"), 200, r#"{"data":{"n":1}}"#);
+    e["request"]["postData"] = json!({"text": r#"{"query":"query Count { n }"}"#});
+    let mut e2 = e.clone();
+    e2["response"]["content"]["text"] = json!(r#"{"data":{"n":2}}"#);
+    let s = built(vec![e, e2]);
+    let mut t = Turns::default();
+    // A persisted query sends a name and no document; the recorded ones were queries, so it goes round.
+    let persisted = br#"{"operationName":"Count","extensions":{"persistedQuery":{"sha256Hash":"ab"}}}"#;
+    let seen: Vec<String> = (0..3).map(|_| body(&found(answer(&s, &mut t, "POST", "/graphql", "", persisted)))).collect();
+    assert_eq!(seen, [r#"{"data":{"n":1}}"#, r#"{"data":{"n":2}}"#, r#"{"data":{"n":1}}"#]);
+    assert_eq!(t.position(), None);
+}
+
+#[test]
+fn polling_between_two_writes_still_goes_round() {
+    let s = built(vec![
+        entry("GET", &format!("{A}/job"), 200, r#"{"state":"idle"}"#),
+        entry("POST", &format!("{A}/job"), 202, r#"{"started":true}"#),
+        entry("GET", &format!("{A}/job"), 200, r#"{"state":"running"}"#),
+        entry("GET", &format!("{A}/job"), 200, r#"{"state":"done"}"#),
+    ]);
+    let mut t = Turns::default();
+    assert_eq!(body(&found(get(&s, &mut t, "/job", ""))), r#"{"state":"idle"}"#);
+    let _ = answer(&s, &mut t, "POST", "/job", "", b"");
+    let seen: Vec<(String, usize, usize)> = (0..3)
+        .map(|_| {
+            let f = found(get(&s, &mut t, "/job", ""));
+            (body(&f), f.turn, f.of)
+        })
+        .collect();
+    assert_eq!(seen[0], (r#"{"state":"running"}"#.to_string(), 1, 2));
+    assert_eq!(seen[1], (r#"{"state":"done"}"#.to_string(), 2, 2));
+    assert_eq!(seen[2], seen[0]);
+}
+
+#[test]
+fn a_read_with_nothing_recorded_since_the_last_write_says_what_it_last_said() {
+    let s = built(vec![
+        entry("GET", &format!("{A}/me"), 200, r#"{"name":"Pat"}"#),
+        entry("PUT", &format!("{A}/me"), 200, "{}"),
+        entry("PUT", &format!("{A}/me"), 200, r#"{"again":true}"#),
+        entry("GET", &format!("{A}/me/avatar"), 200, r#"{"x":1}"#),
+    ]);
+    let mut t = Turns::default();
+    let _ = answer(&s, &mut t, "PUT", "/me", "", b"");
+    assert_eq!(body(&found(get(&s, &mut t, "/me", ""))), r#"{"name":"Pat"}"#, "the newest answer from before");
+    // Asked before its time, a read gets the earliest answer recorded for it.
+    assert_eq!(body(&found(get(&s, &mut Turns::default(), "/me/avatar", ""))), r#"{"x":1}"#);
+}
+
+#[test]
+fn the_same_answer_either_side_of_a_write_is_kept_twice() {
+    let s = built(vec![
+        entry("GET", &format!("{A}/feed"), 200, r#"{"n":0}"#),
+        entry("GET", &format!("{A}/feed"), 200, r#"{"n":0}"#),
+        entry("POST", &format!("{A}/feed/like"), 200, "{}"),
+        entry("GET", &format!("{A}/feed"), 200, r#"{"n":0}"#),
+        entry("GET", &format!("{A}/feed"), 200, r#"{"n":1}"#),
+    ]);
+    let feed = s.routes.iter().find(|r| r.template == "/feed").unwrap();
+    assert_eq!(feed.samples.iter().map(|x| x.order).collect::<Vec<_>>(), [Some(0), Some(3), Some(4)], "the poll before the write collapses, not across it");
+    let mut t = Turns::default();
+    let _ = answer(&s, &mut t, "POST", "/feed/like", "", b"");
+    let after: Vec<String> = (0..2).map(|_| body(&found(get(&s, &mut t, "/feed", "")))).collect();
+    assert_eq!(after, [r#"{"n":0}"#, r#"{"n":1}"#], "the recording's order after the write");
+}
+
+#[test]
+fn a_file_without_positions_replays_as_before() {
+    let v = json!({"version": 1, "routes": [
+        {"method": "GET", "template": "/a", "samples": [{"path": "/a", "status": 200, "text": "1"}, {"path": "/a", "status": 200, "text": "2"}]},
+        {"method": "POST", "template": "/a", "samples": [{"path": "/a", "status": 201, "text": "made"}]},
+    ]});
+    let s: StandIn = serde_json::from_value(v).unwrap();
+    let mut t = Turns::default();
+    assert_eq!(body(&found(get(&s, &mut t, "/a", ""))), "1");
+    assert_eq!(body(&found(answer(&s, &mut t, "POST", "/a", "", b""))), "made");
+    assert_eq!(t.position(), None);
+    assert_eq!(body(&found(get(&s, &mut t, "/a", ""))), "2", "round in recorded order, whatever was written");
+    // A hand-edited mix of placed and unplaced answers is read the old way too.
+    let mixed = json!({"version": 2, "routes": [
+        {"method": "GET", "template": "/b", "samples": [{"path": "/b", "status": 200, "text": "1", "order": 9}, {"path": "/b", "status": 200, "text": "2"}]},
+        {"method": "POST", "template": "/b", "samples": [{"path": "/b", "status": 200, "text": "w", "order": 3, "write": true}]},
+    ]});
+    let s: StandIn = serde_json::from_value(mixed).unwrap();
+    let mut t = Turns::default();
+    let _ = answer(&s, &mut t, "POST", "/b", "", b"");
+    assert_eq!([body(&found(get(&s, &mut t, "/b", ""))), body(&found(get(&s, &mut t, "/b", "")))], ["1", "2"]);
+}
+
+#[test]
+fn a_file_without_positions_counts_a_lone_answer_as_a_turn() {
+    let v = json!({"version": 1, "routes": [
+        {"method": "POST", "template": "/search", "samples": [
+            {"path": "/search", "status": 200, "text": "by q", "request_key": "keys:q"},
+            {"path": "/search", "status": 200, "text": "by tag", "request_key": "keys:tag"},
+        ]},
+    ]});
+    let s: StandIn = serde_json::from_value(v).unwrap();
+    let mut t = Turns::default();
+    assert_eq!(body(&found(answer(&s, &mut t, "POST", "/search", "", br#"{"q":"a"}"#))), "by q");
+    assert_eq!(body(&found(answer(&s, &mut t, "POST", "/search", "", br#"{"other":1}"#))), "by tag", "the old replay: the first answer took its turn");
+}
+
+#[test]
+fn hostile_positions_cannot_crash_or_loop() {
+    let v = json!({"version": 2, "routes": [
+        {"method": "GET", "template": "/a", "samples": [
+            {"path": "/a", "status": 200, "text": "max", "order": u64::MAX},
+            {"path": "/a", "status": 200, "text": "zero", "order": 0},
+            {"path": "/a", "status": 200, "text": "dup", "order": 0},
+        ]},
+        {"method": "POST", "template": "/a", "samples": [
+            {"path": "/a", "status": 200, "text": "w", "order": u64::MAX, "write": true},
+            {"path": "/a", "status": 200, "text": "v", "order": 0, "write": true},
+        ]},
+    ]});
+    let s: StandIn = serde_json::from_value(v).unwrap();
+    let mut t = Turns::default();
+    for _ in 0..10 {
+        let _ = get(&s, &mut t, "/a", "");
+        let _ = answer(&s, &mut t, "POST", "/a", "", b"");
+    }
+    assert_eq!(t.position(), Some(u64::MAX));
+    assert_eq!(body(&found(get(&s, &mut t, "/a", ""))), "max");
 }
 
 #[test]
@@ -633,7 +903,7 @@ fn graphql_operations_are_told_apart_at_one_url() {
     let n = missing(ask(&mut t, "SaveUser"));
     assert_eq!(n.reason, NoMatchReason::OperationNotRecorded);
     assert_eq!(n.nearest[0].template, "/graphql");
-    // A body that names no operation takes what there is.
+    // A body that names no operation takes what there is: the recording shows these were queries.
     assert_eq!(found(answer(&s, &mut t, "POST", "/graphql", "", b"not json")).of, 2);
 }
 
@@ -647,7 +917,10 @@ fn json_bodies_prefer_the_same_names_but_accept_others() {
     let s = built(vec![post(r#"{"q":"a"}"#, r#"{"by":"q"}"#), post(r#"{"tag":"b"}"#, r#"{"by":"tag"}"#)]);
     let mut t = Turns::default();
     assert!(body(&found(answer(&s, &mut t, "POST", "/search", "", br#"{"tag":"other"}"#))).contains("tag"));
-    assert_eq!(found(answer(&s, &mut t, "POST", "/search", "", br#"{"new":1}"#)).of, 2);
+    // Any other body may be answered by either. As a write it steps through them, and the `tag`
+    // write before it doesn't move the `q` kind on; once both were replayed there's none left.
+    assert_eq!(body(&found(answer(&s, &mut t, "POST", "/search", "", br#"{"new":1}"#))), r#"{"by":"q"}"#);
+    assert_eq!(missing(answer(&s, &mut t, "POST", "/search", "", br#"{"new":1}"#)).reason, NoMatchReason::WriteNotRecorded);
 }
 
 #[test]
@@ -804,4 +1077,255 @@ fn a_hand_edited_file_cannot_crash_the_matcher() {
     let mut t = Turns::default();
     assert!(matches!(get(&s, &mut t, "/a", ""), Answer::NoMatch(_)), "a route with no samples has nothing to say");
     assert_eq!(found(get(&s, &mut t, "/b", "")).body, b"");
+}
+
+#[test]
+fn a_read_after_the_clients_write_skips_to_what_followed_it() {
+    let s = built(vec![
+        entry("GET", &format!("{A}/notes"), 200, r#"{"notes":[]}"#),
+        entry("POST", &format!("{A}/notes"), 201, r#"{"id":7}"#),
+        entry("PATCH", &format!("{A}/notes/7"), 200, "{}"),
+        entry("GET", &format!("{A}/notes"), 200, r#"{"notes":[7]}"#),
+    ]);
+    let mut t = Turns::default();
+    let _ = answer(&s, &mut t, "POST", "/notes", "", b"");
+    // Nothing was read between the post and the autosave after it: the next read shows the note.
+    assert_eq!(read_notes(&s, &mut t), r#"{"notes":[7]}"#);
+}
+
+#[test]
+fn a_write_reaches_reads_whose_template_was_worked_out_apart() {
+    let s = built(vec![
+        entry("GET", &format!("{A}/notes/a"), 200, r#"{"note":"a"}"#),
+        entry("GET", &format!("{A}/notes/b"), 200, r#"{"note":"b"}"#),
+        entry("GET", &format!("{A}/notes/c"), 200, r#"{"note":"c"}"#),
+        entry("DELETE", &format!("{A}/notes/b"), 204, ""),
+        entry("GET", &format!("{A}/notes/b"), 200, r#"{"note":"b, edited elsewhere"}"#),
+    ]);
+    assert!(templates(&s).contains(&"GET /notes/{id}".to_string()) && templates(&s).contains(&"DELETE /notes/b".to_string()), "{:?}", templates(&s));
+    let mut t = Turns::default();
+    for _ in 0..2 {
+        assert_eq!(body(&found(get(&s, &mut t, "/notes/b", ""))), r#"{"note":"b"}"#, "the delete hasn't happened yet");
+    }
+    let _ = answer(&s, &mut t, "DELETE", "/notes/b", "", b"");
+    assert_eq!(body(&found(get(&s, &mut t, "/notes/b", ""))), r#"{"note":"b, edited elsewhere"}"#);
+}
+
+#[test]
+fn a_named_operation_that_was_not_read_is_not_taken_for_a_query() {
+    let many: String = (0..80).map(|i| format!("query Q{i} {{ a }} ")).collect();
+    let doc = format!("{many} mutation AddNote {{ add }}");
+    let v = json!({"query": doc, "operationName": "AddNote"});
+    assert!(!graphql_reads(&v), "the mutation may be past what was read");
+    assert!(graphql_reads(&json!({"query": doc, "operationName": "Q3"})));
+}
+
+#[test]
+fn a_write_kept_as_an_unavailable_304_ends_no_reads() {
+    let s = built(vec![
+        entry("GET", &format!("{A}/notes"), 200, r#"{"notes":[]}"#),
+        entry("PUT", &format!("{A}/notes"), 304, ""),
+        entry("GET", &format!("{A}/notes"), 200, r#"{"notes":[7]}"#),
+    ]);
+    let put = s.routes.iter().find(|r| r.method == "PUT").unwrap();
+    assert_eq!(put.samples[0].status, 304, "kept as evidence");
+    assert!(matches!(answer(&s, &mut Turns::default(), "PUT", "/notes", "", b""), Answer::NoMatch(_)), "no client can replay it");
+    let mut t = Turns::default();
+    let reads: Vec<String> = (0..3).map(|_| read_notes(&s, &mut t)).collect();
+    assert_eq!(reads, [r#"{"notes":[]}"#, r#"{"notes":[7]}"#, r#"{"notes":[]}"#], "both reads go round as if it weren't there");
+    // A replayable write between the same reads still ends the first one.
+    let s = built(vec![
+        entry("GET", &format!("{A}/notes"), 200, r#"{"notes":[]}"#),
+        entry("PUT", &format!("{A}/notes"), 200, "{}"),
+        entry("GET", &format!("{A}/notes"), 200, r#"{"notes":[7]}"#),
+    ]);
+    let mut t = Turns::default();
+    assert_eq!([read_notes(&s, &mut t), read_notes(&s, &mut t)], [r#"{"notes":[]}"#, r#"{"notes":[]}"#]);
+}
+
+#[test]
+fn a_write_to_a_path_with_an_empty_segment_moves_only_its_own_reads() {
+    let s = built(vec![
+        entry("GET", &format!("{A}/api/notes"), 200, r#"{"notes":[]}"#),
+        entry("POST", &format!("{A}/api//notes"), 201, "{}"),
+        entry("GET", &format!("{A}/api/notes"), 200, r#"{"notes":[7]}"#),
+    ]);
+    assert!(templates(&s).contains(&"POST /api//notes".to_string()), "{:?}", templates(&s));
+    let mut t = Turns::default();
+    let _ = answer(&s, &mut t, "POST", "/api//notes", "", b"");
+    assert_eq!(body(&found(get(&s, &mut t, "/api/notes", ""))), r#"{"notes":[]}"#, "replay answers the two apart, so the write isn't this read's");
+    for (a, b, yes) in [
+        ("/api//notes", "/api/notes", false),
+        ("/api//notes", "/api//notes/{id}", true),
+        ("/api//notes", "/api", true),
+        ("/notes/", "/notes/{id}", true),
+        ("/", "/", true),
+        ("", "/a", true),
+    ] {
+        assert_eq!((related(a, b), related(b, a)), (yes, yes), "{a} {b}");
+    }
+}
+
+#[test]
+fn only_a_post_carrying_a_graphql_query_counts_as_a_read() {
+    let patch = |status: i64| {
+        let mut e = entry("PATCH", &format!("{A}/items/7"), status, "{}");
+        e["request"]["postData"] = json!({"mimeType": "application/json", "text": r#"{"query":"{ title }"}"#});
+        e
+    };
+    let s = built(vec![
+        entry("GET", &format!("{A}/items/7"), 200, r#"{"title":"old"}"#),
+        patch(200),
+        entry("GET", &format!("{A}/items/7"), 200, r#"{"title":"new"}"#),
+    ]);
+    let patched = s.routes.iter().find(|r| r.method == "PATCH").unwrap();
+    assert!(patched.samples[0].write, "a REST field named query is still a write");
+    let mut t = Turns::default();
+    let _ = answer(&s, &mut t, "PATCH", "/items/7", "", br#"{"query":"{ title }"}"#);
+    assert_eq!(body(&found(get(&s, &mut t, "/items/7", ""))), r#"{"title":"new"}"#);
+    let query = json!({"query": "{ title }"});
+    assert!(is_write("PATCH", Some(&query)) && is_write("PUT", Some(&query)) && is_write("DELETE", Some(&query)));
+    assert!(!is_write("POST", Some(&query)) && !is_write("GET", Some(&query)));
+}
+
+#[test]
+fn a_named_operation_answered_by_another_ones_recording_moves_nothing() {
+    let mut add = entry("POST", &format!("{A}/graphql"), 200, r#"{"data":{"added":1}}"#);
+    add["request"]["postData"] = json!({"text": r#"{"query":"mutation PrivateAdd { add }","operationName":"PrivateAdd"}"#});
+    let entries = vec![entry("GET", &format!("{A}/graphql"), 200, r#"{"n":0}"#), add, entry("GET", &format!("{A}/graphql"), 200, r#"{"n":1}"#)];
+    let opts = BuildOptions { hidden_values: vec!["PrivateAdd".into()], ..Default::default() };
+    let s = build_from_bytes(&har_of(entries.clone()), &opts).unwrap();
+    let post = s.routes.iter().find(|r| r.method == "POST").unwrap();
+    assert_eq!(post.samples[0].request_key, None, "the hidden name stays out of the file");
+    let mut t = Turns::default();
+    let clear = br#"{"query":"mutation Clear { clear }","operationName":"Clear"}"#;
+    // The recording can't say the hidden write was this one: no match, no answer.
+    assert_eq!(missing(answer(&s, &mut t, "POST", "/graphql", "", clear)).reason, NoMatchReason::WriteNotRecorded);
+    assert_eq!(t.position(), None);
+    assert_eq!(body(&found(get(&s, &mut t, "/graphql", ""))), r#"{"n":0}"#, "later reads stay where they were");
+    // Recorded by name, the same operation still steps.
+    let s = built(entries);
+    let mut t = Turns::default();
+    let private = br#"{"query":"mutation PrivateAdd { add }","operationName":"PrivateAdd"}"#;
+    let _ = answer(&s, &mut t, "POST", "/graphql", "", private);
+    assert_eq!(t.position(), Some(1));
+    assert_eq!(body(&found(get(&s, &mut t, "/graphql", ""))), r#"{"n":1}"#);
+}
+
+#[test]
+fn a_mutation_sent_as_text_is_not_answered_by_a_recorded_read() {
+    let mut list = entry("POST", &format!("{A}/graphql"), 200, r#"{"data":{"list":[1]}}"#);
+    list["request"]["postData"] = json!({"text": r#"{"query":"query HiddenList { list }","operationName":"HiddenList"}"#});
+    let opts = BuildOptions { hidden_values: vec!["HiddenList".into()], ..Default::default() };
+    let s = build_from_bytes(&har_of(vec![list]), &opts).unwrap();
+    let mut t = Turns::default();
+    let clear = br#"{"query":"mutation Clear { clear }"}"#;
+    assert_eq!(missing(answer(&s, &mut t, "POST", "/graphql", "", clear)).reason, NoMatchReason::WriteNotRecorded);
+    assert_eq!(t.position(), None, "and it moves nothing");
+    // Named only, a request can't be told from a read, so the recorded read still answers it.
+    assert_eq!(body(&found(answer(&s, &mut t, "POST", "/graphql", "", br#"{"operationName":"HiddenList"}"#))), r#"{"data":{"list":[1]}}"#);
+    let query = br#"{"query":"query Other { list }"}"#;
+    assert_eq!(body(&found(answer(&s, &mut t, "POST", "/graphql", "", query))), r#"{"data":{"list":[1]}}"#, "nor is a query sent as text refused");
+}
+
+#[test]
+fn only_writes_are_counted_as_writes() {
+    assert!(is_write_request("post", br#"{"query":"mutation Clear { clear }"}"#));
+    assert!(is_write_request("DELETE", b""));
+    assert!(is_write_request("POST", br#"{"operationName":"List"}"#), "a name alone could be a write");
+    assert!(!is_write_request("POST", br#"{"query":"query List { list }"}"#));
+    assert!(!is_write_request("GET", b""));
+    assert!(!is_write_request("HEAD", b""));
+    let big = format!(r#"{{"query":"query List {{ list }}","pad":"{}"}}"#, "x".repeat(MAX_KEY_BODY));
+    assert!(!is_write_request("POST", big.as_bytes()), "too large to read, it could be a query: unanswered, not a refused write");
+    assert!(is_write_request("PUT", big.as_bytes()));
+}
+
+#[test]
+fn a_batch_naming_a_read_beside_a_query_sent_as_text_gets_the_recorded_read() {
+    let mut batch = entry("POST", &format!("{A}/graphql"), 200, r#"[{"data":{"a":1}},{"data":{"b":2}}]"#);
+    batch["request"]["postData"] = json!({"text": r#"[{"query":"query A { a }","operationName":"A"},{"query":"query B { b }","operationName":"B"}]"#});
+    let s = built(vec![batch]);
+    let mut t = Turns::default();
+    let mixed = br#"[{"operationName":"A"},{"operationName":"B","query":"query B { b }"}]"#;
+    assert_eq!(body(&found(answer(&s, &mut t, "POST", "/graphql", "", mixed))), r#"[{"data":{"a":1}},{"data":{"b":2}}]"#);
+    assert_eq!(t.position(), None);
+    // A mutation's own text in the batch still makes it a write nobody recorded.
+    let with_write = br#"[{"operationName":"A"},{"operationName":"B","query":"mutation B { b }"}]"#;
+    assert_eq!(missing(answer(&s, &mut t, "POST", "/graphql", "", with_write)).reason, NoMatchReason::WriteNotRecorded);
+}
+
+#[test]
+fn a_file_from_before_version_2_gives_a_write_each_recorded_answer_once() {
+    let mut list = entry("POST", &format!("{A}/graphql"), 200, r#"{"data":{"list":[]}}"#);
+    list["request"]["postData"] = json!({"text": r#"{"operationName":"List"}"#});
+    let mut s = built(vec![
+        entry("GET", &format!("{A}/todos"), 200, "[]"),
+        entry("POST", &format!("{A}/todos"), 201, r#"{"id":1}"#),
+        entry("POST", &format!("{A}/todos"), 201, r#"{"id":2}"#),
+        list,
+    ]);
+    // What a version-1 file migrates to: no places, nothing marked as a write.
+    for sample in s.routes.iter_mut().flat_map(|r| r.samples.iter_mut()) {
+        (sample.order, sample.write) = (None, false);
+    }
+    let mut t = Turns::default();
+    let adds: Vec<String> = (0..2).map(|_| body(&found(answer(&s, &mut t, "POST", "/todos", "", b"{}")))).collect();
+    assert_eq!(adds, [r#"{"id":1}"#, r#"{"id":2}"#]);
+    for _ in 0..2 {
+        assert_eq!(missing(answer(&s, &mut t, "POST", "/todos", "", b"{}")).reason, NoMatchReason::WriteNotRecorded, "past them, none");
+    }
+    assert_eq!(body(&found(get(&s, &mut t, "/todos", ""))), "[]", "reads still answer");
+    // Reads polled first don't use up a write's answers.
+    let mut ask = entry("POST", &format!("{A}/gql"), 200, r#"{"data":{"n":0}}"#);
+    ask["request"]["postData"] = json!({"text": r#"{"query":"query { n }"}"#});
+    let mut bump = entry("POST", &format!("{A}/gql"), 200, r#"{"data":{"bumped":true}}"#);
+    bump["request"]["postData"] = json!({"text": r#"{"query":"mutation { bump }"}"#});
+    let mut anon = built(vec![ask, bump]);
+    for sample in anon.routes.iter_mut().flat_map(|r| r.samples.iter_mut()) {
+        (sample.order, sample.write) = (None, false);
+    }
+    let mut t2 = Turns::default();
+    for _ in 0..3 {
+        let _ = found(answer(&anon, &mut t2, "POST", "/gql", "", br#"{"query":"query { n }"}"#));
+    }
+    let _ = found(answer(&anon, &mut t2, "POST", "/gql", "", br#"{"query":"mutation { bump }"}"#));
+    // Named only, a request may be a read, so it still takes its turns.
+    for _ in 0..3 {
+        assert_eq!(body(&found(answer(&s, &mut t, "POST", "/graphql", "", br#"{"operationName":"List"}"#))), r#"{"data":{"list":[]}}"#);
+    }
+}
+
+#[test]
+fn a_body_of_another_kind_steps_each_recorded_kind_on_its_own() {
+    let post = |req: &str, resp: &str| {
+        let mut e = entry("POST", &format!("{A}/search"), 200, resp);
+        e["request"]["postData"] = json!({"mimeType": "application/json", "text": req});
+        e
+    };
+    let s = built(vec![post(r#"{"q":"a"}"#, r#"{"by":"q"}"#), post(r#"{"tag":"b"}"#, r#"{"by":"tag 1"}"#), post(r#"{"tag":"c"}"#, r#"{"by":"tag 2"}"#)]);
+    let mut t = Turns::default();
+    let other: Vec<String> = (0..3).map(|_| body(&found(answer(&s, &mut t, "POST", "/search", "", br#"{"new":1}"#)))).collect();
+    assert_eq!(other, [r#"{"by":"q"}"#, r#"{"by":"tag 1"}"#, r#"{"by":"tag 2"}"#]);
+    assert_eq!(missing(answer(&s, &mut t, "POST", "/search", "", br#"{"new":1}"#)).reason, NoMatchReason::WriteNotRecorded, "past them all, none");
+    // A body of a recorded kind still takes only its own.
+    let mut t = Turns::default();
+    let tags: Vec<String> = (0..2).map(|_| body(&found(answer(&s, &mut t, "POST", "/search", "", br#"{"tag":"x"}"#)))).collect();
+    assert_eq!(tags, [r#"{"by":"tag 1"}"#, r#"{"by":"tag 2"}"#]);
+    assert_eq!(missing(answer(&s, &mut t, "POST", "/search", "", br#"{"tag":"x"}"#)).reason, NoMatchReason::WriteNotRecorded);
+}
+
+#[test]
+fn a_read_answered_before_its_time_takes_no_turn_from_the_reads_after_the_write() {
+    let s = built(vec![
+        entry("POST", &format!("{A}/job"), 202, r#"{"started":true}"#),
+        entry("GET", &format!("{A}/job"), 200, r#"{"state":"running"}"#),
+        entry("GET", &format!("{A}/job"), 200, r#"{"state":"done"}"#),
+    ]);
+    let mut t = Turns::default();
+    let early = found(get(&s, &mut t, "/job", ""));
+    assert_eq!((body(&early).as_str(), early.turn, early.of), (r#"{"state":"running"}"#, 1, 1));
+    let _ = answer(&s, &mut t, "POST", "/job", "", b"");
+    let seen: Vec<String> = (0..3).map(|_| body(&found(get(&s, &mut t, "/job", "")))).collect();
+    assert_eq!(seen, [r#"{"state":"running"}"#, r#"{"state":"done"}"#, r#"{"state":"running"}"#]);
 }

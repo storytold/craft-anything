@@ -13,7 +13,7 @@
 
 use crate::session::Annotations;
 use crate::versioned::{Step, upgrade};
-use craft_anything_evidence::{ErrorCode, Evidence, ToolError, Unknown, is_evidence_id};
+use craft_anything_evidence::{ErrorCode, Evidence, ToolError, Unknown, is_evidence_id, sha256_hex};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -133,9 +133,25 @@ impl Project {
     }
 
     pub fn load_evidence(&self, id: &str) -> Result<Evidence, ToolError> {
+        Self::decode_evidence(id, &self.evidence_bytes(id)?)
+    }
+
+    /// Reuse a previously verified record only when the entire file still has the same bytes.
+    /// Metadata alone cannot detect a same-length rewrite that restores the modification time.
+    pub(crate) fn refresh_evidence(&self, id: &str, previous_digest: Option<&str>) -> Result<(Option<Evidence>, String), ToolError> {
+        let bytes = self.evidence_bytes(id)?;
+        let digest = sha256_hex(&bytes);
+        let evidence = if previous_digest == Some(digest.as_str()) { None } else { Some(Self::decode_evidence(id, &bytes)?) };
+        Ok((evidence, digest))
+    }
+
+    fn evidence_bytes(&self, id: &str) -> Result<Vec<u8>, ToolError> {
         let path = self.evidence_path(id)?;
-        let bytes = std::fs::read(&path).map_err(|e| ToolError::io(path.display(), e))?;
-        let ev: Evidence = serde_json::from_slice(&bytes).map_err(|e| ToolError::new(ErrorCode::EvidenceHashMismatch, format!("{id}: {e}")))?;
+        std::fs::read(&path).map_err(|e| ToolError::io(path.display(), e))
+    }
+
+    fn decode_evidence(id: &str, bytes: &[u8]) -> Result<Evidence, ToolError> {
+        let ev: Evidence = serde_json::from_slice(bytes).map_err(|e| ToolError::new(ErrorCode::EvidenceHashMismatch, format!("{id}: {e}")))?;
         if !ev.verify() || ev.id != id {
             return Err(ToolError::new(ErrorCode::EvidenceHashMismatch, format!("{id} was changed after it was recorded")));
         }
@@ -179,7 +195,14 @@ impl Project {
     pub fn load_unknowns(&self) -> Result<Vec<Unknown>, ToolError> {
         let mut out = Vec::new();
         let dir = self.root.join("unknowns");
-        let Ok(entries) = std::fs::read_dir(&dir) else { return Ok(out) };
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            // A project without its unknowns folder has none. Any other failure (no permission, a
+            // file in its place) must not read as "no open questions": an open that would clear the
+            // previous project has to fail instead.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(out),
+            Err(e) => return Err(ToolError::io(dir.display(), e)),
+        };
         for e in entries.flatten() {
             if let Ok(bytes) = std::fs::read(e.path()) {
                 match serde_json::from_slice::<Unknown>(&bytes) {

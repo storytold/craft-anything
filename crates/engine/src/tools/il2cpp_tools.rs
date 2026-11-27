@@ -28,7 +28,7 @@ pub fn specs() -> Vec<ToolSpec> {
     vec![spec(
         "game_unity_code_names_show",
         "Read a Unity game's IL2CPP metadata",
-        "Read a Unity IL2CPP global-metadata.dat (path: the file, or a game's folder, where it's found under *_Data/il2cpp_data/Metadata or Data/il2cpp_data/Metadata): the metadata version, its assemblies (images) and how many types, methods, fields and string literals it names. view picks a list to page: images, types (namespace, name, assembly, method and field counts), methods (name, declaring type, parameter count) or strings (the string literals, each shown up to 4096 bytes); contains keeps rows holding that text (any case). Versions 24 (its later 264-byte-header form), 27, 29 and 31 are read, each only after the file proves it fits; other versions give their header and say so. Many games change or encrypt this file: that's stated plainly and nothing is decrypted or guessed. Only names are here, with no code or addresses.",
+        "Read a Unity IL2CPP global-metadata.dat (path: the file, or a game's folder, where it's found under *_Data/il2cpp_data/Metadata or Data/il2cpp_data/Metadata): the metadata version, its assemblies (images) and how many types, methods, fields and string literals it names. view picks a list to page: images, types (namespace, name, assembly, method and field counts), methods (name, declaring type, parameter count) or strings (the string literals, each shown up to 4096 bytes); contains keeps rows holding that text (any case). Versions 24 (its later 264-byte-header form), 27, 29, 31 and 39 are read, each only after the file proves it fits; other versions give their header and say so. A version 39 image has no token shown (null). Many games change or encrypt this file: that's stated plainly and nothing is decrypted or guessed. Only names are here, with no code or addresses.",
         "See the names of the code inside a Unity game built with IL2CPP, even though the code itself is compiled.",
         Toolset::Formats,
         Effects::EVIDENCE | Effects::CARRIES_TARGET_CONTENT,
@@ -408,14 +408,14 @@ mod tests {
     fn an_unknown_version_gives_its_header_and_a_limitation() {
         let dir = tempfile::tempdir().unwrap();
         let mut bytes = sample();
-        bytes[4..8].copy_from_slice(&39i32.to_le_bytes());
+        bytes[4..8].copy_from_slice(&40i32.to_le_bytes());
         let path = write(dir.path(), "global-metadata.dat", &bytes);
         let v = call(&engine(), "game_unity_code_names_show", json!({"path": path, "view": "types"}));
         assert_eq!(v["result"]["reading"], "header_only");
-        assert_eq!(v["result"]["metadata_version"], 39);
+        assert_eq!(v["result"]["metadata_version"], 40);
         assert!(v["result"].get("types").is_none());
         assert_eq!(v["confidence"], "inferred");
-        assert!(v["summary"].as_str().unwrap().contains("39"));
+        assert!(v["summary"].as_str().unwrap().contains("40"));
     }
 
     #[test]

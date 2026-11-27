@@ -127,17 +127,21 @@ pub fn probe_local(label: &str, base: &str) -> Option<Detected> {
     if !port_open(base, PROBE) {
         return None;
     }
-    let models = match OpenAi::compatible(label, base, None, "").list_models(Duration::from_millis(700)) {
+    let timeout = Duration::from_millis(700);
+    let server = OpenAi::compatible(label, base, None, "");
+    let catalog = match server.model_catalog(timeout, timeout) {
         Ok(m) => m,
         // Something else listens there (another app's web server on 8080 answering 404): no model
         // server, so chats with it could only fail (#30).
         Err(e) if e.code == ErrorCode::GarbledOutput || e.details.as_ref().is_some_and(|d| d.get("status").is_some()) => return None,
         // No answer in time: it may still be loading a model.
-        Err(_) => Vec::new(),
+        Err(_) => Default::default(),
     };
+    let label = if label == "vLLM" && catalog.rapid_mlx { "Rapid-MLX" } else { label };
+    let models = catalog.ids;
     // A model the server has loaded comes first: LM Studio's list holds every model downloaded,
     // FastFlowLM's every model it can download, and asking for another loads or downloads it (#1434).
-    let loaded = if models.is_empty() { None } else { chat_model(&OpenAi::compatible(label, base, None, "").loaded_models(Duration::from_millis(700))) };
+    let loaded = if models.is_empty() { None } else { chat_model(&server.loaded_models(timeout)) };
     let model = match loaded.or_else(|| chat_model(&models)) {
         Some(model) => model,
         None if models.is_empty() => String::new(),
@@ -155,10 +159,21 @@ pub fn probe_local(label: &str, base: &str) -> Option<Detected> {
 
 /// Agent CLIs on PATH.
 pub fn agent_clis() -> Vec<Detected> {
+    detect_agent_clis(|_| true, None)
+}
+
+/// Detect agent CLIs matching `include`; an optional `probe_timeout` bounds multi-candidate
+/// OpenCode version probes during discovery so one slow probe fits inside [`TOTAL`].
+fn detect_agent_clis(include: impl Fn(&str) -> bool, probe_timeout: Option<Duration>) -> Vec<Detected> {
     crate::cli_agents::KNOWN
         .iter()
+        .filter(|(id, _, _)| include(id))
         .filter_map(|(id, prog, display)| {
-            crate::cli_agents::find_program(prog).map(|p| Detected {
+            let found = match probe_timeout {
+                Some(limit) => crate::cli_agents::find_program_within(prog, limit),
+                None => crate::cli_agents::find_program(prog),
+            };
+            found.map(|p| Detected {
                 suggestion: cfg(display, BackendKind::AgentCli, id),
                 reason: format!("Found {display} at {}", p.display()),
                 needs_key: false,
@@ -351,7 +366,21 @@ pub fn detect_all() -> Vec<Detected> {
         if std::thread::Builder::new()
             .name("ai-detect".into())
             .spawn(move || {
-                let _ = tx.send((5, agent_clis()));
+                // Keep pure filesystem CLI lookups separate from OpenCode's version probe (#1111)
+                // so a slow OpenCode probe can never starve the rest of the CLI list.
+                let _ = tx.send((5, detect_agent_clis(|id| id != "opencode", None)));
+            })
+            .is_ok()
+        {
+            jobs += 1;
+        }
+    }
+    {
+        let tx = tx.clone();
+        if std::thread::Builder::new()
+            .name("ai-detect-opencode".into())
+            .spawn(move || {
+                let _ = tx.send((6, detect_agent_clis(|id| id == "opencode", Some(Duration::from_millis(900)))));
             })
             .is_ok()
         {
@@ -385,7 +414,11 @@ fn remote_agents(host: String) -> Vec<Detected> {
         .map(|(id, label)| {
             let mut c = cfg(&format!("{label} on {host}"), BackendKind::AgentCli, id);
             c.ssh_host = Some(host.clone());
-            Detected { suggestion: c, reason: format!("SSH host {host} from ~/.ssh/config (check that {label} is installed there)"), needs_key: false }
+            Detected {
+                suggestion: c,
+                reason: format!("SSH host {host} from ~/.ssh/config (adding it checks that {label} is installed there)"),
+                needs_key: false,
+            }
         })
         .collect()
 }
@@ -510,6 +543,23 @@ mod tests {
         let found = probe_local("llama.cpp server", &serve("200 OK", r#"{"object":"list","data":[{"id":"qwen3-8b"}]}"#)).unwrap();
         assert_eq!((found.suggestion.name.as_str(), found.suggestion.model.as_str()), ("llama.cpp server (local)", "qwen3-8b"));
         assert!(probe_local("Ollama", &serve("200 OK", r#"{"object":"list","data":[]}"#)).is_some(), "running with no model yet");
+    }
+
+    #[test]
+    fn local_model_detection_identifies_rapid_mlx_on_the_vllm_port() {
+        use crate::tests::serve;
+        for (body, label) in [
+            (r#"{"data":[{"id":"qwen3-8b","owned_by":"rapid-mlx"}]}"#, "Rapid-MLX"),
+            (r#"{"data":[{"id":"qwen3-8b","owned_by":"vllm"}]}"#, "vLLM"),
+            (r#"{"data":[{"id":"qwen3-8b"}]}"#, "vLLM"),
+        ] {
+            let url = serve("200 OK", body);
+            let found = probe_local("vLLM", &url).unwrap();
+            assert_eq!(found.suggestion.name, format!("{label} (local)"));
+            assert_eq!(found.reason, format!("Found {label} running with 1 model"));
+            assert_eq!(found.suggestion.model, "qwen3-8b");
+            assert_eq!(found.suggestion.base_url.as_deref(), Some(url.as_str()));
+        }
     }
 
     /// #127: an embedding model listed first isn't the one chatted with.

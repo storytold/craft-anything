@@ -3,7 +3,14 @@ use craft_anything_engine::workspace::progress::BUILD_PROGRESS_FILE;
 
 fn consumed_notes(notes: &Mutex<Vec<Note>>, dir: &Path) {
     for (id, text) in [(71, "Keep the header blue"), (72, "Use larger text")] {
-        notes.lock().unwrap().push(Note { id, text: text.into(), shown: text.into(), pictures: Vec::new(), questions: Vec::new() });
+        notes.lock().unwrap().push(Note {
+            id,
+            text: text.into(),
+            shown: text.into(),
+            pictures: Vec::new(),
+            questions: Vec::new(),
+            added: std::time::SystemTime::now(),
+        });
         notes::hand_over(dir, id, text, None).unwrap();
     }
     assert_eq!(notes::claim(dir).len(), 2);
@@ -181,7 +188,14 @@ fn consumed_note_resets_survive_failed_and_cancelled_turns() {
     impl ChatModel for InterruptedNote {
         fn turn(&mut self, _: &TurnRequest<'_>, _: &mut dyn FnMut(Delta), _: &Stop) -> Result<TurnResult, ToolError> {
             self.calls.fetch_add(1, Ordering::SeqCst);
-            self.notes.lock().unwrap().push(Note { id: 73, text: self.text.into(), shown: self.text.into(), pictures: Vec::new(), questions: Vec::new() });
+            self.notes.lock().unwrap().push(Note {
+                id: 73,
+                text: self.text.into(),
+                shown: self.text.into(),
+                pictures: Vec::new(),
+                questions: Vec::new(),
+                added: std::time::SystemTime::now(),
+            });
             notes::hand_over(&self.notes_dir, 73, self.text, None).unwrap();
             assert_eq!(notes::claim(&self.notes_dir), [self.text]);
             if !self.record.is_empty() {
@@ -396,4 +410,123 @@ fn what_a_tool_says_reaches_the_feed_while_it_holds_the_session() {
     let in_time = holder.join().unwrap();
     assert!(result.is_ok(), "{result:?}");
     assert!(agent.seen && in_time, "the waiting line reached the feed while the tool held the session");
+}
+
+/// A builder whose hook takes a note during its first turn. A turn listed in `lost` ends with its
+/// conversation lost, one in `retryable` with a failure worth trying again; any other answers.
+struct LostAfterTakingANote {
+    notes: Arc<Mutex<Vec<Note>>>,
+    notes_dir: PathBuf,
+    note_questions: Vec<AskedQuestion>,
+    sent: Vec<String>,
+    polls: usize,
+    failed: bool,
+    lost: &'static [usize],
+    retryable: &'static [usize],
+}
+
+impl Conversation for LostAfterTakingANote {
+    fn send(&mut self, text: &str) {
+        self.sent.push(text.into());
+        self.polls = 0;
+        self.failed = false;
+    }
+
+    fn session_lost(&self) -> bool {
+        self.failed && self.lost.contains(&self.sent.len())
+    }
+
+    fn last_failure(&self) -> Option<crate::TurnFailure> {
+        (self.failed && self.retryable.contains(&self.sent.len())).then(|| crate::TurnFailure::new(crate::FailureKind::RateLimited))
+    }
+
+    fn poll(&mut self) -> Vec<AgentEvent> {
+        self.polls += 1;
+        let done = AgentEvent::TurnDone {
+            backend: "scripted".into(),
+            input_tokens: 0,
+            output_tokens: 0,
+            tokens_unknown: false,
+            cost_usd: None,
+            cost_is_estimate: false,
+        };
+        let turn = self.sent.len();
+        if (turn, self.polls) == (1, 1) {
+            let text = "Make the header red";
+            let note = Note {
+                id: 81,
+                text: text.into(),
+                shown: text.into(),
+                pictures: Vec::new(),
+                questions: self.note_questions.clone(),
+                added: std::time::SystemTime::now(),
+            };
+            self.notes.lock().unwrap().push(note);
+            notes::hand_over(&self.notes_dir, 81, text, None).unwrap();
+            assert_eq!(notes::claim(&self.notes_dir).len(), 1);
+            return Vec::new();
+        }
+        if self.lost.contains(&turn) || self.retryable.contains(&turn) {
+            self.failed = true;
+            return vec![AgentEvent::Error { message: "No conversation found".into(), remediation: None, log: None }, done];
+        }
+        vec![AgentEvent::TextDelta { text: "Started again".into() }, done]
+    }
+
+    fn answer_consent(&mut self, _: &str, _: bool) {}
+    fn stop(&mut self) {}
+    fn is_busy(&self) -> bool {
+        false
+    }
+}
+
+/// Review of #2043: a note the builder's hook took in a turn whose conversation was then lost (not
+/// on this computer, or too long) reaches the new conversation, not only the feed, also when the
+/// turn was retried before it was lost. With nothing to start a new one from, or when the new one
+/// is lost too, it waits for the next run, and the Just-ask answer it carried is untold again,
+/// since that run is sent the note's text alone.
+#[test]
+fn a_note_taken_by_a_lost_conversation_goes_to_the_new_one() {
+    // (a fresh start, lost turns, retryable turns, the message that carries the note)
+    type Turns = &'static [usize];
+    let cases: [(bool, Turns, Turns, Option<usize>); 4] =
+        [(true, &[1], &[], Some(1)), (false, &[1], &[], None), (true, &[1, 2], &[], None), (true, &[2], &[1], Some(2))];
+    for (fresh, lost, retryable, carried_by) in cases {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ws = Workspace::create(dir.path(), "Lost notes", "Build an app", TargetRef::None).unwrap();
+        let asked = AskedQuestion::new("Which header?".into(), "The top one".into(), false, "scripted".into(), None, 0);
+        craft_anything_engine::questions::add(&ws, asked.clone()).unwrap();
+        let mut worker = check_worker(&ws, false);
+        let notes_dir = notes::notes_dir(&ws.inbox_dir());
+        let mut agent = LostAfterTakingANote {
+            notes: worker.notes.clone(),
+            notes_dir,
+            note_questions: vec![asked],
+            sent: Vec::new(),
+            polls: 0,
+            failed: false,
+            lost,
+            retryable,
+        };
+        let start = fresh.then(|| "THE FRESH START".to_string());
+        let result = worker.turn_with_wait(&mut ws, &mut agent, "Carry on", true, start, |_, _| Ok(()));
+        let case = format!("fresh {fresh}, lost {lost:?}, retryable {retryable:?}");
+        let waiting: Vec<String> = worker.notes.lock().unwrap().iter().map(|n| n.text.clone()).collect();
+        let untold = craft_anything_engine::questions::untold(&ws, true).len();
+        match carried_by {
+            Some(i) => {
+                assert_eq!(result.unwrap(), "Started again", "{case}");
+                let message = agent.sent.get(i).expect("a new conversation was started");
+                assert!(message.starts_with("THE FRESH START") && message.contains("- Make the header red"), "{case}: {message}");
+                assert!(message.contains("The top one"), "{case}: the answer goes with it: {message}");
+                assert!(waiting.is_empty(), "{case}: sent, so not waiting");
+                assert_eq!(untold, 0, "{case}: told in the new conversation");
+            }
+            None => {
+                assert!(result.is_err(), "{case}");
+                assert_eq!(waiting, ["Make the header red"], "{case}: kept for the next run");
+                assert_eq!(untold, 1, "{case}: the next run tells the answer again");
+            }
+        }
+    }
 }

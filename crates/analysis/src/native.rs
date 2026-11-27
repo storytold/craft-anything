@@ -50,9 +50,119 @@ fn program_limitations(prog: &Program) -> Vec<Limitation> {
 // ---------------------------------------------------------------------------------------------
 // Triage
 
+/// What a file kept beside a desktop Flutter program is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FlutterRole {
+    /// The `flutter_assets` folder.
+    Assets,
+    /// The app's compiled Dart code (the Dart AOT snapshot: `app.so`, `libapp.so`, `App`).
+    DartCode,
+    /// The Flutter engine library.
+    Engine,
+}
+
+impl FlutterRole {
+    fn id(self) -> &'static str {
+        match self {
+            FlutterRole::Assets => "assets",
+            FlutterRole::DartCode => "dart_code",
+            FlutterRole::Engine => "engine",
+        }
+    }
+}
+
+/// A file a desktop Flutter build keeps at a fixed place beside its program.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FlutterFile {
+    /// Relative to the program's folder, `/`-separated.
+    pub path: &'static str,
+    pub role: FlutterRole,
+    /// A folder rather than a file.
+    pub dir: bool,
+}
+
+const fn ff(path: &'static str, role: FlutterRole, dir: bool) -> FlutterFile {
+    FlutterFile { path, role, dir }
+}
+
+const FLUTTER_WINDOWS: [FlutterFile; 3] = [
+    ff("data/app.so", FlutterRole::DartCode, false),
+    ff("data/flutter_assets", FlutterRole::Assets, true),
+    ff("flutter_windows.dll", FlutterRole::Engine, false),
+];
+const FLUTTER_LINUX: [FlutterFile; 3] = [
+    ff("lib/libapp.so", FlutterRole::DartCode, false),
+    ff("data/flutter_assets", FlutterRole::Assets, true),
+    ff("lib/libflutter_linux_gtk.so", FlutterRole::Engine, false),
+];
+// A Mac program sits in App.app/Contents/MacOS; the frameworks are in Contents/Frameworks.
+const FLUTTER_MAC: [FlutterFile; 3] = [
+    ff("../Frameworks/App.framework/App", FlutterRole::DartCode, false),
+    ff("../Frameworks/App.framework/Resources/flutter_assets", FlutterRole::Assets, true),
+    ff("../Frameworks/FlutterMacOS.framework", FlutterRole::Engine, true),
+];
+
+/// Where a desktop Flutter build of this format keeps its Dart code, assets and engine, for the
+/// caller (which does the file-system checks) to look for beside the program.
+pub fn flutter_files_beside(format: Format) -> &'static [FlutterFile] {
+    match format {
+        Format::Pe => &FLUTTER_WINDOWS,
+        Format::Elf => &FLUTTER_LINUX,
+        Format::MachO => &FLUTTER_MAC,
+        _ => &[],
+    }
+}
+
+/// [`triage`] for a program whose folder was looked at: `beside` lists the
+/// [`flutter_files_beside`] entries that exist, each with the path to show for it.
+pub fn triage_beside(bin: &Binary, data: &[u8], file_name: &str, beside: &[(FlutterFile, String)]) -> Report {
+    let mut hints = detect(bin, data);
+    if !beside.is_empty() {
+        let files = beside.iter().map(|(f, _)| f.path).collect::<Vec<_>>().join(", ");
+        let seen = format!("a Flutter build's files beside the program ({files})");
+        match hints.iter_mut().find(|h| h.id == "flutter") {
+            Some(h) => {
+                h.strength = "strong";
+                h.evidence = format!("{}; {seen}", h.evidence);
+            }
+            None => hints.push(Hint { id: "flutter", category: "framework", label: "Flutter (Dart)".into(), strength: "strong", evidence: seen }),
+        }
+    }
+    let dart = beside.iter().find(|(f, _)| f.role == FlutterRole::DartCode).map(|(_, p)| p.as_str());
+    let mut r = triage_hints(bin, data, file_name, &hints, dart);
+    let Some(flutter) = hints.iter().find(|h| h.id == "flutter") else {
+        return r;
+    };
+    let where_dart = match bin.format {
+        Format::Pe => "data\\app.so beside the program",
+        Format::Elf => "lib/libapp.so beside the program",
+        Format::MachO => "Contents/Frameworks/App.framework/App",
+        _ => "a separate library (libapp.so)",
+    };
+    let sentence = match &dart {
+        Some(p) => format!(" Its own code is compiled Dart (a Dart AOT snapshot) in {p}, not in this file: analyse that file."),
+        None => format!(" A Flutter app keeps its own code as compiled Dart (a Dart AOT snapshot) in a separate file, usually {where_dart}."),
+    };
+    r.summary.push_str(&sentence);
+    r.result["plain_english"] = json!(r.summary);
+    r.result["flutter"] = json!({
+        "confidence": if flutter.strength == "strong" { Confidence::Observed } else { Confidence::Inferred },
+        "evidence": flutter.evidence,
+        "dart_code": dart,
+        "files": beside.iter().map(|(f, p)| json!({"role": f.role.id(), "path": p})).collect::<Vec<_>>(),
+    });
+    if let Some(path) = dart {
+        r.locations.push(Location::new("path", path).with_label("compiled Dart code (Dart AOT snapshot)"));
+    }
+    r
+}
+
 /// A plain-English description of what a native binary is, plus where to go next.
 pub fn triage(bin: &Binary, data: &[u8], file_name: &str) -> Report {
-    let hints = detect(bin, data);
+    triage_beside(bin, data, file_name, &[])
+}
+
+fn triage_hints(bin: &Binary, data: &[u8], file_name: &str, hints: &[Hint], dart_path: Option<&str>) -> Report {
     let os = match bin.format {
         Format::Elf => {
             if bin.libraries.iter().any(|l| l.contains("liblog.so") || l.contains("libandroid")) {
@@ -132,9 +242,15 @@ pub fn triage(bin: &Binary, data: &[u8], file_name: &str) -> Report {
         toolsets.push("javascript");
         tools.insert(0, ("js_app_map", "the app's logic is JavaScript inside resources/app.asar, not in this file"));
     }
-    if has("flutter") {
-        toolsets.push("android");
-        tools.insert(0, ("android_flutter_identify", "Flutter apps keep their Dart code in a snapshot (libapp.so)"));
+    if has("flutter") && dart_path.is_none() {
+        if matches!(os, "Windows" | "Mac") || (os == "Linux" && bin.kind == "executable") {
+            toolsets.push("formats");
+            tools
+                .insert(0, ("app_folder_explain", "pass the absolute path of the install folder or macOS app bundle to inspect its Flutter engine and assets"));
+        } else {
+            toolsets.push("android");
+            tools.insert(0, ("android_flutter_identify", "Flutter apps keep their Dart code in a snapshot (libapp.so)"));
+        }
     }
     if bin.format == Format::MachO || has("objc") || has("swift") {
         toolsets.push("apple");
@@ -158,9 +274,22 @@ pub fn triage(bin: &Binary, data: &[u8], file_name: &str) -> Report {
     if !packers.is_empty() {
         tools.insert(0, ("core_overview_show", "check section entropy; packed code must be unpacked (run in a sandbox) before static analysis helps"));
     }
-    toolsets.dedup();
+    let mut next = Vec::new();
     let mut seen = BTreeSet::new();
-    let next: Vec<Value> = tools.into_iter().filter(|(t, _)| seen.insert(*t)).map(|(t, why)| json!({"tool": t, "why": why})).collect();
+    if let Some(path) = dart_path {
+        // The macOS App framework is Mach-O. The Dart snapshot reader accepts ELF libraries.
+        let (set, tool, why) = if bin.format == Format::MachO {
+            ("apple", "apple_macho_show", "inspect the Mach-O framework containing the app's compiled Dart code")
+        } else {
+            ("android", "android_dart_snapshot_show", "the app's own code is this Dart AOT snapshot: its packages and names")
+        };
+        toolsets.push(set);
+        seen.insert(tool);
+        next.push(json!({"tool": tool, "args": {"path": path}, "why": why}));
+    }
+    next.extend(tools.into_iter().filter(|(t, _)| seen.insert(*t)).map(|(t, why)| json!({"tool": t, "why": why})));
+    let mut seen_sets = BTreeSet::new();
+    toolsets.retain(|set| seen_sets.insert(*set));
     let result = json!({
         "plain_english": plain,
         "format": bin.format,
@@ -1140,7 +1269,8 @@ mod tests {
         assert_eq!(plain.result["stripped"], true);
 
         let mut go = elf.clone();
-        go.extend_from_slice(b"\xff Go buildinf:\x08\x02go1.22.3\0");
+        go.resize(go.len().next_multiple_of(16), 0);
+        go.extend_from_slice(&tk::formats::go_buildinfo_inline("go1.22.3", ""));
         let t = triage(&bin, &go, "g");
         assert!(!t.summary.contains("(stripped)"), "{}", t.summary);
         assert!(t.summary.contains("pclntab"), "{}", t.summary);
@@ -1155,6 +1285,47 @@ mod tests {
     }
 
     #[test]
+    fn triage_names_a_desktop_flutter_build_and_its_dart_code() {
+        // #2227: the engine import or the files beside the program are observed; text alone is
+        // inferred; a plain program says nothing about Flutter.
+        let pe = tk::flutter::flutter_windows_exe();
+        let bin = craft_anything_formats::parse_binary(&pe).unwrap();
+        let t = triage(&bin, &pe, "localsend_app.exe");
+        assert_eq!(t.result["flutter"]["confidence"], "observed", "{}", t.result);
+        assert_eq!(t.result["flutter"]["dart_code"], Value::Null);
+        assert!(t.summary.contains("Flutter") && t.summary.contains("data\\app.so"), "{}", t.summary);
+
+        let text = tk::flutter::pe_mentioning_flutter();
+        let bin = craft_anything_formats::parse_binary(&text).unwrap();
+        let t = triage(&bin, &text, "app.exe");
+        assert_eq!(t.result["flutter"]["confidence"], "inferred", "{}", t.result);
+        assert_eq!(t.confidence, Confidence::Inferred);
+
+        let dart = r"C:\Apps\LocalSend\data\app.so".to_string();
+        let beside: Vec<(FlutterFile, String)> = flutter_files_beside(Format::Pe)
+            .iter()
+            .filter(|f| f.role != FlutterRole::Engine)
+            .map(|f| (*f, if f.role == FlutterRole::DartCode { dart.clone() } else { r"C:\Apps\LocalSend\data\flutter_assets".into() }))
+            .collect();
+        let t = triage_beside(&bin, &text, "app.exe", &beside);
+        assert_eq!(t.result["flutter"]["confidence"], "observed", "{}", t.result);
+        assert_eq!(t.result["flutter"]["dart_code"], dart.as_str());
+        assert_eq!(t.result["flutter"]["files"].as_array().unwrap().len(), 2);
+        assert_eq!(t.result["next_steps"][0]["tool"], "android_dart_snapshot_show");
+        assert_eq!(t.result["next_steps"][0]["args"]["path"], dart.as_str());
+        assert!(t.summary.contains(&dart) && t.result["plain_english"] == t.summary.as_str(), "{}", t.summary);
+        assert!(t.locations.iter().any(|l| l.kind == "path" && l.value == dart));
+
+        // The layout alone, with nothing in the program, still names Flutter.
+        let plain = tk::pe64();
+        let bin = craft_anything_formats::parse_binary(&plain).unwrap();
+        assert!(triage(&bin, &plain, "craft.exe").result.get("flutter").is_none());
+        let t = triage_beside(&bin, &plain, "craft.exe", &beside);
+        assert_eq!(t.result["flutter"]["confidence"], "observed", "{}", t.result);
+        assert!(t.result["toolchain_hints"].as_array().unwrap().iter().any(|h| h["id"] == "flutter" && h["strength"] == "strong"));
+    }
+
+    #[test]
     fn triage_calls_an_anycpu_assembly_any_cpu_not_32_bit() {
         let data = tk::managed::managed_assembly(1);
         let bin = craft_anything_formats::parse_binary(&data).unwrap();
@@ -1162,6 +1333,34 @@ mod tests {
         let t = triage(&bin, &data, "Sample.dll");
         assert_eq!(t.result["dotnet_arch"], "anycpu");
         assert!(t.summary.contains("any CPU") && !t.summary.contains("32-bit"), "{}", t.summary);
+    }
+
+    #[test]
+    fn flutter_next_steps_accept_the_desktop_app_or_its_snapshot() {
+        let linux = tk::elf64(tk::ElfArch::X86_64, false).0;
+        for (data, engine, reader, set) in [
+            (tk::flutter::flutter_windows_exe(), "flutter_windows.dll", "android_dart_snapshot_show", "android"),
+            (linux, "libflutter_linux_gtk.so", "android_dart_snapshot_show", "android"),
+            (tk::macho64(), "@rpath/FlutterMacOS.framework/FlutterMacOS", "apple_macho_show", "apple"),
+        ] {
+            let mut bin = craft_anything_formats::parse_binary(&data).unwrap();
+            bin.libraries.push(engine.into());
+            let report = triage(&bin, &data, "runner");
+            assert_eq!(report.result["next_steps"][0]["tool"], "app_folder_explain");
+            assert!(report.result["recommended_toolsets"].as_array().unwrap().iter().any(|s| s == "formats"));
+
+            let file = flutter_files_beside(bin.format).iter().find(|f| f.role == FlutterRole::DartCode).unwrap();
+            let report = triage_beside(&bin, &data, "runner", &[(*file, file.path.into())]);
+            let step = &report.result["next_steps"][0];
+            assert_eq!(step["tool"], reader);
+            assert_eq!(step["args"]["path"], file.path);
+            assert!(report.result["recommended_toolsets"].as_array().unwrap().iter().any(|s| s == set));
+            assert!(!report.result["next_steps"].as_array().unwrap().iter().any(|s| s["tool"] == "android_flutter_identify"));
+        }
+
+        let data = tk::flutter::libapp_so(tk::flutter::SymbolTable::Sections);
+        let bin = craft_anything_formats::parse_binary(&data).unwrap();
+        assert_eq!(triage(&bin, &data, "libapp.so").result["next_steps"][0]["tool"], "android_flutter_identify");
     }
 
     #[test]

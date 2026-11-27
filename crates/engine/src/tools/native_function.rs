@@ -404,9 +404,7 @@ fn native_function_pseudocode(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOu
     };
     if let Some(e) = unknown {
         return Err(match why_not_deep {
-            Some(why) => e.with_remediation(format!(
-                "{why} The built-in analysis has no function there either: it may be data, or code reached only through a table of pointers. Try native_function_find, or xrefs to the address to find the code that uses it."
-            )),
+            Some(why) => no_function_after_deep(e, &p.function, &why),
             None => e,
         });
     }
@@ -419,15 +417,50 @@ fn native_function_pseudocode(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOu
     let name = name_of(t, &st.prog, f.entry).unwrap_or_else(|| f.name.clone());
     let ps = lift(&st.img, &st.prog, f, &names);
     let e = ev(ctx, "native_function_pseudocode", params_json(&p))?
-        .result(json!({"function": name_of(t, &st.prog, f.entry), "entry": hex(f.entry), "signature": ps.signature, "pseudo_code": ps.text, "calls": ps.calls, "strings": ps.strings, "structured": ps.structured, "gotos": ps.gotos, "inline_asm": ps.asm_fallbacks, "engine": "clean-room lifter"}))
-        .summary(format!("Pseudo-C for {name} ({} lines{}).", ps.text.lines().count(), if ps.structured { "" } else { ", partly unstructured" }))
+        .result({
+            let engine = why_not_deep.as_ref().map_or_else(|| "clean-room lifter".to_string(), |w| w.engine_label());
+            let mut r = json!({"function": name_of(t, &st.prog, f.entry), "entry": hex(f.entry), "signature": ps.signature, "pseudo_code": ps.text, "calls": ps.calls, "strings": ps.strings, "structured": ps.structured, "gotos": ps.gotos, "inline_asm": ps.asm_fallbacks, "engine": engine});
+            if let (Some(w), Some(m)) = (&why_not_deep, r.as_object_mut()) {
+                m.insert(super::deep::NotUsed::CODE.into(), w.to_json());
+            }
+            r
+        })
+        .summary({
+            let lines = format!("Pseudo-C for {name} ({} lines{}).", ps.text.lines().count(), if ps.structured { "" } else { ", partly unstructured" });
+            match &why_not_deep {
+                // Said where every reader looks, the CLI's text output included (#2209).
+                Some(w) => format!("{lines} Deep mode was on but Ghidra wasn't used ({}), so this is the built-in decompiler's answer.", w.reason.short()),
+                None => lines,
+            }
+        })
         .confidence(Confidence::Inferred)
         .target_content(true)
         .limitations(ps.limitations.iter().map(|(c, m)| Limitation::new(c.clone(), m.clone())))
-        .limitations(why_not_deep.map(|w| Limitation::new("deep_engine_unavailable", format!("{w} So this came from the built-in decompiler, which is less exact."))))
+        .limitations(why_not_deep.map(|w| Limitation::new(super::deep::NotUsed::CODE, format!("{} So this came from the built-in decompiler, which is less exact.", w.message))))
         .location(Location::address(f.entry))
         .build()?;
     Ok(ToolOutput::evidence(e))
+}
+
+/// The error for a function only Ghidra could have found, when Deep mode didn't give an answer.
+/// When Ghidra itself failed (not installed, couldn't open the program, …), that failure is the
+/// main cause and leads the message (#2209); when Ghidra answered that there is no function there,
+/// it stays a "no function" error with Ghidra's answer as the hint. Either way the details carry
+/// the typed reason.
+fn no_function_after_deep(e: ToolError, function: &str, why: &super::deep::NotUsed) -> ToolError {
+    let hint = "The built-in analysis has no function there either: it may be data, or code reached only through a table of pointers. Try native_function_find, or xrefs to the address to find the code that uses it.";
+    let details = json!({"reason": super::deep::NotUsed::CODE, "function": function.trim(), super::deep::NotUsed::CODE: why.to_json()});
+    if why.reason.is_failure() {
+        let message = why.message.trim();
+        ToolError::new(
+            why.reason.error_code(),
+            format!("{message} So Deep mode couldn't look up {}, and the built-in analysis has no function named or at it.", function.trim()),
+        )
+        .with_remediation(hint)
+        .with_details(details)
+    } else {
+        e.with_remediation(format!("{} {hint}", why.message)).with_details(details)
+    }
 }
 
 /// An address Ghidra can look up: `0x…`, a bare hex address, or a generated name like `FUN_…`.
@@ -807,9 +840,16 @@ mod tests {
         assert!(why.to_string().contains("isn't installed") && why.to_string().contains("came from the built-in decompiler"), "{why}");
         // A function the built-in analysis never mapped goes to Ghidra in Deep mode; without
         // Ghidra the error says why rather than just "not found".
+        assert_eq!(r["result"]["engine"], "clean-room lifter (Deep mode fallback: Ghidra isn't installed)");
+        assert_eq!(r["result"]["deep_engine_unavailable"]["reason"], "not_installed");
+        assert!(r["summary"].as_str().unwrap().contains("Deep mode was on but Ghidra wasn't used"), "{}", r["summary"]);
         let err = call_err(&e, "native_function_pseudocode", json!({"function": "FUN_7fff0000"}));
+        // Ghidra's absence is the cause, so it leads the message (#2209).
+        assert!(err.message.starts_with("Deep mode is on, but Ghidra isn't installed"), "{}", err.message);
+        assert_eq!(err.code, craft_anything_evidence::ErrorCode::EngineMissing);
+        assert_eq!(err.details.as_ref().unwrap()["deep_engine_unavailable"]["reason"], "not_installed");
         let hint = err.remediation.unwrap_or_default();
-        assert!(hint.contains("isn't installed") && hint.contains("native_function_find"), "{hint}");
+        assert!(hint.contains("native_function_find"), "{hint}");
         assert!(!hint.contains("came from the built-in decompiler"), "nothing was decompiled: {hint}");
         // Clean room never decompiles: the tool is refused, saying how to turn Deep mode on.
         e.session().settings.deep_mode = false;

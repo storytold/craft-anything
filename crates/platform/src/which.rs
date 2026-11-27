@@ -22,17 +22,27 @@ const USUAL_HOME_DIRS: &[&str] =
 #[cfg(unix)]
 const USUAL_DIRS: &[&str] = &["/opt/homebrew/bin", "/usr/local/bin"];
 // Claude Code's installer, npm (without a custom prefix), WinGet's portable packages (Claude
-// Code's WinGet install), bun, cargo, Hermes Agent's installer (`%LOCALAPPDATA%\hermes\bin`, #116)
-// and Grok Build (`%USERPROFILE%\.grok\bin`). PATH may not have them yet in an app started before
-// the install.
+// Code's WinGet install), bun, cargo, Hermes Agent's installer (`%LOCALAPPDATA%\hermes\bin`, #116),
+// Grok Build (`%USERPROFILE%\.grok\bin`) and the DeepSeek Harness desktop app, whose `dsh.cmd` is
+// on PATH only once its command is turned on (#2348). PATH may not have them yet in an app started
+// before the install.
 #[cfg(windows)]
-const USUAL_HOME_DIRS: &[&str] =
-    &[r".local\bin", r"AppData\Roaming\npm", r"AppData\Local\Microsoft\WinGet\Links", r".bun\bin", r".cargo\bin", r"AppData\Local\hermes\bin", r".grok\bin"];
+const USUAL_HOME_DIRS: &[&str] = &[
+    r".local\bin",
+    r"AppData\Roaming\npm",
+    r"AppData\Local\Microsoft\WinGet\Links",
+    r".bun\bin",
+    r".cargo\bin",
+    r"AppData\Local\hermes\bin",
+    r".grok\bin",
+    r"AppData\Local\Programs\DeepSeek Harness\resources\runtime\cli\bin",
+];
 #[cfg(not(any(unix, windows)))]
 const USUAL_HOME_DIRS: &[&str] = &[];
-// WinGet's portable packages installed for every user (`--scope machine`).
+// WinGet's portable packages installed for every user (`--scope machine`), and Node.js's own
+// installer (npm and node; #2178, where the app's PATH didn't have it although a terminal's did).
 #[cfg(windows)]
-const USUAL_DIRS: &[&str] = &[r"C:\Program Files\WinGet\Links"];
+const USUAL_DIRS: &[&str] = &[r"C:\Program Files\WinGet\Links", r"C:\Program Files\nodejs"];
 #[cfg(not(any(unix, windows)))]
 const USUAL_DIRS: &[&str] = &[];
 const HOME_VAR: &str = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
@@ -43,7 +53,46 @@ const HOME_VAR: &str = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
 /// may not have added its folder to `PATH` at all.
 pub fn search_path() -> Option<OsString> {
     let local_data = cfg!(windows).then(|| std::env::var_os("LOCALAPPDATA")).flatten().map(PathBuf::from);
-    with_usual_dirs(std::env::var_os("PATH"), std::env::var_os(HOME_VAR).map(PathBuf::from), local_data)
+    let path = std::env::var_os("PATH");
+    #[cfg(windows)]
+    let path = path.map(|p| expand_vars(&p, |name| std::env::var_os(name)));
+    with_usual_dirs(path, std::env::var_os(HOME_VAR).map(PathBuf::from), local_data)
+}
+
+/// `PATH` with its `%NAME%` references expanded. A PATH saved in the registry as plain text (not
+/// as an expandable string) keeps entries such as `%ProgramFiles%\nodejs` or nvm's
+/// `%NVM_SYMLINK%` as written; a terminal expands them, but a program started from the Start menu
+/// gets them as they are, and finds nothing there (#2178). A name that isn't set, or a lone `%`,
+/// stays as written.
+#[cfg(any(windows, test))]
+fn expand_vars(path: &std::ffi::OsStr, var: impl Fn(&str) -> Option<OsString>) -> OsString {
+    let Some(text) = path.to_str().filter(|t| t.contains('%')) else { return path.to_owned() };
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find('%') {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 1..];
+        match after.find('%') {
+            Some(end) if end > 0 && !after[..end].contains(';') => {
+                let name = &after[..end];
+                match var(name).and_then(|v| v.into_string().ok()) {
+                    Some(value) => out.push_str(&value),
+                    None => {
+                        out.push('%');
+                        out.push_str(name);
+                        out.push('%');
+                    }
+                }
+                rest = &after[end + 1..];
+            }
+            _ => {
+                out.push('%');
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    OsString::from(out)
 }
 
 /// How to start `program`, and the arguments that go before the caller's. On Windows only `.exe`
@@ -497,6 +546,32 @@ mod tests {
         assert!(which("sh").is_some());
         assert!(which("definitely-not-a-program-xyz").is_none());
         assert!(which("").is_none());
+    }
+
+    /// #2178: `%NAME%` entries in PATH are expanded, as a terminal would, so a program behind one
+    /// (Node.js under `%ProgramFiles%`, nvm's `%NVM_SYMLINK%`) is found.
+    #[test]
+    fn path_entries_with_variables_are_expanded() {
+        let var = |name: &str| match name {
+            "ProgramFiles" => Some(OsString::from(r"C:\Program Files")),
+            "NVM_SYMLINK" => Some(OsString::from(r"C:\nvm4w\nodejs")),
+            _ => None,
+        };
+        let expand = |p: &str| expand_vars(std::ffi::OsStr::new(p), var).into_string().unwrap();
+        assert_eq!(expand(r"C:\Windows;%ProgramFiles%\nodejs;%NVM_SYMLINK%"), r"C:\Windows;C:\Program Files\nodejs;C:\nvm4w\nodejs");
+        assert_eq!(expand(r"%UNSET%\bin;C:\x"), r"%UNSET%\bin;C:\x", "a name that isn't set stays as written");
+        assert_eq!(expand(r"C:\100%;D:\tools%;%ProgramFiles%"), r"C:\100%;D:\tools%;C:\Program Files", "a % that opens no name stays");
+        assert_eq!(expand(r"C:\Windows"), r"C:\Windows");
+        assert_eq!(expand(""), "");
+    }
+
+    /// #2178: on Windows, Node.js's own install folder is searched after PATH, so npm is found by
+    /// an app whose PATH doesn't name it.
+    #[cfg(windows)]
+    #[test]
+    fn nodes_install_folder_is_searched() {
+        let dirs: Vec<PathBuf> = std::env::split_paths(&with_usual_dirs(None, None, None).unwrap()).collect();
+        assert!(dirs.contains(&PathBuf::from(r"C:\Program Files\nodejs")), "{dirs:?}");
     }
 
     #[cfg(unix)]

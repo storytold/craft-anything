@@ -14,6 +14,15 @@ pub enum FormatError {
     TooLarge(String),
 }
 
+impl From<craft_android_res::Error> for FormatError {
+    fn from(e: craft_android_res::Error) -> Self {
+        match e {
+            craft_android_res::Error::Truncated(what) => FormatError::Truncated(what),
+            craft_android_res::Error::Malformed(what) => FormatError::Malformed(what),
+        }
+    }
+}
+
 /// Serialise addresses as `0x…` strings (agents and people read hex).
 pub mod hex_addr {
     use serde::Serializer;

@@ -82,13 +82,25 @@ pub fn specs() -> Vec<ToolSpec> {
         ToolSpec {
             id: "plugins_add",
             title: "Add a plugin",
-            summary: "Add an external MCP server as a plugin ([[plugins.mcp]] in config.toml): an id, and either a command (a local server, with args, env and cwd) or a url (a remote https server, with headers). A plugin added here always asks before each call. replace overwrites a plugin with the same id. Run plugins_refresh next to read its tools.",
+            summary: "Add an external MCP server as a plugin ([[plugins.mcp]] in config.toml): an id, and either a command (a local server, with args, env and cwd) or a url (a remote https server, with headers). A command's program must be on this computer (on PATH, or a path, relative to cwd if given), or nothing is saved. A plugin added here always asks before each call. replace overwrites a plugin with the same id. plugins_test checks that it answers first; run plugins_refresh next to read its tools.",
             beginner: "Adds an add-on: another program or server whose tools Craft Anything can use.",
             toolset: Toolset::Setup,
             effects: Effects::WRITES_FILESYSTEM.union(Effects::MUTATES_SESSION),
             requires: Requires::Nothing,
             input_schema: schema_of::<AddPluginParams>,
             run: plugins_add,
+        },
+        ToolSpec {
+            id: "plugins_test",
+            title: "Test a plugin",
+            summary: "Before adding an MCP server as a plugin, check that it works: takes the same fields as plugins_add, looks for a command's program, starts the server (or reaches the url), completes the handshake and lists its tools, then stops it. Nothing is saved or cached. It runs the plugin's program, so it needs consent. It doesn't call any of the tools.",
+            beginner: "Checks that an add-on starts and answers, before you add it.",
+            toolset: Toolset::Setup,
+            // A url is a remote server it connects to.
+            effects: Effects::LAUNCHES_PROCESS.union(Effects::WRITES_FILESYSTEM).union(Effects::EXECUTES_FOREIGN_CODE).union(Effects::ACCESSES_NETWORK),
+            requires: Requires::Nothing,
+            input_schema: schema_of::<AddPluginParams>,
+            run: plugins_test,
         },
         ToolSpec {
             id: "plugins_remove",
@@ -112,7 +124,31 @@ pub fn specs() -> Vec<ToolSpec> {
             input_schema: schema_of::<AppOpenParams>,
             run: engines_app_open,
         },
+        ToolSpec {
+            id: "engines_analysis_stop",
+            title: "Stop Ghidra's analysis",
+            summary: "Stop Ghidra's analysis for a project's Deep-mode builds and keep the project (pausing lets it go on, so nothing is lost). Ghidra then stays off for that project, its builder's own decompiles included, until a new request, which starts the analysis again from the beginning. Another project's build that needs the same program isn't stopped: it starts the analysis again for itself. Answers whether this process had one under way.",
+            beginner: "Stops Ghidra studying the program for this project.",
+            toolset: Toolset::Setup,
+            effects: Effects::WRITES_FILESYSTEM.union(Effects::MAY_DISCARD_DATA).union(Effects::IDEMPOTENT),
+            requires: Requires::Nothing,
+            input_schema: schema_of::<AnalysisStopParams>,
+            run: engines_analysis_stop,
+        },
     ]
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AnalysisStopParams {
+    /// The project's folder (the one holding craft.json).
+    pub project: std::path::PathBuf,
+}
+
+fn engines_analysis_stop(_ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
+    let p: AnalysisStopParams = parse_params(params)?;
+    let stopped = crate::tools::deep::stop_for(&p.project)?;
+    Ok(ToolOutput::Value(json!({"project": p.project, "stopped": stopped})))
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -222,13 +258,10 @@ fn add_wasm_plugin(ctx: &mut Ctx<'_>, p: AddPluginParams, path: std::path::PathB
     })))
 }
 
-fn plugins_add(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
-    let mut p: AddPluginParams = parse_params(params)?;
-    if let Some(path) = p.wasm.take() {
-        return add_wasm_plugin(ctx, p, path);
-    }
-    // Added from here, a plugin always asks before each call; only config.toml can turn that off.
-    let plugin = crate::plugins::McpPlugin {
+/// The MCP server plugins_add and plugins_test are given. Added from here, a plugin always asks
+/// before each call; only config.toml can turn that off.
+fn mcp_plugin(p: AddPluginParams) -> crate::plugins::McpPlugin {
+    crate::plugins::McpPlugin {
         id: p.id.trim().to_string(),
         name: p.name.filter(|n| !n.trim().is_empty()),
         command: p.command.trim().to_string(),
@@ -239,20 +272,29 @@ fn plugins_add(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError
         headers: p.headers,
         enabled: true,
         consent: true,
-    };
+    }
+}
+
+fn plugins_add(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
+    let mut p: AddPluginParams = parse_params(params)?;
+    if let Some(path) = p.wasm.take() {
+        return add_wasm_plugin(ctx, p, path);
+    }
+    let replace = p.replace;
+    let plugin = mcp_plugin(p);
     if let Some(problem) = plugin.problem() {
         return Err(ToolError::invalid(problem));
     }
     let mut next = ctx.session.settings.clone();
     if next.plugins.wasm.iter().any(|x| x.id == plugin.id) {
-        if !p.replace {
+        if !replace {
             return Err(ToolError::invalid(format!("There's already a plugin called {}.", plugin.id))
                 .with_remediation("Pick another id, or pass replace to overwrite it."));
         }
         next.plugins.wasm.retain(|x| x.id != plugin.id);
     }
     match next.plugins.mcp.iter().position(|x| x.id == plugin.id) {
-        Some(_) if !p.replace => {
+        Some(_) if !replace => {
             return Err(ToolError::invalid(format!("There's already a plugin called {}.", plugin.id))
                 .with_remediation("Pick another id, or pass replace to overwrite it."));
         }
@@ -263,10 +305,29 @@ fn plugins_add(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError
         }
         None => next.plugins.mcp.push(plugin.clone()),
     }
+    // A program that isn't there is refused now, not found out at its first refresh (#2153).
+    plugin.program()?;
     let path = save_settings(ctx, next)?;
     Ok(ToolOutput::Value(
         json!({"added": plugin.id, "runs": plugin.place(), "asks_before_each_call": true, "path": path, "next": "plugins_refresh reads its tools"}),
     ))
+}
+
+fn plugins_test(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
+    let p: AddPluginParams = parse_params(params)?;
+    if p.wasm.is_some() {
+        return Err(ToolError::invalid("Only an MCP server (a command or a url) can be tested; a .wasm plugin's tools are read when it loads."));
+    }
+    let plugin = mcp_plugin(p);
+    ctx.report(None, format!("Starting the {} plugin…", plugin.display_name()));
+    let tools = crate::plugins::test(&plugin, &ctx.session.config_dir())?;
+    Ok(ToolOutput::Value(json!({
+        "id": plugin.id,
+        "answered": true,
+        "program": plugin.program()?.map(|p| p.display().to_string()),
+        "tools": tools.iter().map(|t| t.name.clone()).collect::<Vec<_>>(),
+        "saved": false,
+    })))
 }
 
 fn plugins_remove(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
@@ -579,8 +640,13 @@ mod tests {
         assert!(!list.to_string().contains("sk-9"), "keys are never shown");
 
         // Same id again needs replace; bad shapes are refused before anything is written.
-        assert!(call("plugins_add", json!({"id": "docs", "command": "docs-server"})).unwrap_err().message.contains("already"));
-        assert!(call("plugins_add", json!({"id": "docs", "command": "docs-server", "replace": true})).is_ok());
+        let program = std::env::current_exe().unwrap().display().to_string();
+        assert!(call("plugins_add", json!({"id": "docs", "command": program})).unwrap_err().message.contains("already"));
+        // #2153: a program that isn't on this computer is refused, and nothing is saved.
+        let missing = call("plugins_add", json!({"id": "docs", "command": "craft-anything-no-such-plugin-server", "replace": true})).unwrap_err();
+        assert!(missing.message.contains("isn't on this computer"), "{missing:?}");
+        assert!(!std::fs::read_to_string(&config).unwrap().contains("craft-anything-no-such-plugin-server"));
+        assert!(call("plugins_add", json!({"id": "docs", "command": program, "replace": true})).is_ok());
         assert!(call("plugins_add", json!({"id": "Bad-Id", "command": "x"})).is_err());
         assert!(call("plugins_add", json!({"id": "both", "command": "x", "url": "https://a.example.com"})).is_err());
         assert!(call("plugins_add", json!({"id": "plain", "url": "http://example.com/mcp"})).is_err(), "remote needs https");
@@ -589,6 +655,31 @@ mod tests {
         call("plugins_remove", json!({"id": "docs"})).unwrap();
         assert_eq!(call("plugins_list", json!({})).unwrap()["plugins"], json!([]));
         assert!(call("plugins_remove", json!({"id": "docs"})).is_err());
+    }
+
+    /// plugins_test answers for a server it was given, never for a saved one, and saves nothing.
+    #[test]
+    fn a_plugin_is_tested_through_its_tool_without_being_added() {
+        let s = crate::testing::session();
+        let config = s.config_dir().join("config.toml");
+        let e = Engine::new(s);
+        let call =
+            |p: Value| e.call("plugins_test", p, CallOptions::new(Caller::Cli).with_consent(crate::Consent::Granted)).map(|o| o.to_json()["result"].clone());
+        let missing = call(json!({"id": "docs", "command": "craft-anything-no-such-plugin-server"})).unwrap_err();
+        assert_eq!(missing.code, ErrorCode::NotFound, "{missing:?}");
+        assert!(call(json!({"id": "words", "wasm": "/plugins/words.wasm"})).unwrap_err().message.contains("Only an MCP server"));
+        #[cfg(unix)]
+        {
+            let answers = r#"while read -r line; do case "$line" in
+                *'"initialize"'*) echo '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{}}}';;
+                *'"tools/list"'*) echo '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"search"},{"name":"read"}]}}';;
+                esac; done"#;
+            let r = call(json!({"id": "docs", "command": "sh", "args": ["-c", answers]})).unwrap();
+            assert_eq!((r["answered"].clone(), r["tools"].clone(), r["saved"].clone()), (json!(true), json!(["search", "read"]), json!(false)), "{r}");
+            assert!(r["program"].as_str().is_some_and(|p| p.ends_with("sh")), "{r}");
+        }
+        assert!(!config.exists(), "nothing is saved");
+        assert!(e.session().settings.plugins.mcp.is_empty());
     }
 
     #[test]

@@ -33,6 +33,11 @@
         DowngradeErrorMessage="A newer version of Craft Anything is already installed." />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
 
+    <!-- This package writes HKLM and installs into Program Files. Refuse a per-user
+         context before files or registry entries are written; allow existing product maintenance. -->
+    <Launch Condition="Installed OR ALLUSERS = 1"
+        Message="Craft Anything must be installed for all users. Run the installer as an administrator with ALLUSERS=1." />
+
     <!-- MSI caches this icon using its Id as the filename. Advertised shortcuts to an
          .exe need an .exe icon identifier (ICE50), even when the source is an ICO. -->
     <Icon Id="CraftAnythingIcon.exe" SourceFile="$(var.IconPath)" />
@@ -100,6 +105,8 @@
 <?if $(var.HasCli) = 1 ?>
       <Component Id="CraftAnythingCli">
         <File Id="CraftAnythingCliExe" Source="$(var.BinDir)\craft-anything-cli.exe" KeyPath="yes" />
+        <!-- Win+R "craft-anything-cli" and process-search by App Paths. -->
+        <RegistryValue Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\App Paths\craft-anything-cli.exe" Value="[#CraftAnythingCliExe]" Type="string" />
       </Component>
 <?endif?>
     </ComponentGroup>

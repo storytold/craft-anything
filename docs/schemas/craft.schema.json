@@ -154,6 +154,13 @@
     "target": {
       "$ref": "#/$defs/TargetRef"
     },
+    "toolchain": {
+      "description": "The toolchain a move to `stack` was confirmed with (\"Gradle\", for a Java port that wrote\nbuild.gradle.kts beside an old pom.xml), when the stack has more than one; none: not recorded.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "updated_ms": {
       "type": "integer",
       "format": "uint64",

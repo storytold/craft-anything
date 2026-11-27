@@ -2,11 +2,19 @@
 //! code. Assembly images, types and their methods, and the string literals.
 //!
 //! Metadata versions read: 24 (only the later 24.x files, with a 264-byte header), 27, 29 and 31
-//! (256-byte header). Each is a row of [`LAYOUTS`]. A file has to prove a row fits before it's used:
-//! the header's size, every record size dividing its section, the types' method counts adding up to
-//! the methods there are, and names that read as names. A version with no row, or a file no row
-//! fits, gives only its header and the reason: other versions moved fields around, and a layout is
-//! never guessed. Games often change or encrypt this file, which reads as [`Reading::Altered`].
+//! (256-byte header), and 39 (380-byte header). Each is a row of [`LAYOUTS`]. A file has to prove a
+//! row fits before it's used: the header's size, every record size dividing its section, the types'
+//! method counts adding up to the methods there are, and names that read as names. A version with
+//! no row, or a file no row fits, gives only its header and the reason: other versions moved fields
+//! around, and a layout is never guessed. Games often change or encrypt this file, which reads as
+//! [`Reading::Altered`].
+//!
+//! Version 39's row was measured from one shipped game's file (38,092 types, 264,589 methods, 216
+//! images), not taken from another reader: each field is the only place in its record that agrees
+//! with the rest of the file (a type's method range with the methods' declaring types, the field
+//! counts with the fields table, an image's type range with the next image's). Its header gives
+//! every section's record count as well, and a file must agree with those too. In that file a type
+//! index takes two bytes; a file with more types than two bytes can count isn't read as this row.
 
 use crate::bytes::Reader;
 use serde::Serialize;
@@ -15,11 +23,9 @@ use serde::Serialize;
 pub const SANITY: u32 = 0xFAB1_1BAF;
 /// Longest metadata name read; a longer one means the file isn't what it seems.
 const MAX_NAME: usize = 4096;
-/// Record sizes every layout shares.
-const IMAGE_RECORD: usize = 40;
-const LITERAL_RECORD: usize = 8;
-/// The sections named in every row's header, in header order, as (offset, size) word pairs after
-/// the two-word start. Indexes past the last used one differ between versions and aren't read.
+/// The sections named in the header up to version 31, in header order, as (offset, size) word
+/// pairs after the two-word start. Indexes past the last used one differ between versions and
+/// aren't read.
 const SECTIONS: [&str; 22] = [
     "string_literals",
     "string_literal_data",
@@ -44,6 +50,41 @@ const SECTIONS: [&str; 22] = [
     "images",
     "assemblies",
 ];
+/// Version 39's 31 sections, as (offset, size, count) word triples. Only the sections whose records
+/// were matched against the rest of the file are named; the others are numbered.
+const SECTIONS_39: [&str; 31] = [
+    "string_literals",
+    "string_literal_data",
+    "strings",
+    "section_3",
+    "section_4",
+    "methods",
+    "section_6",
+    "section_7",
+    "section_8",
+    "section_9",
+    "section_10",
+    "fields",
+    "section_12",
+    "section_13",
+    "section_14",
+    "section_15",
+    "section_16",
+    "section_17",
+    "section_18",
+    "type_definitions",
+    "images",
+    "assemblies",
+    "section_22",
+    "section_23",
+    "section_24",
+    "section_25",
+    "section_26",
+    "section_27",
+    "section_28",
+    "section_29",
+    "section_30",
+];
 const LITERALS: usize = 0;
 const LITERAL_DATA: usize = 1;
 const STRINGS: usize = 2;
@@ -51,11 +92,59 @@ const METHODS: usize = 5;
 const TYPES: usize = 19;
 const IMAGES: usize = 20;
 
+/// How the header lists its sections.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Header {
+    /// 22 (offset, size) pairs.
+    Pairs,
+    /// 31 (offset, size, record count) triples.
+    Triples,
+}
+
+impl Header {
+    fn names(self) -> &'static [&'static str] {
+        match self {
+            Header::Pairs => &SECTIONS,
+            Header::Triples => &SECTIONS_39,
+        }
+    }
+
+    fn stride(self) -> usize {
+        match self {
+            Header::Pairs => 8,
+            Header::Triples => 12,
+        }
+    }
+}
+
+/// How the string literals' records find their bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Literals {
+    /// One (length, offset) pair per literal.
+    LengthOffset,
+    /// One start offset per literal and a last one where the data ends: each literal runs to the
+    /// next one's start.
+    Starts,
+}
+
+impl Literals {
+    fn record(self) -> usize {
+        match self {
+            Literals::LengthOffset => 8,
+            Literals::Starts => 4,
+        }
+    }
+}
+
 /// Where one metadata version keeps what we read. One row per layout seen in that version.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Layout {
     pub version: i32,
+    header: Header,
     header_size: u32,
+    literals: Literals,
+    /// Bytes in a type index where methods and images name a type: 4, or 2.
+    type_index: usize,
     type_size: usize,
     type_flags: usize,
     type_method_start: usize,
@@ -67,51 +156,73 @@ pub struct Layout {
     method_token: usize,
     method_flags: usize,
     method_parameters: usize,
+    image_size: usize,
+    image_type_start: usize,
+    image_type_count: usize,
+    image_token: Option<usize>,
 }
 
-/// Type records from version 27 on (no by-reference type index).
-const fn modern(version: i32, method_size: usize) -> Layout {
+/// Up to version 31: what the type and method layouts don't change.
+const fn classic(version: i32, header_size: u32, type_size: usize, method_size: usize) -> Layout {
+    // A later 24.x type also has its by-reference type index, which moves the rest on by four.
+    let older = type_size - 88;
     // A method's fields after its first three move on by the return-parameter token, when it has one.
     let shift = method_size - 32;
     Layout {
         version,
-        header_size: 256,
-        type_size: 88,
-        type_flags: 28,
-        type_method_start: 36,
-        type_method_count: 64,
-        type_field_count: 68,
-        type_token: 84,
+        header: Header::Pairs,
+        header_size,
+        literals: Literals::LengthOffset,
+        type_index: 4,
+        type_size,
+        type_flags: 28 + older,
+        type_method_start: 36 + older,
+        type_method_count: 64 + older,
+        type_field_count: 68 + older,
+        type_token: 84 + older,
         method_size,
         method_type: 4,
         method_token: 20 + shift,
         method_flags: 24 + shift,
         method_parameters: 30 + shift,
+        image_size: 40,
+        image_type_start: 8,
+        image_type_count: 12,
+        image_token: Some(28),
     }
 }
 
 /// Every layout read. Version 29 has two: later files added a return-parameter token to methods
 /// without changing the version number, and the checks tell them apart.
 pub const LAYOUTS: &[Layout] = &[
+    classic(24, 264, 92, 32),
+    classic(27, 256, 88, 32),
+    classic(29, 256, 88, 32),
+    classic(29, 256, 88, 36),
+    classic(31, 256, 88, 36),
     Layout {
-        version: 24,
-        header_size: 264,
-        type_size: 92,
-        type_flags: 32,
-        type_method_start: 40,
-        type_method_count: 68,
-        type_field_count: 72,
-        type_token: 88,
+        version: 39,
+        header: Header::Triples,
+        header_size: 380,
+        literals: Literals::Starts,
+        type_index: 2,
+        type_size: 82,
+        type_flags: 22,
+        type_method_start: 30,
+        type_method_count: 58,
+        type_field_count: 62,
+        type_token: 78,
         method_size: 32,
         method_type: 4,
         method_token: 20,
         method_flags: 24,
         method_parameters: 30,
+        image_size: 36,
+        image_type_start: 8,
+        image_type_count: 10,
+        // No word of the measured images reads as a token, so none is claimed.
+        image_token: None,
     },
-    modern(27, 32),
-    modern(29, 32),
-    modern(29, 36),
-    modern(31, 36),
 ];
 
 /// The metadata versions a row exists for.
@@ -127,6 +238,9 @@ pub struct Section {
     pub name: &'static str,
     pub offset: u32,
     pub size: u32,
+    /// How many records the header says it holds, for a header that says.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub count: Option<u32>,
 }
 
 /// How far this file could be read.
@@ -161,7 +275,8 @@ pub struct Image {
     pub name: String,
     pub type_start: u32,
     pub type_count: u32,
-    pub token: u32,
+    /// `None` where the version's layout has no place known for it.
+    pub token: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -218,15 +333,17 @@ pub fn read(data: &[u8]) -> Reading<'_> {
     let Some(version) = r.u32_le(4).map(|v| v as i32) else {
         return Reading::HeaderOnly { version: None, sections: Vec::new(), why: "the file ends before its version".into() };
     };
-    if !LAYOUTS.iter().any(|l| l.version == version) {
+    let rows: Vec<&Layout> = LAYOUTS.iter().filter(|l| l.version == version).collect();
+    let Some(first) = rows.first() else {
         return Reading::HeaderOnly { version: Some(version), sections: Vec::new(), why: format!("metadata version {version} has no layout known here") };
-    }
-    let Some(sections) = sections(&r) else {
+    };
+    // Every row of one version shares its header.
+    let Some(sections) = sections(&r, first.header) else {
         return Reading::HeaderOnly { version: Some(version), sections: Vec::new(), why: "the file ends inside its header".into() };
     };
     // A layout whose shape fits but whose names don't says more than one of the wrong shape.
     let (mut misfit, mut unreadable) = (None, None);
-    for layout in LAYOUTS.iter().filter(|l| l.version == version) {
+    for layout in rows {
         let m = Metadata { data, layout: *layout, sections: sections.clone() };
         match m.fits().and_then(|()| m.names_read().map_err(|e| unreadable.insert(e).clone())) {
             Ok(()) => return Reading::Readable(m),
@@ -237,11 +354,16 @@ pub fn read(data: &[u8]) -> Reading<'_> {
     Reading::HeaderOnly { version: Some(version), sections, why }
 }
 
-fn sections(r: &Reader<'_>) -> Option<Vec<Section>> {
-    let mut out = Vec::with_capacity(SECTIONS.len());
-    for (i, name) in SECTIONS.iter().enumerate() {
-        let at = 8usize.checked_add(i.checked_mul(8)?)?;
-        out.push(Section { name, offset: r.u32_le(at)?, size: r.u32_le(at.checked_add(4)?)? });
+fn sections(r: &Reader<'_>, header: Header) -> Option<Vec<Section>> {
+    let names = header.names();
+    let mut out = Vec::with_capacity(names.len());
+    for (i, name) in names.iter().enumerate() {
+        let at = 8usize.checked_add(i.checked_mul(header.stride())?)?;
+        let count = match header {
+            Header::Pairs => None,
+            Header::Triples => Some(r.u32_le(at.checked_add(8)?)?),
+        };
+        out.push(Section { name, offset: r.u32_le(at)?, size: r.u32_le(at.checked_add(4)?)?, count });
     }
     Some(out)
 }
@@ -272,14 +394,24 @@ impl<'a> Metadata<'a> {
         if first != l.header_size {
             return Err(format!("its data starts at {first}, but version {} has a {}-byte header in the layouts known here", l.version, l.header_size));
         }
-        for (which, size) in [(LITERALS, LITERAL_RECORD), (METHODS, l.method_size), (TYPES, l.type_size), (IMAGES, IMAGE_RECORD)] {
+        for (which, size) in [(LITERALS, l.literals.record()), (METHODS, l.method_size), (TYPES, l.type_size), (IMAGES, l.image_size)] {
             let s = self.section(which).len();
+            let name = l.header.names().get(which).copied().unwrap_or_default();
             if !s.is_multiple_of(size) {
-                let name = SECTIONS.get(which).copied().unwrap_or_default();
                 return Err(format!("its {name} section ({s} bytes) doesn't divide into {size}-byte records"));
+            }
+            let records = s / size;
+            if let Some(count) = self.sections.get(which).and_then(|sec| sec.count)
+                && count as usize != records
+            {
+                return Err(format!("its header counts {count} {name} records, but the section holds {records}"));
             }
         }
         let (types, methods) = (self.type_count(), self.method_count());
+        if l.type_index == 2 && types > usize::from(u16::MAX) {
+            return Err(format!("it has {types} types, more than the two-byte type indexes of version {}'s layout can name", l.version));
+        }
+        self.literal_starts_fit()?;
         let mut total = 0u64;
         for i in 0..types {
             let r = self.record(TYPES, l.type_size, i).ok_or("a type record can't be read")?;
@@ -289,8 +421,7 @@ impl<'a> Metadata<'a> {
                 let range = usize::try_from(start).ok().and_then(|start| Some(start..start.checked_add(usize::from(count))?));
                 let Some(range) = range.filter(|r| r.end <= methods) else { return Err(format!("type {i} points at methods outside the table")) };
                 for method in range {
-                    let owner = self.record(METHODS, l.method_size, method).and_then(|r| r.u32_le(l.method_type));
-                    if owner.and_then(|id| usize::try_from(id).ok()) != Some(i) {
+                    if self.method_owner(method) != Some(i) {
                         return Err(format!("method {method} is in type {i}'s range but declares a different owner"));
                     }
                 }
@@ -329,7 +460,7 @@ impl<'a> Metadata<'a> {
     }
 
     pub fn image_count(&self) -> usize {
-        self.section(IMAGES).len() / IMAGE_RECORD
+        self.section(IMAGES).len() / self.layout.image_size
     }
 
     pub fn type_count(&self) -> usize {
@@ -341,7 +472,50 @@ impl<'a> Metadata<'a> {
     }
 
     pub fn literal_count(&self) -> usize {
-        self.section(LITERALS).len() / LITERAL_RECORD
+        let records = self.section(LITERALS).len() / self.layout.literals.record();
+        match self.layout.literals {
+            Literals::LengthOffset => records,
+            // The last start only says where the data ends.
+            Literals::Starts => records.saturating_sub(1),
+        }
+    }
+
+    /// A literal start table has to run in order from the data's start (0) to its end.
+    fn literal_starts_fit(&self) -> Result<(), String> {
+        if self.layout.literals != Literals::Starts {
+            return Ok(());
+        }
+        let table = self.section(LITERALS);
+        let data = self.section(LITERAL_DATA).len();
+        if table.is_empty() && data > 0 {
+            return Err(format!("it has {data} bytes of string literal data but no literal start table"));
+        }
+        let mut last = 0usize;
+        for i in 0..table.len() / 4 {
+            let Some(start) = Reader::new(table).u32_le(i * 4).map(|v| v as usize) else { return Err("a literal record can't be read".into()) };
+            if (i == 0 && start != 0) || start < last || start > data {
+                return Err(format!("its string literal {i} starts at {start}, out of order, past the literal data or not at its start"));
+            }
+            last = start;
+        }
+        if table.len() >= 4 && last != data {
+            return Err(format!("its string literals end at {last}, but the literal data is {data} bytes"));
+        }
+        Ok(())
+    }
+
+    /// A type index of the layout's width at `at`, as a `u32` (or `None` past the record).
+    fn type_index(&self, r: &Reader<'_>, at: usize) -> Option<u32> {
+        match self.layout.type_index {
+            2 => r.u16_le(at).map(u32::from),
+            _ => r.u32_le(at),
+        }
+    }
+
+    /// The type a method says declares it.
+    fn method_owner(&self, method: usize) -> Option<usize> {
+        let r = self.record(METHODS, self.layout.method_size, method)?;
+        usize::try_from(self.type_index(&r, self.layout.method_type)?).ok()
     }
 
     /// A name from the strings section; `""` when its index is outside it or it isn't terminated.
@@ -354,8 +528,19 @@ impl<'a> Metadata<'a> {
     }
 
     pub fn image(&self, index: usize) -> Option<Image> {
-        let r = self.record(IMAGES, IMAGE_RECORD, index)?;
-        Some(Image { index, name: self.string(r.u32_le(0)?), type_start: r.u32_le(8)?, type_count: r.u32_le(12)?, token: r.u32_le(28)? })
+        let l = &self.layout;
+        let r = self.record(IMAGES, l.image_size, index)?;
+        let token = match l.image_token {
+            Some(at) => Some(r.u32_le(at)?),
+            None => None,
+        };
+        Some(Image {
+            index,
+            name: self.string(r.u32_le(0)?),
+            type_start: self.type_index(&r, l.image_type_start)?,
+            type_count: self.type_index(&r, l.image_type_count)?,
+            token,
+        })
     }
 
     pub fn type_def(&self, index: usize) -> Option<Type> {
@@ -379,7 +564,7 @@ impl<'a> Metadata<'a> {
         Some(Method {
             index,
             name: self.string(r.u32_le(0)?),
-            type_index: r.u32_le(l.method_type)? as i32,
+            type_index: self.type_index(&r, l.method_type)? as i32,
             parameter_count: r.u16_le(l.method_parameters)?,
             flags: r.u16_le(l.method_flags)?,
             token: r.u32_le(l.method_token)?,
@@ -388,9 +573,18 @@ impl<'a> Metadata<'a> {
 
     /// A string literal, at most `max_bytes` of it. `None` when its record or bytes lie outside.
     pub fn literal(&self, index: usize, max_bytes: usize) -> Option<Literal> {
-        let r = self.record(LITERALS, LITERAL_RECORD, index)?;
-        let length = r.u32_le(0)?;
-        let start = r.u32_le(4)? as usize;
+        let (length, start) = match self.layout.literals {
+            Literals::LengthOffset => {
+                let r = self.record(LITERALS, 8, index)?;
+                (r.u32_le(0)?, r.u32_le(4)? as usize)
+            }
+            Literals::Starts => {
+                let table = Reader::new(self.section(LITERALS));
+                let start = table.u32_le(index.checked_mul(4)?)?;
+                let end = table.u32_le(index.checked_add(1)?.checked_mul(4)?)?;
+                (end.checked_sub(start)?, start as usize)
+            }
+        };
         let bytes = self.section(LITERAL_DATA).get(start..start.checked_add(length as usize)?)?;
         let (text, complete) = literal_text(bytes, max_bytes);
         Some(Literal { index, length, text, complete })
@@ -456,8 +650,16 @@ mod tests {
     fn sample(version: i32, method_size: usize) -> Vec<u8> {
         il2cpp_metadata(&Il2cppSample {
             version,
-            header_size: if version == 24 { 264 } else { 256 },
-            type_size: if version == 24 { 92 } else { 88 },
+            header_size: match version {
+                24 => 264,
+                39 => 380,
+                _ => 256,
+            },
+            type_size: match version {
+                24 => 92,
+                39 => 82,
+                _ => 88,
+            },
             method_size,
         })
     }
@@ -479,10 +681,11 @@ mod tests {
             let data = sample(version, method_size);
             let m = readable(&data);
             assert_eq!(m.version(), version);
+            let image_token = m.layout.image_token.map(|_| 0x2000_0001);
             assert_eq!((m.image_count(), m.type_count(), m.method_count(), m.literal_count()), (2, 3, 4, 3), "version {version}");
             assert_eq!(m.field_count(), 7);
             let image = m.image(1).unwrap();
-            assert_eq!((image.name.as_str(), image.type_start, image.type_count, image.token), ("Assembly-CSharp.dll", 1, 2, 0x2000_0001));
+            assert_eq!((image.name.as_str(), image.type_start, image.type_count, image.token), ("Assembly-CSharp.dll", 1, 2, image_token));
             let t = m.type_def(2).unwrap();
             assert_eq!(t.full_name(), "Game.Player");
             assert_eq!((t.method_start, t.method_count, t.field_count, t.flags, t.token), (1, 3, 5, 0x0010_0001, 0x0200_0003));
@@ -497,14 +700,45 @@ mod tests {
 
     #[test]
     fn literals_are_bounded_and_say_when_cut_short() {
-        let data = sample(29, 32);
-        let m = readable(&data);
-        let l = m.literal(0, 1000).unwrap();
-        assert_eq!((l.text.as_str(), l.length, l.complete), ("Hello, player", 13, true));
-        let cut = m.literal(0, 5).unwrap();
-        assert_eq!((cut.text.as_str(), cut.length, cut.complete), ("Hello", 13, false));
-        assert_eq!(m.literal(2, 1000).unwrap().text, "");
-        assert!(m.literal(3, 1000).is_none());
+        // Version 39 finds a literal's end by the next one's start, the others by its length.
+        for (version, method_size) in [(29, 32), (39, 32)] {
+            let data = sample(version, method_size);
+            let m = readable(&data);
+            let l = m.literal(0, 1000).unwrap();
+            assert_eq!((l.text.as_str(), l.length, l.complete), ("Hello, player", 13, true));
+            let cut = m.literal(0, 5).unwrap();
+            assert_eq!((cut.text.as_str(), cut.length, cut.complete), ("Hello", 13, false));
+            assert_eq!(m.literal(1, 1000).unwrap().text, "Game over");
+            assert_eq!(m.literal(2, 1000).unwrap().text, "");
+            assert!(m.literal(3, 1000).is_none());
+        }
+    }
+
+    #[test]
+    fn version_39_literal_starts_must_run_in_order_to_the_data_end() {
+        let original = sample(39, 32);
+        let (table, _) = read_section(&original, LITERALS);
+        // The third literal starting inside the first one, before the second.
+        let mut backwards = original.clone();
+        backwards[table + 8..table + 12].copy_from_slice(&5u32.to_le_bytes());
+        assert!(matches!(read(&backwards), Reading::HeaderOnly { why, .. } if why.contains("out of order")));
+        // The first literal starting after the data's start, which would cut its text short.
+        let mut late = original.clone();
+        late[table..table + 4].copy_from_slice(&1u32.to_le_bytes());
+        assert!(matches!(read(&late), Reading::HeaderOnly { why, .. } if why.contains("not at its start")));
+        // The last start falling short of the data's end.
+        let mut short = original;
+        short[table + 12..table + 16].copy_from_slice(&5u32.to_le_bytes());
+        assert!(matches!(read(&short), Reading::HeaderOnly { .. }));
+    }
+
+    #[test]
+    fn version_39_header_counts_must_match_the_records() {
+        // The types section's count word, one more than the records it holds.
+        let mut data = sample(39, 32);
+        let at = 8 + TYPES * 12 + 8;
+        data[at..at + 4].copy_from_slice(&4u32.to_le_bytes());
+        assert!(matches!(read(&data), Reading::HeaderOnly { why, .. } if why.contains("counts")));
     }
 
     #[test]
@@ -516,7 +750,7 @@ mod tests {
 
     #[test]
     fn other_versions_give_the_header_and_a_reason() {
-        for version in [0, 16, 19, 23, 25, 28, 30, 38, 39, -1, i32::MAX] {
+        for version in [0, 16, 19, 23, 25, 28, 30, 35, 38, 40, -1, i32::MAX] {
             let mut data = sample(31, 36);
             data[4..8].copy_from_slice(&version.to_le_bytes());
             match read(&data) {
@@ -568,9 +802,11 @@ mod tests {
         assert!(matches!(read(&bad), Reading::HeaderOnly { why, .. } if why.contains("encrypted")));
     }
 
+    /// A section's (offset, size), from a header of pairs, or of triples for version 39.
     fn read_section(data: &[u8], which: usize) -> (usize, usize) {
         let r = Reader::new(data);
-        (r.u32_le(8 + which * 8).unwrap() as usize, r.u32_le(12 + which * 8).unwrap() as usize)
+        let stride = if r.u32_le(4) == Some(39) { 12 } else { 8 };
+        (r.u32_le(8 + which * stride).unwrap() as usize, r.u32_le(12 + which * stride).unwrap() as usize)
     }
 
     #[test]
@@ -606,13 +842,15 @@ mod tests {
 
     #[test]
     fn huge_numbers_in_every_header_word_do_not_panic() {
-        let base = sample(31, 36);
-        for word in 2..(256 / 4) {
-            for value in [u32::MAX, u32::MAX - 1, i32::MAX as u32, 1 << 31, 0] {
-                let mut data = base.clone();
-                data[word * 4..word * 4 + 4].copy_from_slice(&value.to_le_bytes());
-                if let Reading::Readable(m) = read(&data) {
-                    walk(&m);
+        for (version, method_size, header) in [(31, 36, 256), (39, 32, 380)] {
+            let base = sample(version, method_size);
+            for word in 2..(header / 4) {
+                for value in [u32::MAX, u32::MAX - 1, i32::MAX as u32, 1 << 31, 0] {
+                    let mut data = base.clone();
+                    data[word * 4..word * 4 + 4].copy_from_slice(&value.to_le_bytes());
+                    if let Reading::Readable(m) = read(&data) {
+                        walk(&m);
+                    }
                 }
             }
         }
@@ -621,14 +859,16 @@ mod tests {
     #[test]
     fn huge_numbers_in_records_do_not_panic() {
         // Overwrite each word in the records with extreme values, then read every row back.
-        let base = sample(31, 36);
-        let first = read_section(&base, TYPES).0;
-        for at in (first..base.len().saturating_sub(4)).step_by(4) {
-            for value in [u32::MAX, 1 << 31, 0x7fff_ffff] {
-                let mut data = base.clone();
-                data[at..at + 4].copy_from_slice(&value.to_le_bytes());
-                if let Reading::Readable(m) = read(&data) {
-                    walk(&m);
+        for (version, method_size) in [(31, 36), (39, 32)] {
+            let base = sample(version, method_size);
+            let first = read_section(&base, LITERALS).0;
+            for at in (first..base.len().saturating_sub(4)).step_by(2) {
+                for value in [u32::MAX, 1 << 31, 0x7fff_ffff, 0xffff] {
+                    let mut data = base.clone();
+                    data[at..at + 4].copy_from_slice(&value.to_le_bytes());
+                    if let Reading::Readable(m) = read(&data) {
+                        walk(&m);
+                    }
                 }
             }
         }
@@ -665,6 +905,6 @@ mod tests {
 
     #[test]
     fn known_versions_are_listed_once() {
-        assert_eq!(known_versions(), [24, 27, 29, 31]);
+        assert_eq!(known_versions(), [24, 27, 29, 31, 39]);
     }
 }

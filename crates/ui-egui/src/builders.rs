@@ -107,12 +107,15 @@ fn detail(b: &BackendConfig) -> String {
 }
 
 impl CraftApp {
-    /// Agent apps found on this computer that aren't set up yet (they need no key).
+    /// Agent apps found on this computer that aren't set up yet (they need no key). A host from
+    /// `~/.ssh/config` is added in Settings → AI first, where it's checked; it isn't set up from
+    /// this picker.
     fn found_agents(&self) -> impl Iterator<Item = &BackendConfig> {
         self.detected
             .iter()
             .flatten()
             .filter(|d| d.suggestion.kind == BackendKind::AgentCli && !d.needs_key)
+            .filter(|d| d.suggestion.ssh_host.as_deref().is_none_or(|h| h.trim().is_empty()))
             .map(|d| &d.suggestion)
             .filter(|s| !craft_anything_ai::is_on(&self.backends, &s.name))
     }
@@ -135,15 +138,18 @@ impl CraftApp {
         self.default_builder().is_some()
     }
 
+    /// Resolve the saved choice or the default before a build commits it.
+    pub(crate) fn resolve_builder(&self, wanted: Option<&str>) -> Option<String> {
+        wanted.filter(|name| self.builder_choices().iter().any(|choice| choice.name == *name)).map(str::to_string).or_else(|| self.default_builder())
+    }
+
     /// The AI to build with: `wanted` while it can build, else the default. An agent app that was
     /// only found is set up now (it needs no key, and the person pressed Start).
     pub fn builder_backend(&mut self, wanted: Option<&str>) -> Option<String> {
-        let choices = self.builder_choices();
-        let kept = wanted.filter(|w| choices.iter().any(|c| c.name == *w));
-        let name = kept.map(str::to_string).or_else(|| self.default_builder())?;
+        let name = self.resolve_builder(wanted)?;
         // A saved choice that was turned off or removed is replaced. The notice waits until a
         // builder is committed, so a failed setup doesn't claim one will build.
-        let replaced = wanted.filter(|w| !w.is_empty() && kept.is_none() && *w != name.as_str());
+        let replaced = wanted.filter(|w| !w.is_empty() && *w != name.as_str());
         let Some(found) = self.found_agents().find(|b| b.name == name).cloned() else {
             if let Some(saved) = replaced {
                 self.toast(replaced_builder_notice(saved, &name), false);
@@ -172,13 +178,13 @@ impl CraftApp {
         }
     }
 
-    /// Turn an AI on or off in Settings → AI (it keeps its key).
-    pub fn set_backend_enabled(&mut self, name: &str, on: bool) {
+    /// Turn an AI on or off (it keeps its key), returning the background job id.
+    pub fn set_backend_enabled(&mut self, name: &str, on: bool) -> u64 {
         let (hub, name) = (self.hub.clone(), name.to_string());
         self.jobs.spawn(if on { tr("Turn on an AI") } else { tr("Turn off an AI") }, false, move |_| {
             hub.set_enabled(&name, on).map_err(|e| e.message)?;
             Ok(crate::backends(&hub))
-        });
+        })
     }
 
     /// Ask an AI which models it can use, for Settings → AI's model picker.
@@ -227,7 +233,7 @@ impl CraftApp {
             let mut query = context.clone();
             query.backend.options.cli_model = model;
             let result = hub.agent_models(&query);
-            Ok(crate::Done::AgentModelChoices { request, context, result })
+            Ok(crate::Done::AgentModelChoices { request, context: Box::new(context), result })
         });
     }
 
@@ -248,12 +254,12 @@ impl CraftApp {
             state.saving = true;
         }
         let (hub, name, model) = (self.hub.clone(), name.to_string(), model.to_string());
-        self.jobs.spawn(tr("Change an AI's model"), false, move |_| {
-            let result = hub.set_model(&name, &model).and_then(|_| {
-                hub.options().get(&name).cloned().ok_or_else(|| craft_anything_engine::evidence::ToolError::invalid("The AI backend was removed."))
-            });
-            Ok(crate::Done::ModelChanged { name, model, result })
+        let backend = name.clone();
+        let job = self.jobs.spawn(tr("Change an AI's model"), false, move |_| {
+            let result = hub.set_model(&name, &model).map(|_| crate::read_backends(&hub));
+            Ok(crate::Done::ModelChanged { name, result })
         });
+        self.model_save_jobs.insert(backend, job);
     }
 
     /// Populate the persistent model controls on a worker, once for each backend/model pair.
@@ -282,10 +288,12 @@ impl CraftApp {
             state.saving = true;
         }
         let hub = self.hub.clone();
-        self.jobs.spawn(tr("Set model options"), false, move |_| {
-            let result = hub.set_model_options(&params);
-            Ok(crate::Done::ModelOptionsSaved { params, result })
+        let backend = params.backend.clone();
+        let job = self.jobs.spawn(tr("Set model options"), false, move |_| {
+            let result = hub.set_model_options(&params).map(|_| crate::read_backends(&hub));
+            Ok(crate::Done::ModelOptionsSaved { result })
         });
+        self.model_save_jobs.insert(backend, job);
     }
 
     /// How hard an AI thinks from now on (`None`: its usual level).
@@ -326,7 +334,7 @@ impl CraftApp {
         let job = self.jobs.spawn(trf("Connect {name}", &[("name", &name)]), true, move |j| {
             let result = hub.add_server_until(&name, &address, Some(model.as_str()).filter(|m| !m.is_empty()), key, &j.cancel).map(|_| ());
             let address = address.trim().to_string();
-            Ok(crate::Done::BackendAdded { name, result, choices, address })
+            Ok(crate::Done::BackendAdded { name, result, choices, address, submitted_command: None })
         });
         self.server_form.connecting = Some((job, shown, std::time::Instant::now()));
     }
@@ -334,6 +342,9 @@ impl CraftApp {
     /// Run an agent app from this program (`None`: find it by its usual name again).
     pub fn set_agent_program(&mut self, name: &str, program: Option<String>) {
         self.agent_model_picker = None;
+        // The suggestion field caches what was typed by backend name. A new program means that
+        // cached command is stale: drop it so the field reloads the saved command.
+        self.state.remote_commands.remove(name);
         let (hub, name) = (self.hub.clone(), name.to_string());
         self.jobs.spawn(tr("Set an AI's program"), false, move |_| {
             hub.set_command(&name, program.as_deref()).map_err(|e| e.message)?;
@@ -498,4 +509,34 @@ pub fn need_builder_modal(app: &mut CraftApp, ui: &mut Ui, start: bool, close: &
             }
         });
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::demo;
+    use craft_anything_ai::Detected;
+    use craft_anything_engine::Mode;
+
+    #[test]
+    fn an_ssh_host_is_added_in_settings_not_from_the_builder_picker() {
+        let mut app = demo::app(demo::engine(Mode::Beginner, true));
+        let agent = |name: &str, host: Option<&str>| Detected {
+            suggestion: BackendConfig {
+                name: name.into(),
+                kind: BackendKind::AgentCli,
+                model: "claude-code".into(),
+                base_url: None,
+                ssh_host: host.map(str::to_string),
+                enabled: true,
+            },
+            reason: String::new(),
+            needs_key: false,
+        };
+        app.detected = Some(vec![agent("Claude Code on pi5", Some("pi5")), agent("Claude Code", None)]);
+        let choices: Vec<String> = app.builder_choices().into_iter().map(|c| c.name).collect();
+        assert!(choices.contains(&"Claude Code".to_string()), "an agent on this computer builds: {choices:?}");
+        assert!(!choices.contains(&"Claude Code on pi5".to_string()), "an SSH host is added in Settings first: {choices:?}");
+        assert_ne!(app.default_builder().as_deref(), Some("Claude Code on pi5"), "the remote host isn't the default builder");
+    }
 }

@@ -644,6 +644,60 @@ fn tab_completes_a_slash_command_and_keeps_focus() {
     assert!(h.get_by_label("Ask for a change").is_focused(), "the box keeps focus");
 }
 
+/// #2434: Esc while typing in a project's prompt box went to the new-project screen, because egui
+/// lets go of a field's focus on Esc before the app asks whether one is focused.
+#[test]
+fn esc_in_the_prompt_box_stays_on_the_project_with_the_draft() {
+    use craft_anything_engine::workspace::{TargetRef, Workspace};
+    let d = tempfile::tempdir().unwrap();
+    let ws = Workspace::create(&d.path().join("projects"), "Game", "Recreate this game", TargetRef::None).unwrap();
+    let mut h = harness(move || {
+        let mut a = demo::app(demo::engine(Mode::Beginner, true));
+        a.workspace = Some(ws);
+        a.state.screen = Screen::Project;
+        a
+    });
+    h.run_steps(3);
+    h.get_by_label("Ask for a change").focus();
+    h.run_steps(2);
+    h.get_by_label("Ask for a change").type_text("Make it faster");
+    h.run_steps(2);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    assert_eq!(h.state().state.screen, Screen::Project, "Esc in the box stays on the project");
+    assert_eq!(h.state().state.project_input, "Make it faster", "and keeps the draft");
+    assert!(!h.get_by_label("Ask for a change").is_focused(), "the box let go of the keys");
+    // With nothing focused, Esc goes back home as before; the draft is still there.
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    assert_eq!(h.state().state.screen, Screen::Home);
+    assert_eq!(h.state().state.project_input, "Make it faster");
+}
+
+/// Esc in a dialog's text field closes the dialog, and only the dialog.
+#[test]
+fn esc_in_a_dialogs_field_closes_the_dialog_and_stays_on_the_screen() {
+    use craft_anything_engine::workspace::{TargetRef, Workspace};
+    use craft_anything_ui_egui::state::Modal;
+    let d = tempfile::tempdir().unwrap();
+    let ws = Workspace::create(&d.path().join("projects"), "Game", "Recreate this game", TargetRef::None).unwrap();
+    let mut h = harness(move || {
+        let mut a = demo::app(demo::engine(Mode::Beginner, true));
+        a.workspace = Some(ws);
+        a.state.screen = Screen::Project;
+        a.state.modal = Some(Modal::Website);
+        a
+    });
+    h.run_steps(3);
+    assert!(h.get_by_label("Website address").is_focused(), "the dialog's field is ready to type into");
+    h.get_by_label("Website address").type_text("example.com");
+    h.run_steps(2);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    assert_eq!(h.state().state.modal, None, "Esc closes the dialog");
+    assert_eq!(h.state().state.screen, Screen::Project, "and stays on the project");
+}
+
 #[test]
 fn pictures_of_the_original_go_with_the_draft_then_into_the_project() {
     use craft_anything_engine::workspace::{TargetRef, Workspace};
@@ -802,6 +856,93 @@ fn the_builders_questions_can_come_to_the_person_for_one_project() {
     h.run_steps(2);
     assert_eq!(shown(h.state()), Questions::Ask);
     assert!(h.state().settings.auto_mode, "Auto mode itself is unchanged");
+}
+
+/// #2435: the Approvals link sat right under Send, so a click a little low opened Approvals.
+/// It sits at the other end of the row, clear of Send, at the smallest window, a normal one and
+/// a high zoom; the row holds still frame after frame, and the link still opens its menu.
+#[test]
+fn the_approvals_link_is_clear_of_send() {
+    use craft_anything_engine::workspace::{TargetRef, Workspace};
+    // The smallest window the app allows, a normal one, and that at the highest zoom (640 points
+    // wide, so the switches take two rows). The smallest at 200% has its own test below.
+    for (size, zoom) in [((760.0, 520.0), 1.0), ((1280.0, 820.0), 1.0), ((1280.0, 820.0), 2.0)] {
+        let d = tempfile::tempdir().unwrap();
+        let ws = Workspace::create(d.path(), "Notes", "A notes app", TargetRef::None).unwrap();
+        let mut h = harness_sized(egui::vec2(size.0, size.1), move || {
+            let mut a = demo::app(demo::engine(Mode::Beginner, true));
+            a.workspace = Some(ws);
+            a.state.screen = Screen::Project;
+            a
+        });
+        h.ctx.set_zoom_factor(zoom);
+        h.run_steps(4);
+        let at = |h: &Harness<'static, CraftApp>| (h.get_by_label("Send (Enter)").rect(), h.get_by_label("Approvals").rect());
+        let (send, approvals) = at(&h);
+        let case = format!("{size:?} at {zoom}x: Send {send:?}, Approvals {approvals:?}");
+        // Not under Send or near it: a clear gap between them across the row.
+        let gap = (send.left() - approvals.right()).max(approvals.left() - send.right());
+        assert!(gap >= 48.0, "Approvals is {gap} pt from Send, {case}");
+        // The whole composer fits its own viewport, so its bottom row isn't clipped.
+        let clip = h.ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new("project-composer-clip"))).expect("the composer viewport was recorded");
+        let content = h.ctx.data(|d| d.get_temp::<f32>(egui::Id::new("project-composer-content"))).expect("the composer content height was recorded");
+        assert!(content <= clip.height() + 0.5, "composer content {content} is clipped by {clip:?}, {case}");
+        assert!(clip.contains_rect(approvals), "Approvals {approvals:?} is outside the composer viewport {clip:?}, {case}");
+        // The prompt box and the row under it hold still over several frames.
+        for _ in 0..6 {
+            h.run_steps(1);
+            let (s, a) = at(&h);
+            assert!((s.min - send.min).length() < 0.5 && (a.min - approvals.min).length() < 0.5, "moved to {s:?} and {a:?}, {case}");
+        }
+        // A click opens the menu, and so does Enter once it has the keyboard's focus.
+        if zoom == 1.0 && size.0 > 1000.0 {
+            h.get_by_label("Approvals").focus();
+            h.run_steps(1);
+            h.key_press(egui::Key::Enter);
+        } else {
+            h.get_by_label("Approvals").click();
+        }
+        h.run_steps(2);
+        assert!(egui::Popup::is_id_open(&h.ctx, egui::Id::new("project-approvals")), "the menu opened, {case}");
+    }
+}
+
+/// The smallest window at the highest zoom is 380 x 260 points. The row under the project's prompt
+/// box used to be drawn below it, out of reach, and a longer prompt pushed it further down.
+#[test]
+fn the_project_row_under_the_prompt_box_stays_reachable_at_200_percent() {
+    use craft_anything_engine::workspace::{TargetRef, Workspace};
+    for lines in [1, 8] {
+        let d = tempfile::tempdir().unwrap();
+        let ws = Workspace::create(d.path(), "Notes", "A notes app", TargetRef::None).unwrap();
+        let mut h = harness_sized(egui::vec2(760.0, 520.0), move || {
+            let mut a = demo::app(demo::engine(Mode::Beginner, true));
+            a.workspace = Some(ws);
+            a.state.screen = Screen::Project;
+            a.state.project_input = "a line of text\n".repeat(lines);
+            a
+        });
+        h.ctx.set_zoom_factor(2.0);
+        h.run_steps(6);
+        let viewport = h.ctx.content_rect();
+        let case = format!("{lines} line(s) at 760 x 520 and 200%");
+        let feed = h.ctx.data(|d| d.get_temp::<f32>(egui::Id::new("project-feed-height"))).expect("the feed viewport was recorded");
+        let clip = h.ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new("project-composer-clip"))).expect("the composer viewport was recorded");
+        assert!(feed >= 60.0, "the feed viewport is only {feed} points tall, {case}");
+        for label in ["Send (Enter)", "Approvals", "Change it", "Just ask"] {
+            let rect = h.get_by_label(label).rect();
+            if !clip.contains_rect(rect) {
+                h.get_by_label(label).scroll_to_me();
+                h.run_steps(3);
+            }
+            let rect = h.get_by_label(label).rect();
+            assert!(clip.contains_rect(rect), "{label} at {rect:?} is outside the composer {clip:?}, {case}");
+            assert!(viewport.contains_rect(rect), "{label} at {rect:?} is outside {viewport:?}, {case}");
+        }
+        h.get_by_label("Approvals").click();
+        h.run_steps(2);
+        assert!(egui::Popup::is_id_open(&h.ctx, egui::Id::new("project-approvals")), "the menu opened, {case}");
+    }
 }
 
 #[test]
@@ -1081,6 +1222,60 @@ fn a_website_is_signed_in_to_from_make() {
     assert!(h.query_by_label("Sign in to this site").is_none());
 }
 
+/// Make says when a sign-in is already saved for the site and forgets it on request
+/// (`web_site_sign_out`); an address found only in the request offers the same.
+#[test]
+fn make_says_a_sign_in_is_saved_and_forgets_it() {
+    use craft_anything_engine::Session;
+    use craft_anything_engine::tools::site_sign_in;
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    let mut h = harness(move || {
+        let engine = demo::engine(Mode::Beginner, true);
+        {
+            // Sign-ins are kept in the session's config folder: never the person's own here.
+            let mut session = engine.session();
+            *session = Session::isolated(&root);
+            (session.settings.mode, session.settings.first_run_done, session.settings.language) = (Mode::Beginner, true, "en".into());
+            // A saved sign-in for the site, as web_site_sign_in leaves it.
+            let key = site_sign_in::site_key("https://example.com").unwrap();
+            let saved = site_sign_in::sign_ins_dir(&session).join(&key);
+            std::fs::create_dir_all(saved.join("profile/Default")).unwrap();
+            std::fs::write(saved.join("sign-in.json"), serde_json::json!({"version": 1, "site": key, "saved_at": 1}).to_string()).unwrap();
+            assert!(site_sign_in::saved(&session, &key).is_some(), "the fixture must look like a saved sign-in");
+        }
+        demo::app(engine)
+    });
+    h.run_steps(3);
+    // Only the request names the site: nothing picked, nothing typed.
+    h.state_mut().state.make.request = "Recreate https://example.com/shop with darker colours".into();
+    h.run_steps(2);
+    h.get_by_label("From your request: example.com/shop");
+    h.get_by_label("A sign-in is saved for this site, and studies of it use it.");
+    h.get_by_label("Sign in to this site");
+    h.get_by_label("Forget the saved sign-in").click();
+    h.run_steps(1);
+    assert!(
+        wait(&mut h, |a| a.state.toasts.iter().any(|(t, err)| !*err && t.starts_with("example.com/shop: ") && t.contains("Forgot the saved sign-in"))),
+        "{:?}",
+        h.state().state.toasts
+    );
+    let gone = {
+        let session = h.state().engine.session();
+        site_sign_in::saved(&session, &site_sign_in::site_key("https://example.com").unwrap()).is_none()
+    };
+    assert!(gone, "the saved sign-in was deleted");
+    h.run_steps(2);
+    h.get_by_label("Does the site show more once you're signed in?");
+    assert!(h.query_by_label("Forget the saved sign-in").is_none(), "nothing left to forget");
+
+    // A typed address is the one used; the request's isn't named.
+    h.state_mut().state.make.url = "example.org".into();
+    h.run_steps(2);
+    assert!(h.query_by_label_contains("From your request:").is_none());
+    h.get_by_label("Sign in to this site");
+}
+
 /// Make's Simple / Advanced switch changes the app's mode and keeps the screen and the draft (#1286).
 #[test]
 fn the_make_card_switches_simple_and_advanced_and_keeps_the_draft() {
@@ -1290,6 +1485,104 @@ fn asking_an_ai_that_is_turned_off_says_so_instead_of_looking_alone() {
     };
     assert!(said, "the chat says which AI is turned off");
     assert!(!add, "an AI is set up, so there is nothing to add");
+}
+
+fn disabled_chat_app(mode: Mode) -> CraftApp {
+    let mut app = demo::app(demo::engine(mode, true));
+    demo::deep(&mut app);
+    for (name, enabled) in [("Chat off", false), ("Chat ready", true), ("Other off", false)] {
+        app.hub
+            .add_backend(
+                BackendConfig {
+                    name: name.into(),
+                    kind: BackendKind::OpenaiCompatible,
+                    model: "example-model".into(),
+                    base_url: Some("http://127.0.0.1:9/v1".into()),
+                    ssh_host: None,
+                    enabled,
+                },
+                None,
+            )
+            .unwrap();
+    }
+    app.backends = app.hub.backends();
+    app.state.backend = Some("Chat off".into());
+    app.state.input = "Keep this question while I choose an AI".into();
+    app.state.screen = if mode == Mode::Beginner { Screen::Ask } else { Screen::Workbench };
+    app
+}
+
+#[test]
+fn disabled_chat_recovery_can_turn_on_the_saved_ai_without_sending_the_draft() {
+    for mode in [Mode::Beginner, Mode::Experienced] {
+        let mut h = harness(move || disabled_chat_app(mode));
+        h.run_steps(4);
+        h.get_by_label("Chat off is turned off. Turn it on or choose another AI.");
+        assert!(h.query_by_label("Send (Enter)").is_none());
+        h.get_by_label("Ask a question").click();
+        h.run_steps(2);
+        h.key_press(egui::Key::Enter);
+        h.run_steps(2);
+        assert_eq!(h.state().state.input, "Keep this question while I choose an AI");
+        assert!(h.state().state.chat.is_empty());
+
+        h.get_by_label("Turn on").click();
+        assert!(wait(&mut h, |app| app.backends.iter().any(|b| b.name == "Chat off" && b.enabled)));
+        h.run_steps(3);
+        assert!(h.state().hub.backends().iter().any(|b| b.name == "Chat off" && b.enabled));
+        assert_eq!(h.state().state.backend.as_deref(), Some("Chat off"));
+        assert_eq!(h.state().state.input, "Keep this question while I choose an AI");
+        assert!(h.state().state.chat.is_empty(), "turning on does not send a model request");
+        assert!(h.query_by_value("Choose another AI").is_none());
+        h.get_by_label("Send (Enter)");
+    }
+}
+
+#[test]
+fn disabled_chat_recovery_offers_enabled_choices_and_keeps_the_question() {
+    let mut h = harness(|| disabled_chat_app(Mode::Beginner));
+    h.run_steps(4);
+    h.get_by_value("Choose another AI").click();
+    h.run_steps(2);
+    assert!(h.query_by_label("Other off").is_none(), "the recovery menu only offers enabled AIs");
+    h.get_by_label("Chat ready").click();
+    h.run_steps(3);
+    assert_eq!(h.state().state.backend.as_deref(), Some("Chat ready"));
+    assert_eq!(h.state().state.input, "Keep this question while I choose an AI");
+    assert!(!h.state().hub.backends().iter().find(|b| b.name == "Chat off").unwrap().enabled);
+    assert!(h.state().state.chat.is_empty());
+    assert!(h.query_by_label("Turn on").is_none());
+    h.get_by_label("Send (Enter)");
+}
+
+#[test]
+fn disabled_chat_recovery_can_choose_the_builtin_engines() {
+    let mut h = harness(|| disabled_chat_app(Mode::Beginner));
+    h.run_steps(4);
+    h.get_by_value("Choose another AI").click();
+    h.run_steps(2);
+    h.get_by_label("No AI (built-in engines only)").click();
+    h.run_steps(3);
+    assert!(h.state().state.backend.is_none());
+    assert_eq!(h.state().state.input, "Keep this question while I choose an AI");
+    assert!(h.state().state.chat.is_empty());
+    assert!(h.query_by_label("Turn on").is_none());
+    h.get_by_label("Send (Enter)");
+}
+
+#[test]
+fn enabled_chat_and_builtin_engines_do_not_offer_recovery() {
+    for selected in [Some("Chat ready".to_string()), None] {
+        let mut h = harness(move || {
+            let mut app = disabled_chat_app(Mode::Beginner);
+            app.state.backend = selected;
+            app
+        });
+        h.run_steps(4);
+        assert!(h.query_by_value("Choose another AI").is_none());
+        assert!(h.query_by_label("Turn on").is_none());
+        h.get_by_label("Send (Enter)");
+    }
 }
 
 #[test]
@@ -2269,6 +2562,67 @@ fn a_plugins_bad_argument_list_is_refused_until_fixed() {
     assert_eq!(h.state().state.plugin_form.params(), Some(serde_json::json!({"id": "ls", "command": "server", "args": ["--stdio", "--port"]})));
 }
 
+/// #2153: a plugin whose program isn't there is refused with the form kept to fix it, and Test
+/// says so without adding anything. A .wasm file has no server to test.
+#[test]
+fn a_plugin_is_checked_and_tested_before_its_added() {
+    use egui_kittest::kittest::NodeT;
+    let mut h = harness(|| {
+        let mut a = demo::app(demo::engine(Mode::Beginner, true));
+        a.state.settings_open = true;
+        a
+    });
+    h.run_steps(3);
+    h.get_by_label("Plugins").click();
+    h.run_steps(3);
+    assert!(h.get_by_label("Test").accesskit_node().is_disabled(), "nothing to test yet");
+    h.state_mut().state.plugin_form.id = "docs".into();
+    h.state_mut().state.plugin_form.place = "craft-anything-no-such-plugin-server".into();
+    h.run_steps(2);
+    h.get_by_label("Add").click();
+    assert!(wait(&mut h, |a| a.state.toasts.iter().any(|(t, err)| *err && t.contains("isn't on this computer"))), "{:?}", h.state().state.toasts);
+    assert_eq!(h.state().state.plugin_form.place, "craft-anything-no-such-plugin-server", "kept to be fixed");
+    assert!(h.state().settings.plugins.mcp.is_empty());
+    h.state_mut().state.toasts.clear();
+    // The message's going moves the form; click where Test is now.
+    h.run_steps(2);
+    h.get_by_label("Test").click();
+    assert!(wait(&mut h, |a| a.state.toasts.iter().any(|(t, err)| *err && t.starts_with("The plugin's test failed."))), "{:?}", h.state().state.toasts);
+    assert!(h.state().settings.plugins.mcp.is_empty(), "a test adds nothing");
+    h.state_mut().state.plugin_form.place = "/plugins/words.wasm".into();
+    h.run_steps(2);
+    assert!(h.get_by_label("Test").accesskit_node().is_disabled(), "a .wasm file has no server to start");
+}
+
+/// The form is emptied once its plugin is added, unless it was changed while the add ran: then
+/// the new entry stays.
+#[test]
+fn a_plugin_typed_while_another_is_added_is_kept() {
+    let mut h = harness(|| {
+        let mut a = demo::app(demo::engine(Mode::Beginner, true));
+        a.state.settings_open = true;
+        a
+    });
+    h.run_steps(3);
+    h.get_by_label("Plugins").click();
+    h.run_steps(3);
+    let program = std::env::current_exe().unwrap().display().to_string();
+    let add = |h: &mut Harness<'_, CraftApp>, id: &str| {
+        h.state_mut().state.plugin_form.id = id.into();
+        h.state_mut().state.plugin_form.place = program.clone();
+        h.run_steps(2);
+        h.get_by_label("Add").click();
+        h.run_steps(1);
+    };
+    add(&mut h, "first");
+    h.state_mut().state.plugin_form.id = "second".into();
+    assert!(wait(&mut h, |a| a.settings.plugins.mcp.iter().any(|p| p.id == "first")), "{:?}", h.state().state.toasts);
+    assert_eq!(h.state().state.plugin_form.id, "second", "the entry typed meanwhile is kept");
+    add(&mut h, "third");
+    assert!(wait(&mut h, |a| a.settings.plugins.mcp.iter().any(|p| p.id == "third")), "{:?}", h.state().state.toasts);
+    assert!(h.state().state.plugin_form.id.is_empty(), "the added entry is cleared");
+}
+
 #[test]
 fn a_website_check_lists_each_pages_likeness() {
     let mut h = harness(|| {
@@ -2353,6 +2707,67 @@ fn a_note_waiting_for_the_builder_can_be_taken_back_into_the_prompt_box() {
     h.state_mut().pause();
     assert!(runs.finish(&a.root));
     h.run_steps(2);
+}
+
+/// R5.3: a failed run says beside Try again what it used, its cost only when every turn reported
+/// one, and the next run counts only its own turns.
+#[test]
+fn a_failed_run_shows_what_it_used_beside_try_again() {
+    use craft_anything_ai::AgentEvent;
+    use craft_anything_ai::rebuild::{RunEvent, StandIns};
+    use craft_anything_engine::workspace::{TargetRef, Workspace};
+    use egui_kittest::kittest::NodeT;
+    let d = tempfile::tempdir().unwrap();
+    let a = Workspace::create(d.path(), "Alpha", "A notes app", TargetRef::None).unwrap();
+    let runs = StandIns::new();
+    let (dir, r) = (d.path().to_path_buf(), runs.clone());
+    let mut h = harness(move || stand_in_app(dir, &r));
+    h.run_steps(2);
+    h.state_mut().open_workspace(a.clone());
+    h.state_mut().follow_up(Some("Add tags".into()));
+    h.run_steps(2);
+    let turn = |cost_usd| {
+        RunEvent::Agent(AgentEvent::TurnDone {
+            backend: "Claude Code".into(),
+            input_tokens: 9_000,
+            output_tokens: 3_000,
+            tokens_unknown: false,
+            cost_usd,
+            cost_is_estimate: true,
+        })
+    };
+    let fail = |runs: &StandIns| {
+        let message = "The builder stopped.".to_string();
+        assert!(runs.send(&a.root, RunEvent::Agent(AgentEvent::Error { message: message.clone(), remediation: None, log: None })));
+        assert!(runs.send(&a.root, RunEvent::Finished { ok: false, message, paused: false }));
+    };
+    let used = |h: &Harness<'_, CraftApp>| {
+        h.query_all_by_label_contains("This run used").map(|n| n.accesskit_node().label().or_else(|| n.value()).unwrap_or_default()).collect::<Vec<_>>()
+    };
+
+    assert!(runs.send(&a.root, turn(Some(0.25))));
+    assert!(runs.send(&a.root, turn(Some(0.25))));
+    fail(&runs);
+    h.run_steps(3);
+    let shown = used(&h);
+    assert!(shown.len() == 1 && shown[0].contains("24k tokens") && shown[0].contains("$0.50"), "{shown:?}");
+
+    // Try again: one turn with no cost of its own, so tokens only, and only this run's.
+    h.get_by_label("Try again").click();
+    h.run_steps(2);
+    assert!(used(&h).is_empty(), "nothing beside a run that is working");
+    assert!(runs.send(&a.root, turn(None)));
+    fail(&runs);
+    h.run_steps(3);
+    let shown = used(&h);
+    assert!(shown.len() == 1 && shown[0].contains("12k tokens") && shown[0].contains("isn't known") && !shown[0].contains('$'), "{shown:?}");
+
+    // A run that ended before any turn finished used nothing it can say.
+    h.get_by_label("Try again").click();
+    h.run_steps(2);
+    fail(&runs);
+    h.run_steps(3);
+    assert!(used(&h).is_empty(), "{:?}", used(&h));
 }
 
 #[test]
@@ -2844,6 +3259,103 @@ fn a_running_build_says_what_it_is_on_and_opens_up_into_its_activity() {
     assert!(runs.finish(&ws.root));
     h.run_steps(3);
     h.get_by_label("What happened in this build");
+}
+
+/// The details box at the bottom of a long feed keeps its own height (it was squeezed to about
+/// three lines), long lines wrap when asked, its edge changes its height, and it opens in a
+/// window of its own that goes when closed.
+#[test]
+fn the_build_details_box_keeps_its_height_wraps_and_opens_in_its_own_window() {
+    use craft_anything_ai::rebuild::{RunEvent, RunSet, StandIns};
+    use craft_anything_ai::{AgentEvent, AiConfig, BackendConfig, BackendEntry, BackendKind, BackendOptions};
+    use craft_anything_engine::workspace::{Step, TargetRef, Workspace};
+    use craft_anything_ui_egui::activity_box::{LINE, Look};
+    let d = tempfile::tempdir().unwrap();
+    let ws = Workspace::create(d.path(), "Alpha", "A notes app", TargetRef::None).unwrap();
+    let runs = StandIns::new();
+    let (dir, starter) = (d.path().to_path_buf(), runs.starter());
+    let mut h = harness(move || {
+        let engine = demo::engine(Mode::Beginner, true);
+        let mut cfg = AiConfig::default();
+        let agent = BackendConfig {
+            name: "Claude Code".into(),
+            kind: BackendKind::AgentCli,
+            model: "claude-code".into(),
+            base_url: None,
+            ssh_host: None,
+            enabled: true,
+        };
+        cfg.upsert(BackendEntry { config: agent, options: BackendOptions::default() });
+        engine.session().settings.ai = cfg.to_table().unwrap();
+        let mut app = demo::app(engine);
+        app.settings.projects_dir = Some(dir);
+        app.runs = RunSet::new(1).with_starter(starter);
+        app
+    });
+    h.run_steps(2);
+    h.state_mut().open_workspace(ws.clone());
+    h.state_mut().continue_build();
+    h.run_steps(2);
+    // A feed taller than the window, and more lines than the box shows.
+    let said: String = (0..60).map(|i| format!("Paragraph {i} of what the builder said.\n\n")).collect();
+    assert!(runs.send(&ws.root, RunEvent::Agent(AgentEvent::TextDelta { text: said })));
+    for i in 0..40 {
+        assert!(runs.send(&ws.root, RunEvent::Step { step: Step::Build, text: format!("Building part {i}…") }));
+        let input = serde_json::json!({"command": format!("echo step-{i:02}")});
+        assert!(runs.send(&ws.root, RunEvent::Agent(AgentEvent::ToolStarted { call_id: format!("c{i}"), tool: "Bash".into(), input })));
+    }
+    let long = format!("cargo build --release --features {}", "a-long-feature,".repeat(30));
+    let input = serde_json::json!({"command": long});
+    assert!(runs.send(&ws.root, RunEvent::Agent(AgentEvent::ToolStarted { call_id: "long".into(), tool: "Bash".into(), input })));
+    h.run_steps(3);
+    h.get_by_label("More detail").click();
+    // It opens over a few frames.
+    h.run_steps(12);
+    // From its title to the grip under it: ten lines and the card's edges.
+    let tall = h.get_by_label("Drag to change the height").rect().top() - h.get_by_label("More detail").rect().bottom();
+    assert!(tall >= 10.0 * LINE, "the box is {tall} points tall at the bottom of a long feed");
+    let id = egui::Id::new(("run_details", &ws.root));
+    assert_eq!(Look::of(&h.ctx, id), Look::default());
+
+    // One line, not cut off: the box scrolls sideways.
+    // The box's line, under the status row's "Now: Running…".
+    let long_line = |h: &Harness<'static, CraftApp>| {
+        h.query_all_by_label_contains("Running cargo build --release").map(|n| n.rect()).max_by(|a, b| a.top().total_cmp(&b.top())).unwrap()
+    };
+    assert!(long_line(&h).height() <= LINE + 1.0, "{:?}", long_line(&h));
+    h.get_by_label("Wrap long lines").click();
+    h.run_steps(3);
+    assert!(Look::of(&h.ctx, id).wrap);
+    assert!(long_line(&h).height() > LINE * 1.5, "wrapped: {:?}", long_line(&h));
+
+    // The edge: arrow keys while it has focus.
+    h.get_by_label("Drag to change the height").focus();
+    // egui keeps the arrows for a widget from its second frame with focus.
+    h.run_steps(2);
+    for _ in 0..3 {
+        h.key_press(egui::Key::ArrowDown);
+        h.run_steps(1);
+    }
+    assert_eq!(Look::of(&h.ctx, id).height, Look::default().height + 3.0 * LINE);
+    // The feed keeps its bottom in view, so the taller box moves up over the next frames.
+    h.run_steps(4);
+
+    // Its own window, here inside the app (tests have one window), until it's closed.
+    h.get_by_label("Open in its own window").hover();
+    h.run_steps(1);
+    h.get_by_label("Open in its own window").click();
+    h.run_steps(3);
+    assert_eq!(h.state().activity_windows.len(), 1);
+    let window = h.get_by_label("Alpha: build activity").rect();
+    // The window's own Close, not the title bar's.
+    h.query_all_by_label("Close").find(|n| window.contains_rect(n.rect())).unwrap().click();
+    h.run_steps(3);
+    assert!(h.state().activity_windows.is_empty());
+    assert!(h.query_by_label("Alpha: build activity").is_none());
+    // The box is still at its newest line (a button over its scroll bar sent it to the top).
+    let grip = h.get_by_label("Drag to change the height").rect();
+    let last = long_line(&h);
+    assert!(last.bottom() <= grip.top() && last.bottom() > grip.top() - 3.0 * LINE, "{last:?} above {grip:?}");
 }
 
 #[test]
@@ -4001,4 +4513,45 @@ fn a_workspace_members_build_shows_play_on_the_project_screen() {
     assert!(wait(&mut h, |a| a.facts.program), "the member's build is found");
     h.run_steps(2);
     h.get_by_label("Pin this build");
+}
+
+/// The Project screen looks where the session's given environment says Cargo builds
+/// (`CARGO_TARGET_DIR` here), not where this test process's environment does.
+#[test]
+fn the_project_screen_looks_where_the_sessions_cargo_environment_says() {
+    use craft_anything_engine::outputs::CargoEnv;
+    use craft_anything_engine::workspace::{TargetRef, Workspace};
+    let d = tempfile::tempdir().unwrap();
+    let ws = Workspace::create(&d.path().join("projects"), "Snake", "A snake game in Rust", TargetRef::None).unwrap();
+    let app = ws.app_dir();
+    std::fs::create_dir_all(app.join("src")).unwrap();
+    std::fs::write(app.join("Cargo.toml"), "[package]\nname = \"snake\"\nversion = \"0.1.0\"\nedition = \"2021\"\n").unwrap();
+    std::fs::write(app.join("src/main.rs"), "fn main() {}\n").unwrap();
+    let shared = d.path().join("shared");
+    let exe = if cfg!(windows) { "snake.exe" } else { "snake" };
+    let program = shared.join("debug").join(exe);
+    std::fs::create_dir_all(program.parent().unwrap()).unwrap();
+    std::fs::write(&program, "x").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let source = std::path::absolute(app.join("src/main.rs")).unwrap();
+    std::fs::write(program.with_extension("d"), format!("{}: {}\n", program.display(), source.display())).unwrap();
+    let opened = |env: CargoEnv| {
+        let (ws, root) = (ws.clone(), ws.root.clone());
+        let mut h = harness(move || {
+            let engine = demo::engine(Mode::Beginner, true);
+            engine.session().cargo_env = Some(env);
+            let mut a = demo::app(engine);
+            a.open_workspace(ws);
+            a
+        });
+        assert!(wait(&mut h, |a| a.facts.root == root), "the project is read");
+        h
+    };
+    assert!(!opened(CargoEnv::default()).state().facts.program, "nothing names the shared folder");
+    let mut h = opened(CargoEnv { target_dir: Some(shared.into()), ..CargoEnv::default() });
+    assert!(wait(&mut h, |a| a.facts.program), "the build the given CARGO_TARGET_DIR holds is found");
 }

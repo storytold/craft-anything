@@ -31,10 +31,10 @@ fn ml_after_a_nested_type_reads_as_the_singleton_initialization_cache() {
 fn ml_after_a_type_in_an_extension_leaves_out_the_extension_prefix() {
     assert_eq!(
         dm("_$s10RealityKit18AnchoringComponentV0A10FoundationE05ImageC6SourceV0G0OMl"),
-        "type metadata singleton initialization cache for RealityKit.AnchoringComponent.ImageAnchoringSource.Source"
+        "type metadata singleton initialization cache for (extension in RealityFoundation):RealityKit.AnchoringComponent.ImageAnchoringSource.Source"
     );
     // Constructed with `swiftc -enable-library-evolution` and checked with `swift-demangle`.
-    assert_eq!(dm("_$sSi4mainE3ExtVMl"), "type metadata singleton initialization cache for Swift.Int.Ext");
+    assert_eq!(dm("_$sSi4mainE3ExtVMl"), "type metadata singleton initialization cache for (extension in main):Swift.Int.Ext");
 }
 
 /// `ML` keeps its own name: the lazy cache variable for a type's metadata.

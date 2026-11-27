@@ -119,6 +119,8 @@ enum N {
         name: String,
     },
     Inout(Box<N>),
+    /// A variadic type, printed `T...` (`d` operator).
+    Variadic(Box<N>),
     /// The opaque result type of the declaration being mangled (`some P`), printed as `some`.
     Opaque,
     /// The declaration that returns opaque types (`QO`), printed `<<opaque return type of …>>`.
@@ -178,6 +180,8 @@ enum EKind {
     VarInit,
     IvarDestroyer,
     IvarInitializer,
+    PropertyWrapperBackingInitializer,
+    PropertyWrapperInitFromProjected,
 }
 
 struct D<'a> {
@@ -297,6 +301,14 @@ impl<'a> D<'a> {
         }
     }
 
+    /// Is a context a class type, so that `fD` reads as `__deallocating_deinit`?
+    /// Value types, protocols, metatypes and (extension) non-class bases read `deinit`.
+    fn is_class_context(n: &N) -> bool {
+        // Swift 6.1 accepts only an immediate Class nominal context; extension-wrapped,
+        // bound/generic and nested-entity contexts render `deinit`.
+        matches!(n, N::Nominal { kind: 'C', .. })
+    }
+
     fn pop_name(&mut self) -> R<String> {
         match self.pop()? {
             N::Ident(i) => Ok(i),
@@ -315,6 +327,104 @@ impl<'a> D<'a> {
         self.pop_type()
     }
 
+    /// Decode a Swift-modified Punycode encoded identifier.
+    fn punycode_decode(encoded: &str) -> R<String> {
+        for c in encoded.chars() {
+            if !c.is_ascii() {
+                return Err("punycode is not ASCII".into());
+            }
+        }
+        let pos = encoded.rfind('_');
+        let (base_str, ext_str) = match pos {
+            Some(p) => (&encoded[..p], &encoded[p + 1..]),
+            None => ("", encoded),
+        };
+        let mut output: Vec<char> = base_str.chars().collect();
+        let ext: Vec<char> = ext_str.chars().collect();
+
+        fn digit(c: char) -> Option<u32> {
+            if c.is_ascii_lowercase() {
+                Some((c as u32) - b'a' as u32)
+            } else if c.is_ascii_uppercase() {
+                let d = (c as u32) - b'A' as u32;
+                if d < 10 { Some(26 + d) } else { None }
+            } else {
+                None
+            }
+        }
+        fn t_val(j: u32, bias: u32) -> u32 {
+            let v = 36u32.saturating_mul(j + 1).saturating_sub(bias);
+            v.clamp(1, 26)
+        }
+        fn adapt(delta: u64, first: bool, numchars: usize) -> u32 {
+            let mut d = if first { delta / 700 } else { delta / 2 };
+            d += d / (numchars as u64);
+            let mut divisions = 0u64;
+            while d > 455 {
+                d /= 35;
+                divisions += 36;
+            }
+            (divisions + (36 * d) / (d + 38)) as u32
+        }
+
+        let mut char_val: u32 = 0x80;
+        let mut bias: u32 = 72;
+        let mut extpos = 0usize;
+        let mut pos_idx: isize = -1;
+        while extpos < ext.len() {
+            let old_extpos = extpos;
+            let mut result: u64 = 0;
+            let mut w: u64 = 1;
+            let mut j: u32 = 0;
+            let mut k: u32 = 36;
+            loop {
+                if extpos >= ext.len() {
+                    return Err("truncated punycode".into());
+                }
+                let c = ext[extpos];
+                extpos += 1;
+                let d = digit(c).ok_or("bad punycode digit")?;
+                if d >= 36 {
+                    return Err("bad punycode digit".into());
+                }
+                let product = (d as u64).checked_mul(w).ok_or("punycode overflow")?;
+                result = result.checked_add(product).ok_or("punycode overflow")?;
+                let t = t_val(j, bias) as u64;
+                if (d as u64) < t {
+                    break;
+                }
+                let base_minus_t = 36u64 - t;
+                w = w.checked_mul(base_minus_t).ok_or("punycode overflow")?;
+                k = k.checked_add(36).ok_or("punycode overflow")?;
+                j += 1;
+            }
+            let delta = result;
+            let old_len = output.len();
+            let new_pos = (pos_idx + 1) as i128 + delta as i128;
+            let quotient = new_pos / (old_len as i128 + 1);
+            let inc = u32::try_from(quotient).map_err(|_| "punycode code point out of range")?;
+            char_val = char_val.checked_add(inc).ok_or("punycode code point out of range")?;
+            if char_val > 0x10FFFF {
+                return Err("punycode code point out of range".into());
+            }
+            let pos_rem = (new_pos % (old_len as i128 + 1)) as usize;
+            pos_idx = pos_rem as isize;
+            let ch = char::from_u32(char_val).ok_or("invalid code point")?;
+            if pos_rem <= output.len() {
+                output.insert(pos_rem, ch);
+            } else {
+                return Err("punycode insertion out of range".into());
+            }
+            let new_len = output.len();
+            bias = adapt(delta, old_extpos == 0, new_len);
+            let _ = (k, j);
+        }
+        if output.is_empty() {
+            return Err("empty punycode identifier".into());
+        }
+        Ok(output.into_iter().collect())
+    }
+
     fn identifier(&mut self) -> R<N> {
         let mut has_words = false;
         let mut puny = false;
@@ -326,7 +436,23 @@ impl<'a> D<'a> {
             }
         }
         if puny {
-            return Err("punycode identifiers are not supported".into());
+            let n = self.natural().ok_or("expected punycode length")?;
+            let n = usize::try_from(n).map_err(|_| "punycode length too long")?;
+            if n == 0 {
+                return Err("empty punycode identifier".into());
+            }
+            self.next_if(b'_');
+            let end = self.pos.checked_add(n).ok_or("punycode runs past the end")?;
+            let slice = self.s.get(self.pos..end).ok_or("punycode runs past the end")?;
+            self.pos = end;
+            let encoded = std::str::from_utf8(slice).map_err(|_| "punycode is not UTF-8")?;
+            let id = Self::punycode_decode(encoded)?;
+            if id.is_empty() {
+                return Err("empty punycode identifier".into());
+            }
+            let n = N::Ident(id);
+            self.add_sub(&n)?;
+            return Ok(n);
         }
         let mut id = String::new();
         loop {
@@ -972,6 +1098,50 @@ impl<'a> D<'a> {
         self.push(N::Global { prefix: what.into(), inner: Box::new(name), suffix: String::new() })
     }
 
+    /// `TL`: the protocol requirements base descriptor of a protocol, the descriptor the runtime
+    /// uses to find the protocol's requirement witnesses. The operand is the protocol itself: its
+    /// name (an identifier, an operator or a private name) and the context it is declared in (a
+    /// module, a nominal type or an extension), which take no substitution slot of their own, or a
+    /// protocol type such as the standard library's `SB` (`Swift.BinaryFloatingPoint`).
+    /// `_$s7SwiftUI10ShapeStyleTL` is `protocol requirements base descriptor for
+    /// SwiftUI.ShapeStyle`. A non-protocol type in place of the protocol, and a function, a global
+    /// or a marker in place of the context, are rejected.
+    fn protocol_requirements_base_descriptor(&mut self) -> R<()> {
+        let proto = match self.pop()? {
+            n @ N::Nominal { kind: 'P', .. } => n,
+            N::Ident(name) | N::Private(name) | N::Operator(name) => {
+                let ctx = match self.pop()? {
+                    N::Ident(module) => N::Module(module),
+                    ctx @ (N::Module(_) | N::Nominal { .. } | N::Extension { .. }) => ctx,
+                    _ => return Err("expected a context".into()),
+                };
+                N::Nominal { kind: 'P', ctx: Box::new(ctx), name }
+            }
+            _ => return Err("expected a protocol".into()),
+        };
+        self.push(N::Global { prefix: "protocol requirements base descriptor for".into(), inner: Box::new(proto), suffix: String::new() })
+    }
+
+    /// `Tg` and one digit: a generic specialization of the declaration before the digit, such as
+    /// `generic specialization <Swift.UInt8> of Swift.Array.count.getter : Swift.Int`. The operand is
+    /// an underscore (popped as `FirstMarker`), then the declaration it specializes, then the type it
+    /// is specialized for, in that order. The digit is consumed and not printed.
+    fn generic_specialization(&mut self) -> R<()> {
+        let kind = self.next()?;
+        if !kind.is_ascii_digit() {
+            return Err("expected a generic specialization kind digit".into());
+        }
+        if !matches!(self.pop()?, N::FirstMarker) {
+            return Err("generic specialization without a marker".into());
+        }
+        let arg = self.pop_type()?;
+        if !type_arg_allowed(&arg) {
+            return Err("expected a type".into());
+        }
+        let base = self.pop_type()?;
+        self.push(N::Global { prefix: format!("generic specialization <{}> of", render(&arg, 0)), inner: Box::new(base), suffix: String::new() })
+    }
+
     /// `WT`: a conformance, the path of an associated type, and the protocol that type conforms
     /// to. The path is a first element, then `_`, then any further elements; an element is a name,
     /// optionally followed by the protocol that declares it.
@@ -996,6 +1166,60 @@ impl<'a> D<'a> {
         let conf = self.witness_conformance()?;
         let prefix = format!("associated type witness table accessor for {} : {} in", parts.join("."), render(&proto, 0));
         self.push(N::Global { prefix, inner: Box::new(conf), suffix: String::new() })
+    }
+
+    /// `Tl`: the associated type descriptor of an associated type. The operand is the
+    /// protocol or type that declares the associated type, followed by the associated
+    /// type's name (possibly a private name). Only the dotted path `base.name` is
+    /// printed, in the usual `associated type descriptor for` form, and it reads like
+    /// `associated type descriptor for Human.ComputeNode.Input`.
+    fn associated_type_descriptor(&mut self) -> R<()> {
+        let base = self.pop_type()?;
+        match &base {
+            N::Nominal { kind: 'P', .. } => {}
+            _ => return Err("expected a protocol".into()),
+        }
+        let name = self.pop_name()?;
+        let n = N::Member { base: Box::new(base), name };
+        self.push(N::Global { prefix: "associated type descriptor for".into(), inner: Box::new(n), suffix: String::new() })
+    }
+
+    /// `Tn`: an associated conformance descriptor. The stack carries the protocol that declares the
+    /// associated type, then one or more associated-type path segments, then a first-element marker,
+    /// then the protocol the associated type conforms to. Only the full dotted path and the
+    /// conforming protocol are printed.
+    fn associated_conformance_descriptor(&mut self) -> R<()> {
+        let conforming = self.pop_protocol()?;
+        // The conforming operand must be a protocol: a named protocol from a
+        // context, or a standard library protocol. A non-protocol type (such as
+        // `Swift.Int`) is rejected here, matching swift-demangle.
+        if !matches!(conforming, N::Nominal { kind: 'P', .. }) {
+            return Err("expected a protocol".into());
+        }
+        let mut parts = Vec::new();
+        let mut closed = false;
+        while !closed {
+            let mut node = self.pop()?;
+            if matches!(node, N::FirstMarker) {
+                closed = true;
+                node = self.pop()?;
+            }
+            let part = match node {
+                N::Ident(name) => name,
+                owner @ N::Nominal { kind: 'P', .. } => format!("{}.{}", path(&owner, 0), self.pop_name()?),
+                _ => return Err("expected an associated type name".into()),
+            };
+            parts.push(part);
+        }
+        parts.reverse();
+        let declaring = match self.pop()? {
+            n @ N::Nominal { kind: 'P', .. } => n,
+            _ => return Err("expected a protocol".into()),
+        };
+        let assoc_path = parts.join(".");
+        let left = if assoc_path.is_empty() { path(&declaring, 0) } else { format!("{}.{}", path(&declaring, 0), assoc_path) };
+        let text = format!("associated conformance descriptor for {}: {}", left, path(&conforming, 0));
+        self.push(N::Global { prefix: text, inner: Box::new(N::EmptyList), suffix: String::new() })
     }
 
     /// `WO` and a letter: an outlined value operation, a copy, move or destroy the compiler
@@ -1101,12 +1325,21 @@ impl<'a> D<'a> {
             b'B' => {
                 let t = match self.next()? {
                     b'b' => "Builtin.BridgeObject".to_string(),
+                    b'c' => "Builtin.RawUnsafeContinuation".into(),
+                    b'd' => "Builtin.NonDefaultDistributedActorStorage".into(),
+                    b'e' => "Builtin.Executor".into(),
+                    b'j' => "Builtin.Job".into(),
                     b'o' => "Builtin.NativeObject".into(),
                     b'O' => "Builtin.UnknownObject".into(),
                     b'p' => "Builtin.RawPointer".into(),
                     b't' => "Builtin.SILToken".into(),
                     b'w' => "Builtin.Word".into(),
+                    b'A' => "Builtin.ImplicitActor".into(),
                     b'B' => "Builtin.UnsafeValueBuffer".into(),
+                    b'D' => "Builtin.DefaultActorStorage".into(),
+                    b'I' => "Builtin.IntLiteral".into(),
+                    b'P' => "Builtin.PackIndex".into(),
+                    b'T' => "Builtin.TheTupleType".into(),
                     b'i' => {
                         let n = self.natural().ok_or("builtin width")?;
                         self.next_if(b'_');
@@ -1116,6 +1349,22 @@ impl<'a> D<'a> {
                         let n = self.natural().ok_or("builtin width")?;
                         self.next_if(b'_');
                         format!("Builtin.FPIEEE{n}")
+                    }
+                    b'v' => {
+                        let count = self.natural().ok_or("builtin vector count")?;
+                        if count == 0 || count > 4096 {
+                            return Err("builtin vector count out of range".into());
+                        }
+                        if !self.next_if(b'_') {
+                            return Err("builtin vector count terminator".into());
+                        }
+                        let elem = self.pop()?;
+                        let elem = match elem {
+                            N::Builtin(s) => s,
+                            _ => return Err("builtin vector element is not a builtin".into()),
+                        };
+                        let elem = elem.strip_prefix("Builtin.").unwrap_or(&elem);
+                        format!("Builtin.Vec{count}x{elem}")
                     }
                     _ => return Err("unsupported builtin type".into()),
                 };
@@ -1185,6 +1434,7 @@ impl<'a> D<'a> {
                     b'm' => "metaclass for",
                     b'f' => "full type metadata for",
                     b'p' => "protocol descriptor for",
+                    b'S' => "protocol self-conformance descriptor for",
                     b'o' => "class metadata base offset for",
                     b'l' => "type metadata singleton initialization cache for",
                     b'L' => "lazy cache variable for type metadata for",
@@ -1204,6 +1454,7 @@ impl<'a> D<'a> {
                     b'P' => "generic type metadata pattern for",
                     b'B' => "reflection metadata builtin descriptor",
                     b'U' => "ObjC metadata update function for",
+                    b'Q' => "opaque type descriptor for",
                     b't' => "full ObjC resilient class stub for",
                     b's' => "ObjC resilient class stub for",
                     _ => return Err("unsupported metadata kind".into()),
@@ -1225,7 +1476,7 @@ impl<'a> D<'a> {
                 {
                     return Err("metadata cache of a marker".into());
                 }
-                if p.starts_with("protocol descriptor")
+                if (p.starts_with("protocol descriptor") || p.starts_with("protocol self-conformance descriptor"))
                     && let Some(N::Ident(_) | N::Private(_) | N::Operator(_)) = self.stack.last()
                 {
                     let name = self.pop_decl_name()?;
@@ -1243,6 +1494,9 @@ impl<'a> D<'a> {
                         return Err("associated type descriptor of a non-type or outside a module".into());
                     }
                     return self.push(N::Global { prefix: p.into(), inner: Box::new(conf), suffix: String::new() });
+                }
+                if p.starts_with("protocol self-conformance descriptor") && !matches!(self.stack.last(), Some(N::Nominal { kind: 'P', .. })) {
+                    return Err("protocol self-conformance descriptor of a non-protocol".into());
                 }
                 self.global(p)
             }
@@ -1310,6 +1564,12 @@ impl<'a> D<'a> {
                 let (param, idx) = match self.next()? {
                     b'z' => ("A".to_string(), 0),
                     b'_' => ("B".into(), 1),
+                    b'd' => {
+                        // Generic type parameter at depth > 0 (`qd…`), as in `Rd…`.
+                        let depth = self.index()?.checked_add(1).ok_or("overflow")?;
+                        let pidx = self.index()?;
+                        (param_name(depth, pidx), 0)
+                    }
                     d if d.is_ascii_digit() => {
                         self.pos -= 1;
                         let n = self.natural().ok_or("requirement index")?;
@@ -1335,6 +1595,19 @@ impl<'a> D<'a> {
                     b'O' => "@nonobjc",
                     b'q' => "method descriptor for",
                     b'j' => "dispatch thunk of",
+                    b'S' => "protocol self-conformance witness for",
+                    b'E' => {
+                        if !matches!(self.stack.last(), Some(N::Entity { .. } | N::Global { .. })) {
+                            return Err("distributed thunk of a non-function".into());
+                        }
+                        "distributed thunk"
+                    }
+                    b'F' => {
+                        if !matches!(self.stack.last(), Some(N::Entity { .. } | N::Global { .. })) {
+                            return Err("distributed accessor for a non-function".into());
+                        }
+                        "distributed accessor for"
+                    }
                     b'D' => "dynamic",
                     b'd' => "direct method reference to",
                     b'A' => "partial apply forwarder for",
@@ -1361,9 +1634,45 @@ impl<'a> D<'a> {
                         let phrase = if k == b'Y' { "suspend resume" } else { "await resume" };
                         return self.async_thunk(format!("({i}) {phrase} partial function for"));
                     }
+                    b'l' => return self.associated_type_descriptor(),
+                    b'n' => return self.associated_conformance_descriptor(),
                     b'v' => return self.outlined_variable(),
+                    b'L' => return self.protocol_requirements_base_descriptor(),
+                    b'g' => return self.generic_specialization(),
+                    b'x' => "dynamically replaceable key for",
+                    b'X' => "dynamically replaceable variable for",
+                    b'I' => "dynamically replaceable thunk for",
                     _ => return Err("unsupported thunk or specialization".into()),
                 };
+                if k == b'S'
+                    && matches!(
+                        self.stack.last(),
+                        Some(
+                            N::EmptyList
+                                | N::FirstMarker
+                                | N::Throws
+                                | N::Async
+                                | N::FnMarker(_)
+                                | N::Requirement(_)
+                                | N::Sig { .. }
+                                | N::Ident(_)
+                                | N::Private(_)
+                                | N::Operator(_)
+                                | N::Module(_)
+                                | N::Global { .. }
+                        )
+                    )
+                {
+                    return Err("protocol self-conformance witness of a non-entity".into());
+                }
+                if matches!(k, b'x' | b'X' | b'I') {
+                    if matches!(self.stack.last(), Some(N::FirstMarker)) {
+                        return Err("dynamically replaceable operand is a parser marker".into());
+                    }
+                    if !matches!(self.stack.last(), Some(N::Global { .. } | N::Entity { .. } | N::Nominal { .. })) {
+                        return Err("dynamically replaceable operand is not a global or entity".into());
+                    }
+                }
                 self.global(prefix)
             }
             b'W' => {
@@ -1371,6 +1680,26 @@ impl<'a> D<'a> {
                 match k {
                     b'Z' => self.one_time_init("one-time initialization function for"),
                     b'z' => self.one_time_init("one-time initialization token for"),
+                    b'S' => {
+                        if let Some(N::Ident(_) | N::Private(_) | N::Operator(_)) = self.stack.last() {
+                            let name = self.pop_decl_name()?;
+                            let ctx = self.pop_context()?;
+                            let proto = N::Nominal { kind: 'P', ctx: Box::new(ctx), name };
+                            return self.push(N::Global {
+                                prefix: "protocol self-conformance witness table for".into(),
+                                inner: Box::new(proto),
+                                suffix: String::new(),
+                            });
+                        }
+                        if matches!(self.stack.last(), Some(N::Global { .. } | N::Entity { .. } | N::Conformance { .. } | N::Extension { .. })) {
+                            return Err("witness operand is not a type".into());
+                        }
+                        let ty = self.pop_type()?;
+                        if !matches!(ty, N::Nominal { kind: 'P', .. }) {
+                            return Err("protocol self-conformance witness table for a non-protocol".into());
+                        }
+                        self.push(N::Global { prefix: "protocol self-conformance witness table for".into(), inner: Box::new(ty), suffix: String::new() })
+                    }
                     b'P' | b'p' | b'a' | b'G' => {
                         let conf = self.conformance()?;
                         let p = match k {
@@ -1425,6 +1754,16 @@ impl<'a> D<'a> {
                     let t = self.pop_type()?;
                     self.push(N::FnMarker(FnMarker::Thrown(Box::new(t))))
                 }
+                // `_const`: a compile-time constant parameter/value.
+                b't' => {
+                    let t = self.pop_type()?;
+                    self.push(N::Attributed { text: "_const ", inner: Box::new(t), wrapped: true })
+                }
+                // `isolated`: a parameter carrying an isolated actor.
+                b'i' => {
+                    let t = self.pop_type()?;
+                    self.push(N::Attributed { text: "isolated ", inner: Box::new(t), wrapped: true })
+                }
                 _ => Err("unsupported function attribute".into()),
             },
             b'Z' => {
@@ -1440,15 +1779,32 @@ impl<'a> D<'a> {
                 let f = self.pop_func_type()?;
                 self.push(f)
             }
+            b'd' => {
+                // A variadic marker may follow a tuple element label, which sits
+                // above the type on the stack. Preserve the label so tuple parsing
+                // can attach it, and mark only the type as variadic.
+                let label = match self.stack.last() {
+                    Some(N::Ident(_)) => self.stack.pop(),
+                    _ => None,
+                };
+                let t = self.witness_type()?;
+                self.push(N::Variadic(Box::new(t)))?;
+                if let Some(l) = label {
+                    self.push(l)?;
+                }
+                Ok(())
+            }
             b'f' => {
                 let k = self.next()?;
-                let kind = match k {
+                let mut kind = match k {
                     b'C' => EKind::AllocInit,
                     b'c' => EKind::Init,
                     b'D' => EKind::DeallocDeinit,
                     b'd' => EKind::Deinit,
                     b'E' => EKind::IvarDestroyer,
                     b'e' => EKind::IvarInitializer,
+                    b'P' => EKind::PropertyWrapperBackingInitializer,
+                    b'W' => EKind::PropertyWrapperInitFromProjected,
                     b'U' | b'u' => {
                         let i = self.index()?;
                         let ty = self.pop_type()?;
@@ -1498,7 +1854,16 @@ impl<'a> D<'a> {
                         self.push(N::Entity { kind, ctx: Box::new(ctx), name: None, labels, ty: Some(Box::new(ty)), accessor: None, is_static: false })
                     }
                     _ => {
-                        let ctx = self.pop_context()?;
+                        let ctx = match kind {
+                            EKind::PropertyWrapperBackingInitializer | EKind::PropertyWrapperInitFromProjected => match self.pop()? {
+                                v @ N::Entity { kind: EKind::Var, accessor: Some(_), .. } => v,
+                                _ => return Err("expected a variable".into()),
+                            },
+                            _ => self.pop_context()?,
+                        };
+                        if matches!(kind, EKind::DeallocDeinit) && !Self::is_class_context(&ctx) {
+                            kind = EKind::Deinit;
+                        }
                         self.push(N::Entity { kind, ctx: Box::new(ctx), name: None, labels: Vec::new(), ty: None, accessor: None, is_static: false })
                     }
                 }
@@ -1521,7 +1886,13 @@ impl<'a> D<'a> {
             }
             b'm' => {
                 let t = self.pop_type()?;
-                self.push(N::Metatype(Box::new(t)))
+                // `m` after `p` makes a protocol metatype, which swift-demangle spells `.Protocol`
+                // instead of `.Type`; other metatypes are still `.Type`.
+                if matches!(t, N::Existential(_)) { self.push(N::ReprMetatype(Box::new(t))) } else { self.push(N::Metatype(Box::new(t))) }
+            }
+            b'n' => {
+                let t = self.witness_type()?;
+                self.push(N::Attributed { text: "__owned ", inner: Box::new(t), wrapped: true })
             }
             b'p' => {
                 let protos = self.protocol_list()?;
@@ -1529,9 +1900,19 @@ impl<'a> D<'a> {
             }
             b'o' => self.operator_name(),
             b'q' => {
-                let i = self.index()?.checked_add(1).ok_or("overflow")?;
-                self.note_param(i);
-                self.push(N::Param(0, i))
+                if self.next_if(b'd') {
+                    // Generic type parameter at depth > 0: `qd<depth index>_<parameter index>_`.
+                    // The depth index is one-based in the printed name (`qd__` is depth 1), and
+                    // the parameter index is zero-based, so a depth-0-style `x` is never produced
+                    // here.
+                    let depth = self.index()?.checked_add(1).ok_or("overflow")?;
+                    let idx = self.index()?;
+                    self.push(N::Param(depth, idx))
+                } else {
+                    let i = self.index()?.checked_add(1).ok_or("overflow")?;
+                    self.note_param(i);
+                    self.push(N::Param(0, i))
+                }
             }
             b's' => self.push(N::Module("Swift".into())),
             b't' => {
@@ -1585,12 +1966,49 @@ impl<'a> D<'a> {
                 self.push(N::Param(0, 0))
             }
             b'y' => self.push(N::EmptyList),
+            b'h' => {
+                let t = self.pop_type()?;
+                if matches!(t, N::Global { .. } | N::Entity { .. } | N::Conformance { .. } | N::Extension { .. }) {
+                    return Err("shared ownership of a non-type".into());
+                }
+                self.push(N::Attributed { text: "__shared ", inner: Box::new(t), wrapped: true })
+            }
             b'z' => {
                 let t = self.pop_type()?;
                 self.push(N::Inout(Box::new(t)))
             }
             other => Err(format!("unsupported operator '{}'", char::from(other))),
         }
+    }
+}
+
+/// Whether a node is an acceptable generic-specialization argument type: it must contain no
+/// non-type nodes (`Global`, `Entity` or `Conformance`) at any depth.
+fn type_arg_allowed(n: &N) -> bool {
+    match n {
+        N::Global { .. } | N::Entity { .. } | N::Conformance { .. } => false,
+        N::Nominal { ctx, .. } => type_arg_allowed(ctx),
+        N::Extension { module, ty } => type_arg_allowed(module) && type_arg_allowed(ty),
+        N::Bound { base, args } => type_arg_allowed(base) && args.iter().all(type_arg_allowed),
+        N::Tuple(elems) => elems.iter().all(|(_, x)| type_arg_allowed(x)),
+        N::Func { params, result, attrs } => {
+            type_arg_allowed(params)
+                && type_arg_allowed(result)
+                && attrs.actor.as_ref().is_none_or(|a| type_arg_allowed(a))
+                && match &attrs.throws {
+                    Throws::Typed(e) => type_arg_allowed(e),
+                    _ => true,
+                }
+        }
+        N::FnMarker(FnMarker::Actor(x) | FnMarker::Thrown(x)) => type_arg_allowed(x),
+        N::Metatype(x) | N::ExistentialMetatype(x) | N::ReprMetatype(x) | N::Inout(x) | N::OpaqueDecl(x) => type_arg_allowed(x),
+        N::OpaqueRef { decl, .. } => type_arg_allowed(decl),
+        N::Attributed { inner, .. } => type_arg_allowed(inner),
+        N::ClassBound { class, protos } => type_arg_allowed(class) && protos.iter().all(type_arg_allowed),
+        N::Member { base, .. } => type_arg_allowed(base),
+        N::Existential(v) => v.iter().all(type_arg_allowed),
+        N::Generic { sig: _, ty } => type_arg_allowed(ty),
+        _ => true,
     }
 }
 
@@ -1610,7 +2028,7 @@ fn weight(n: &N, depth: usize) -> usize {
             w.saturating_add(attrs.actor.as_deref().into_iter().chain(typed_throws(&attrs.throws)).fold(0usize, |a, x| a.saturating_add(weight(x, d))))
         }
         N::FnMarker(FnMarker::Actor(x) | FnMarker::Thrown(x)) => weight(x, d),
-        N::Metatype(x) | N::ExistentialMetatype(x) | N::ReprMetatype(x) | N::Inout(x) | N::OpaqueDecl(x) => weight(x, d),
+        N::Metatype(x) | N::ExistentialMetatype(x) | N::ReprMetatype(x) | N::Inout(x) | N::Variadic(x) | N::OpaqueDecl(x) => weight(x, d),
         N::OpaqueRef { decl, .. } => weight(decl, d),
         N::Attributed { inner, .. } => weight(inner, d),
         N::ClassBound { class, protos } => protos.iter().fold(weight(class, d), |a, x| a.saturating_add(weight(x, d))),
@@ -1625,14 +2043,31 @@ fn weight(n: &N, depth: usize) -> usize {
     kids.saturating_add(1)
 }
 
-fn param_name(depth: u64, index: u64) -> String {
-    let letter = u8::try_from(index % 26).map(|i| char::from(b'A' + i)).unwrap_or('A');
-    let round = index / 26;
-    match (depth, round) {
-        (0, 0) => letter.to_string(),
-        (0, r) => format!("{letter}{r}"),
-        (d, _) => format!("{letter}{d}"),
+fn generic_param_letters(index: u64) -> String {
+    // Swift numbers generic parameters A..Z, then AB..ZB, AC..ZC, ... and so on,
+    // taking every previously named prefix and prefixing it with another letter.
+    // This is the same recurrence swift-demangle prints (checked against
+    // /Library/Developer/CommandLineTools/usr/bin/swift-demangle): index 26 is
+    // AB, index 676 is AAB, index 4966 is AJH. Dividing by 26 strictly reduces
+    // the index, so this always terminates, and every digit is 0..25, so the
+    // result contains only ASCII letters with no overflow.
+    if index < 26 {
+        char::from(b'A' + u8::try_from(index).unwrap_or(0)).to_string()
+    } else {
+        let mut out = String::new();
+        out.push(char::from(b'A' + u8::try_from(index % 26).unwrap_or(0)));
+        out.push_str(&generic_param_letters(index / 26));
+        out
     }
+}
+
+fn param_name(depth: u64, index: u64) -> String {
+    // Swift names the first 26 generic parameters of a depth with the single
+    // letters A..Z. Further parameters add letters according to
+    // `generic_param_letters`. A non-zero depth (a generic parameter of an
+    // inner declaration) keeps its numeric suffix after the letters, e.g. AB1.
+    let base = generic_param_letters(index);
+    if depth == 0 { base } else { format!("{base}{depth}") }
 }
 
 fn path(n: &N, depth: usize) -> String {
@@ -1642,7 +2077,9 @@ fn path(n: &N, depth: usize) -> String {
     match n {
         N::Module(m) | N::Ident(m) => m.clone(),
         N::Nominal { ctx, name, .. } => format!("{}.{name}", path(ctx, depth + 1)),
-        N::Extension { ty, .. } => path(ty, depth + 1),
+        // An extension is printed with its declaring module in parentheses before the extended
+        // type, as in `(extension in Foundation):Swift.String.Encoding`.
+        N::Extension { module, ty } => format!("(extension in {}):{}", path(module, depth + 1), path(ty, depth + 1)),
         other => render(other, depth + 1),
     }
 }
@@ -1673,7 +2110,7 @@ fn params_text(p: &N, labels: &[Option<String>], depth: usize) -> String {
 
 fn sig_text(sig: &N, max_param: u64) -> String {
     let N::Sig { reqs } = sig else { return String::new() };
-    let params: Vec<String> = (0..=max_param.min(25)).map(|i| param_name(0, i)).collect();
+    let params: Vec<String> = (0..=max_param.min(1023)).map(|i| param_name(0, i)).collect();
     if reqs.is_empty() { format!("<{}>", params.join(", ")) } else { format!("<{} where {}>", params.join(", "), reqs.join(", ")) }
 }
 
@@ -1693,7 +2130,7 @@ fn max_param(n: &N, depth: usize) -> u64 {
         N::FnMarker(FnMarker::Actor(x) | FnMarker::Thrown(x)) => max_param(x, depth + 1),
         N::Tuple(t) => t.iter().map(|(_, x)| max_param(x, depth + 1)).max().unwrap_or(0),
         N::Bound { base, args } => args.iter().map(|x| max_param(x, depth + 1)).max().unwrap_or(0).max(max_param(base, depth + 1)),
-        N::Metatype(x) | N::ExistentialMetatype(x) | N::ReprMetatype(x) | N::Inout(x) => max_param(x, depth + 1),
+        N::Metatype(x) | N::ExistentialMetatype(x) | N::ReprMetatype(x) | N::Inout(x) | N::Variadic(x) => max_param(x, depth + 1),
         N::Attributed { inner, .. } => max_param(inner, depth + 1),
         N::ClassBound { class, protos } => protos.iter().map(|x| max_param(x, depth + 1)).max().unwrap_or(0).max(max_param(class, depth + 1)),
         N::Member { base, .. } => max_param(base, depth + 1),
@@ -1808,6 +2245,7 @@ fn render(n: &N, depth: usize) -> String {
         N::Param(dp, i) => param_name(*dp, *i),
         N::Member { base, name } => format!("{}.{name}", render(base, d)),
         N::Inout(t) => format!("inout {}", render(t, d)),
+        N::Variadic(t) => format!("{}...", render(t, d)),
         N::Opaque => "some".into(),
         N::OpaqueDecl(decl) => format!("<<opaque return type of {}>>", render(decl, d)),
         N::OpaqueRef { decl, index } => format!("<<opaque return type of {}>>.{index}", render(decl, d)),
@@ -1835,6 +2273,8 @@ fn render(n: &N, depth: usize) -> String {
                 EKind::DeallocDeinit => format!("{c}.__deallocating_deinit"),
                 EKind::IvarDestroyer => format!("{c}.__ivar_destroyer"),
                 EKind::IvarInitializer => format!("{c}.__ivar_initializer"),
+                EKind::PropertyWrapperBackingInitializer => format!("property wrapper backing initializer of {c}"),
+                EKind::PropertyWrapperInitFromProjected => format!("property wrapper init from projected value of {c}"),
                 EKind::Var => {
                     let acc = accessor.filter(|a| !a.is_empty()).map(|a| format!(".{a}")).unwrap_or_default();
                     format!("{c}.{}{acc} : {}", name.clone().unwrap_or_default(), ty.as_ref().map(|t| render(t, d)).unwrap_or_default())
@@ -1968,6 +2408,14 @@ mod tests {
     }
 
     #[test]
+    fn generic_param_names_past_two_letters_stay_letters() {
+        // swift-demangle confirms: index 676 is AAB, index 4966 is AJH.
+        assert_eq!(param_name(0, 676), "AAB");
+        assert_eq!(param_name(0, 4966), "AJH");
+        assert!(param_name(0, 4966).chars().all(|c| c.is_ascii_alphabetic()));
+    }
+
+    #[test]
     fn common_symbols() {
         assert_eq!(dm("$s4main3fooyyF"), "main.foo() -> ()");
         assert_eq!(dm("_$s4main3fooyySiF"), "main.foo(Swift.Int) -> ()");
@@ -1992,7 +2440,7 @@ mod tests {
         assert_eq!(dm("$s4main3fooyyxSHRzlF"), "main.foo<A where A: Swift.Hashable>(A) -> ()");
         assert_eq!(dm("$s4main4loadSSyKF"), "main.load() throws -> Swift.String");
         assert_eq!(dm("$s4main4loadSSyYaKF"), "main.load() async throws -> Swift.String");
-        assert_eq!(dm("$sSi4mainE6doubleSiyF"), "Swift.Int.double() -> Swift.Int");
+        assert_eq!(dm("$sSi4mainE6doubleSiyF"), "(extension in main):Swift.Int.double() -> Swift.Int");
         assert_eq!(dm("$s4main6WidgetCAA8DelegateAAWP"), "protocol witness table for main.Widget : main.Delegate in main");
         assert_eq!(dm("$s4main5PointVMn"), "nominal type descriptor for main.Point");
         assert_eq!(dm("$s4main4ModeOMa"), "type metadata accessor for main.Mode");
@@ -2029,16 +2477,16 @@ mod tests {
         // Extensions: `AH` is `Range<String.Index>`, `AE` is `UIButton.Configuration`.
         assert_eq!(
             dm("_$sSo11NLTokenizerC15NaturalLanguageE6tokens3forSaySnySS5IndexVGGAH_tF"),
-            "__C.NLTokenizer.tokens(for: Swift.Range<Swift.String.Index>) -> [Swift.Range<Swift.String.Index>]"
+            "(extension in NaturalLanguage):__C.NLTokenizer.tokens(for: Swift.Range<Swift.String.Index>) -> [Swift.Range<Swift.String.Index>]"
         );
         assert_eq!(
             dm("_$sSo8UIButtonC5UIKitE13ConfigurationV13macIdiomStyleAE03MaceF0Ovs"),
-            "__C.UIButton.Configuration.macIdiomStyle.setter : __C.UIButton.Configuration.MacIdiomStyle"
+            "(extension in UIKit):__C.UIButton.Configuration.macIdiomStyle.setter : (extension in UIKit):__C.UIButton.Configuration.MacIdiomStyle"
         );
         // An extension and an `Sg` before `AN`: right only when both are counted the mangler's way.
         assert_eq!(
             dm("_$sSo8NLTaggerC15NaturalLanguageE4tags2in4unit6scheme7optionsSaySo5NLTagaSg_SnySS5IndexVGtGAN_So11NLTokenUnitVSo0I6SchemeaSo0A7OptionsVtF"),
-            "__C.NLTagger.tags(in: Swift.Range<Swift.String.Index>, unit: __C.NLTokenUnit, scheme: __C.NLTagScheme, options: __C.NLTaggerOptions) -> [(__C.NLTag?, Swift.Range<Swift.String.Index>)]"
+            "(extension in NaturalLanguage):__C.NLTagger.tags(in: Swift.Range<Swift.String.Index>, unit: __C.NLTokenUnit, scheme: __C.NLTagScheme, options: __C.NLTaggerOptions) -> [(__C.NLTag?, Swift.Range<Swift.String.Index>)]"
         );
     }
 

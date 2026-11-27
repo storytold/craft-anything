@@ -12,8 +12,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const VERSION: u32 = 1;
-/// Sweeps that try a record's delete before giving up on it (a host that's gone, a session the
-/// person deleted already).
+/// Sweeps that try a record's delete before giving up on a local record (or warning that an
+/// unreachable SSH host still holds the session while keeping its record).
 const TRIES: u32 = 3;
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -78,6 +78,14 @@ fn retire(file: &File, path: &Path) {
     let _ = std::fs::remove_file(path);
 }
 
+/// Rewrite a record in place without truncating to zero bytes first, so a crash or disk-full
+/// error cannot turn a live record into an empty retired sentinel.
+fn write_entry(file: &mut File, entry: &Entry) {
+    if let Ok(bytes) = serde_json::to_vec(entry) {
+        let _ = file.rewind().and_then(|_| file.write_all(&bytes)).and_then(|_| file.set_len(bytes.len() as u64));
+    }
+}
+
 /// Sweep the records in a config folder's logs, as the desktop app does when it starts (#1115):
 /// a turn that was killed mid-turn left its record, and the next agent turn may not come for a
 /// while. Returns what to tell the person, as [`sweep`] does.
@@ -87,7 +95,7 @@ pub fn sweep_at_startup(config_dir: &Path, adapters: &AgentAdapters) -> Vec<Stri
 }
 
 /// Delete the session of every record no running turn holds. Returns what to tell the person:
-/// a line per session deleted, or given up on.
+/// a line per session deleted, given up on, or still held by an unreachable SSH host.
 pub fn sweep(dir: &Path, adapters: &AgentAdapters) -> Vec<String> {
     let Ok(rd) = std::fs::read_dir(dir) else { return Vec::new() };
     let mut said = Vec::new();
@@ -121,22 +129,39 @@ fn sweep_one(path: &Path, mut file: File, adapters: &AgentAdapters) -> Option<St
     if !adapter.discards_sessions() {
         return None;
     }
-    let on = entry.host.as_ref().map(|h| format!(" on {h}")).unwrap_or_default();
-    match adapter.discard_unfinished(&entry.program, &entry.id, entry.host.as_deref()) {
+    let remote_host = entry.host.as_deref().map(str::trim).filter(|h| !h.is_empty());
+    let on = remote_host.map(|h| format!(" on {h}")).unwrap_or_default();
+    match adapter.discard_unfinished(&entry.program, &entry.id, remote_host) {
         Ok(()) => {
             retire(&file, path);
             Some(format!("Removed session {}{on}, left unfinished by a build Craft Anything didn't get to stop.", entry.id))
         }
         Err(e) => {
-            entry.tries += 1;
+            let prev_tries = entry.tries;
+            entry.tries = prev_tries.saturating_add(1);
+            let unreachable_remote =
+                remote_host.is_some() && matches!(e.code, craft_anything_evidence::ErrorCode::EngineMissing | craft_anything_evidence::ErrorCode::TimedOut);
+            if unreachable_remote {
+                if prev_tries < TRIES {
+                    write_entry(&mut file, &entry);
+                }
+                if entry.tries >= TRIES
+                    && let Some(host) = remote_host
+                {
+                    let fix = e.remediation.map(|r| format!(" {r}")).unwrap_or_default();
+                    return Some(format!(
+                        "{host} still holds unfinished session {} from an earlier build (couldn't reach it to remove: {}). Kept the record so the next sweep can try again.{fix}",
+                        entry.id, e.message
+                    ));
+                }
+                return None;
+            }
             if entry.tries >= TRIES {
                 retire(&file, path);
                 let fix = e.remediation.map(|r| format!(" {r}")).unwrap_or_default();
                 return Some(format!("Couldn't remove session {}{on}, left unfinished by an earlier build: {}.{fix}", entry.id, e.message));
             }
-            if let Ok(bytes) = serde_json::to_vec(&entry) {
-                let _ = file.set_len(0).and_then(|_| file.rewind()).and_then(|_| file.write_all(&bytes));
-            }
+            write_entry(&mut file, &entry);
             None
         }
     }
@@ -334,5 +359,147 @@ mod tests {
         drop(held);
         assert_eq!(sweep_one(&path, early, &a), None);
         assert!(asked.lock().unwrap_or_else(PoisonError::into_inner).is_empty(), "a removed record isn't acted on");
+    }
+
+    /// Adapter stub that fails with a configurable error code to test remote reachability vs
+    /// permanently invalid session ids.
+    struct CodedStub {
+        code: ErrorCode,
+        asked: Asked,
+    }
+
+    impl AgentAdapter for CodedStub {
+        /// Register the fixture without replacing any built-in agent.
+        fn ids(&self) -> &'static [&'static str] {
+            &["test-sweep"]
+        }
+
+        /// It stands in for an agent whose sessions are deleted.
+        fn discards_sessions(&self) -> bool {
+            true
+        }
+
+        /// Never run: the sweep only asks it to delete.
+        fn args(&self, _cx: &crate::cli_agents::adapters::ArgsCx) -> Vec<String> {
+            Vec::new()
+        }
+
+        /// Record the call and fail with the configured error code.
+        fn discard_unfinished(&self, program: &str, id: &str, host: Option<&str>) -> Result<(), ToolError> {
+            self.asked.lock().unwrap_or_else(PoisonError::into_inner).push((program.into(), id.into(), host.map(str::to_string)));
+            Err(ToolError::new(self.code, "host unreachable").with_remediation("Delete it on the host."))
+        }
+    }
+
+    /// Build an adapter registry with [`CodedStub`] returning `code`.
+    fn adapters_with_error(code: ErrorCode) -> (AgentAdapters, Asked) {
+        let asked = Arc::new(Mutex::new(Vec::new()));
+        let mut a = AgentAdapters::default();
+        a.register(Arc::new(CodedStub { code, asked: asked.clone() }));
+        (a, asked)
+    }
+
+    /// Guards that an unreachable SSH host (`EngineMissing` or `TimedOut`) keeps the session record
+    /// after `TRIES` failed sweeps, names the host and session, and retires the record once the
+    /// host becomes reachable again.
+    #[test]
+    fn an_unreachable_ssh_host_keeps_the_record_and_retires_when_reachable_again() {
+        for code in [ErrorCode::EngineMissing, ErrorCode::TimedOut] {
+            let d = tempfile::tempdir().unwrap();
+            let (failing, asked_fail) = adapters_with_error(code);
+            drop(Held::record(d.path(), &Entry::new("test-sweep", "agent-cli", Some(" studio-mac "), "ses_remote")).unwrap());
+
+            let mut said = Vec::new();
+            for _ in 0..100 {
+                said = sweep(d.path(), &failing);
+                if !said.is_empty() {
+                    break;
+                }
+                assert_eq!(records(d.path()), 1, "record stays while retrying");
+            }
+            let calls = asked_fail.lock().unwrap_or_else(PoisonError::into_inner).clone();
+            assert_eq!(calls.len(), TRIES as usize);
+            assert!(calls.iter().all(|(_, _, host)| host.as_deref() == Some("studio-mac")), "host must be trimmed consistently: {calls:?}");
+            assert_eq!(records(d.path()), 1, "SSH session record must not be dropped after TRIES failures ({code:?})");
+            assert_eq!(said.len(), 1, "{said:?}");
+            assert!(said[0].contains("studio-mac"), "expected host name in message: {}", said[0]);
+            assert!(said[0].contains("ses_remote"), "expected session id in message: {}", said[0]);
+            assert!(said[0].contains("host unreachable"), "expected error cause in message: {}", said[0]);
+            assert!(said[0].contains("Delete it on the host."), "expected remediation in message: {}", said[0]);
+
+            // A fourth unreachable sweep still keeps the record and reports the host holding it.
+            let mut fourth = Vec::new();
+            for _ in 0..100 {
+                fourth = sweep(d.path(), &failing);
+                if !fourth.is_empty() {
+                    break;
+                }
+            }
+            assert_eq!(asked_fail.lock().unwrap_or_else(PoisonError::into_inner).len(), (TRIES + 1) as usize);
+            assert_eq!(records(d.path()), 1, "SSH session record must stay on disk on subsequent unreachable sweeps");
+            assert_eq!(fourth.len(), 1, "{fourth:?}");
+            assert!(fourth[0].contains("studio-mac") && fourth[0].contains("ses_remote"), "{fourth:?}");
+
+            // Once the SSH host comes back, the next sweep deletes the session and retires the record.
+            let (working, asked_ok) = adapters(false);
+            let mut recovered = Vec::new();
+            for _ in 0..100 {
+                recovered = sweep(d.path(), &working);
+                if !recovered.is_empty() {
+                    break;
+                }
+            }
+            assert_eq!(*asked_ok.lock().unwrap_or_else(PoisonError::into_inner), [("agent-cli".into(), "ses_remote".into(), Some("studio-mac".into()))]);
+            assert_eq!(recovered.len(), 1, "{recovered:?}");
+            assert!(recovered[0].contains("Removed session ses_remote on studio-mac"), "{recovered:?}");
+            assert_eq!(records(d.path()), 0, "record is retired once the remote delete succeeds");
+        }
+    }
+
+    /// Guards that non-reachability failures on a reachable SSH host (`ProgramFailed` and
+    /// `BadInput`), as well as blank host values, still retire after `TRIES` failures, and that
+    /// `tries == u32::MAX` saturates without overflowing.
+    #[test]
+    fn non_reachability_failures_and_blank_hosts_retire_while_max_tries_saturates() {
+        for (code, host, id) in [
+            (ErrorCode::ProgramFailed, Some("studio-mac"), "ses_remote_err"),
+            (ErrorCode::BadInput, Some("studio-mac"), "--bad"),
+            (ErrorCode::EngineMissing, Some("   "), "ses_blank_host"),
+        ] {
+            let d = tempfile::tempdir().unwrap();
+            let (failing, asked) = adapters_with_error(code);
+            drop(Held::record(d.path(), &Entry::new("test-sweep", "agent-cli", host, id)).unwrap());
+
+            let mut said = Vec::new();
+            for _ in 0..100 {
+                said = sweep(d.path(), &failing);
+                if !said.is_empty() {
+                    break;
+                }
+            }
+            let calls = asked.lock().unwrap_or_else(PoisonError::into_inner).clone();
+            assert_eq!(calls.len(), TRIES as usize, "{code:?} / {host:?}");
+            if host == Some("   ") {
+                assert!(calls.iter().all(|(_, _, h)| h.is_none()), "blank host must normalize to None: {calls:?}");
+            }
+            assert_eq!(records(d.path()), 0, "{code:?} / {host:?} should retire after TRIES");
+            assert!(said.len() == 1 && said[0].contains(id), "{said:?}");
+        }
+
+        // A retained SSH record already at u32::MAX tries must saturate without overflowing.
+        let d = tempfile::tempdir().unwrap();
+        let (failing, _) = adapters_with_error(ErrorCode::EngineMissing);
+        let mut saturated = Entry::new("test-sweep", "agent-cli", Some("studio-mac"), "ses_max");
+        saturated.tries = u32::MAX;
+        drop(Held::record(d.path(), &saturated).unwrap());
+        let mut said = Vec::new();
+        for _ in 0..100 {
+            said = sweep(d.path(), &failing);
+            if !said.is_empty() {
+                break;
+            }
+        }
+        assert_eq!(records(d.path()), 1, "saturated unreachable SSH record stays on disk");
+        assert!(said.len() == 1 && said[0].contains("studio-mac") && said[0].contains("ses_max"), "{said:?}");
     }
 }

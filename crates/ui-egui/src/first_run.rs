@@ -1,7 +1,7 @@
 //! First run: Welcome → Who builds (and answers) → Purpose → Done. Four short screens, all
 //! skippable. Making something needs a builder, so that's what the AI step sets up first.
 
-use crate::i18n::tr;
+use crate::i18n::{tr, trf};
 use crate::state::FirstRunStep;
 use crate::theme::{self, Tokens};
 use crate::{CraftApp, icons, widgets};
@@ -119,7 +119,10 @@ fn brain(app: &mut CraftApp, ui: &mut Ui, width: f32) {
         }
     }
     ui.add_space(theme::space::MD);
-    let detected: Vec<Detected> = app.detected.clone().unwrap_or_default();
+    // A host from ~/.ssh/config isn't an AI on this computer; it is added in Settings → AI, where
+    // its remote command can be given and checked.
+    let detected: Vec<Detected> =
+        app.detected.clone().unwrap_or_default().into_iter().filter(|d| d.suggestion.ssh_host.as_deref().is_none_or(|h| h.trim().is_empty())).collect();
     let tab = crate::detect_tabs::bar(ui, &mut app.state.detect_tab, &detected);
     let list_h = (ui.ctx().content_rect().height() - 330.0).clamp(220.0, 520.0);
     egui::ScrollArea::vertical().max_height(list_h).show(ui, |ui| {
@@ -218,20 +221,21 @@ fn brain_card(app: &mut CraftApp, ui: &mut Ui, d: &Detected) {
                 }
             });
         });
-        // A subscription key is worth pasting even when the environment already has one, so a
-        // different key can be used without restarting the app.
-        let pastable = d.needs_key || d.suggestion.base_url.as_deref().is_some_and(craft_anything_ai::openai::is_opencode_go);
-        if pastable && !configured {
+        // Hosted API providers accept a pasted key even when the environment already has one, so a
+        // different key can be stored without editing environment variables (#1358).
+        if crate::detect_tabs::can_paste_key(d) && !configured {
             ui.add_space(theme::space::SM);
             ui.horizontal(|ui| {
                 let key = app.key_inputs.entry(name.clone()).or_default();
-                ui.add(
+                let r = ui.add(
                     egui::TextEdit::singleline(key)
+                        .id_salt(("first-run-detected-key", &name))
                         .password(true)
                         .hint_text(tr("Paste your API key (kept in your system keychain)"))
                         .desired_width(ui.available_width() - 140.0)
                         .frame(widgets::text_field_frame(&t)),
                 );
+                widgets::named(r, &trf("{name} key", &[("name", &name)]));
                 let key = key.trim().to_string();
                 if widgets::primary_icon(ui, None, "Connect", !key.is_empty()).clicked() && !key.is_empty() {
                     // The key goes to the keychain; the app keeps no copy of it.

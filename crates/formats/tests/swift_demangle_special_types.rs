@@ -23,7 +23,10 @@ fn a_non_escaping_function_type_decodes() {
 #[test]
 fn a_function_type_keeps_its_throws_and_async() {
     assert_eq!(dm("_$sSr15_stableSortImpl2byySbx_xtKXE_tKF"), "Swift.UnsafeMutableBufferPointer._stableSortImpl(by: (A, A) throws -> Swift.Bool) throws -> ()");
-    assert_eq!(dm("_$sSD7SWBUtilE11getOrInsertyq_x_q_yYaKXEtYaKF"), "Swift.Dictionary.getOrInsert(A, () async throws -> B) async throws -> B");
+    assert_eq!(
+        dm("_$sSD7SWBUtilE11getOrInsertyq_x_q_yYaKXEtYaKF"),
+        "(extension in SWBUtil):Swift.Dictionary.getOrInsert(A, () async throws -> B) async throws -> B"
+    );
     assert_eq!(dm("$s1a1vSaySiSbYaXEGvp"), "a.v : [(Swift.Bool) async -> Swift.Int]");
 }
 

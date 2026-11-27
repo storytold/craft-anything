@@ -164,7 +164,8 @@ Anthropic. See [docs/claude-code.md](docs/claude-code.md) for how and why. A Cod
 exists but hasn't been verified on a real install yet. **GitHub Copilot** can use your installed
 Copilot CLI through ACP: sign in separately with `copilot login`. **Grok Build** can use your
 installed `grok` program through ACP (`grok agent stdio`): sign in separately with `grok login`.
-See [docs/grok.md](docs/grok.md). Other agents that speak ACP (Gemini CLI,
+See [docs/grok.md](docs/grok.md). **Kimi Code CLI** can use your installed `kimi` program through
+ACP (`kimi acp`): sign in separately with `kimi login`; it hasn't been run live yet. Other agents that speak ACP (Gemini CLI,
 Qwen Code, opencode, goose, Hermes, Maki, Devin) can be switched to it per backend; of those, Maki
 and Devin have been run live (Devin authenticates with the backend's stored key — its own CLI
 sign-in doesn't count over ACP). Anthropic, OpenAI, OpenRouter, xAI (Grok, when `XAI_API_KEY` is
@@ -278,7 +279,6 @@ On GitHub, the [latest release](https://github.com/storytold/craft-anything/rele
 |---|---|---|
 | x64 (64-bit Intel/AMD) | `craft-anything-<ver>-windows-x64.msi` | `craft-anything-<ver>-windows-x64-portable.zip` |
 | arm64 (Snapdragon and other ARM PCs) | `craft-anything-<ver>-windows-arm64.msi` | `craft-anything-<ver>-windows-arm64-portable.zip` |
-| x86 (32-bit) | `craft-anything-<ver>-windows-x86.msi` | `craft-anything-<ver>-windows-x86-portable.zip` |
 
 Installers and executables are code-signed. The portable zip keeps its settings next to the app.
 
@@ -344,7 +344,7 @@ run the file; report it with the output and the release tag.
 | Fedora/RHEL/openSUSE | `craft-anything-<ver>-linux-x86_64.rpm` | `craft-anything-<ver>-linux-aarch64.rpm` | |
 | Tarball | `craft-anything-<ver>-linux-x86_64.tar.gz` | `craft-anything-<ver>-linux-aarch64.tar.gz` | Unpack anywhere |
 
-RISC-V (riscv64): `craft-anything-<ver>-linux-riscv64.tar.gz`, a tarball only.
+RISC-V (riscv64) builds are available as `craft-anything-<ver>-linux-riscv64.tar.gz`, `craft-anything-<ver>-linux-riscv64.deb`, and `craft-anything-<ver>-linux-riscv64.rpm`.
 
 The AppImage carries the CLI too: run `<AppImage> --cli <command>` (for example
 `<AppImage> --cli mcp` for an MCP client), or make a link to the AppImage named
@@ -355,6 +355,7 @@ The AppImage carries the CLI too: run `<AppImage> --cli <command>` (for example
 | Build | File |
 |---|---|
 | x86_64 | `craft-anything-<ver>-freebsd-x86_64.tar.gz` |
+| aarch64 (ARM64) | `craft-anything-<ver>-freebsd-aarch64.tar.gz` |
 
 ### Web (WebAssembly)
 

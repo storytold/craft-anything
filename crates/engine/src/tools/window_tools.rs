@@ -21,6 +21,8 @@ const MAX_INLINE: usize = 8 * 1024 * 1024;
 const LATE_WINDOW: Duration = Duration::from_secs(10);
 /// Pause between those looks.
 const LOOK_AGAIN: Duration = Duration::from_millis(250);
+/// How long the program gets to quit when asked before it's killed.
+const CLOSE_GRACE: Duration = Duration::from_secs(3);
 /// Most UI elements saved to `ui_tree`.
 const UI_TREE_NODES: usize = 1000;
 
@@ -28,7 +30,7 @@ pub fn specs() -> Vec<ToolSpec> {
     vec![ToolSpec {
         id: "native_window_capture",
         title: "Picture a program's window",
-        summary: "Start a program (an app or a game), wait for its window, take a picture of it and close the program (Windows and macOS). Optionally save the PNG to `output`, and the UI tree of its windows (as runtime_ui_read reads it; Windows and macOS) to `ui_tree` as JSON. It runs the program, so it needs consent.",
+        summary: "Start a program (an app or a game), wait for its window, take a picture of it and close the program (Windows, macOS, and Linux with an X display). Optionally save the PNG to `output`, and the UI tree of its windows (as runtime_ui_read reads it; Windows and macOS) to `ui_tree` as JSON. It runs the program, so it needs consent.",
         beginner: "Opens a program for a few seconds and takes a picture of its window.",
         toolset: Toolset::Runtime,
         effects: Effects::LAUNCHES_PROCESS.union(Effects::EXECUTES_FOREIGN_CODE).union(Effects::WRITES_FILESYSTEM).union(Effects::MUTATES_SESSION),
@@ -131,8 +133,12 @@ fn native_window_capture(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput,
     // Read while it still runs; a tree that can't be read is only left out.
     let tree = shot.as_ref().ok().and_then(|(pid, _)| p.ui_tree.as_ref().map(|_| super::apple_runtime::ui_tree(ctx, *pid, UI_TREE_NODES)));
     // Always closed again, picture or not, and confirmed before we return (a caller such as the
-    // CLI may exit right after, before a background kill would happen).
-    if !running.kill_and_wait(Duration::from_secs(10)) {
+    // CLI may exit right after, before a background kill would happen). Asked first, so it can
+    // stop helpers that aren't in its process group and let go of its files. The window's owner
+    // is asked: a launcher's child found among its descendants, or the program itself (never a
+    // same-named program found outside them, which isn't ours).
+    let owner = shot.as_ref().ok().map(|(pid, _)| *pid);
+    if !running.close_and_wait(owner, CLOSE_GRACE, Duration::from_secs(10)) {
         log::warn!("{} may still be running", p.program.display());
     }
     let (_, shot) = shot?;
@@ -208,10 +214,35 @@ mod tests {
                 "checked before anything starts"
             );
         }
-        // Where windows can't be pictured, nothing is started.
-        if !craft_anything_platform::window::SUPPORTED {
+        // Where windows can't be pictured (no X display on Linux, say), nothing is started.
+        let refused = if craft_anything_platform::window::SUPPORTED {
+            craft_anything_platform::window::check_can_see_windows().err().map(|e| e.code)
+        } else {
+            Some(ErrorCode::FeatureMissing)
+        };
+        if let Some(code) = refused {
             let err = e.call("native_window_capture", json!({"program": exe}), CallOptions::new(Caller::Mcp).with_consent(Consent::Granted)).unwrap_err();
-            assert_eq!(err.code, ErrorCode::FeatureMissing);
+            assert_eq!(err.code, code);
         }
+    }
+
+    /// A window the probe opens itself (osascript's own NSWindow), pictured as a launched program's.
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "needs a desktop session and Screen Recording permission"]
+    fn a_started_programs_window_is_pictured() {
+        let script = r#"ObjC.import("Cocoa");
+var app = $.NSApplication.sharedApplication;
+app.setActivationPolicy($.NSApplicationActivationPolicyRegular);
+var w = $.NSWindow.alloc.initWithContentRectStyleMaskBackingDefer($.NSMakeRect(200, 200, 400, 300), $.NSWindowStyleMaskTitled, $.NSBackingStoreBuffered, false);
+w.title = "Craft window probe";
+w.makeKeyAndOrderFront(null);
+app.activateIgnoringOtherApps(true);
+$.NSRunLoop.currentRunLoop.runUntilDate($.NSDate.dateWithTimeIntervalSinceNow(60));"#;
+        let e = Engine::new(crate::testing::session());
+        let params = json!({"program": "/usr/bin/osascript", "args": ["-l", "JavaScript", "-e", script], "wait_secs": 3});
+        let shot = e.call("native_window_capture", params, CallOptions::new(Caller::Mcp).with_consent(Consent::Granted)).unwrap().to_json()["result"].clone();
+        assert!(shot["title"].as_str().is_some_and(|t| t.contains("probe")), "{shot}");
+        assert!(shot["width"].as_u64().is_some_and(|w| w >= 400), "at least the window's own width: {shot}");
     }
 }
