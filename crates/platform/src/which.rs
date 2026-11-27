@@ -15,12 +15,14 @@ pub fn which_all(name: &str) -> Vec<PathBuf> {
 
 /// Folders, under the home folder and then system-wide, where coding agents, npm, Homebrew and
 /// other installers put command-line programs. OpenCode's installer uses `~/.opencode/bin`, or
-/// `~/bin` when there is one (#112). Grok Build's installer uses `~/.grok/bin`.
+/// `~/bin` when there is one (#112). Grok Build's installer uses `~/.grok/bin`. Homebrew's rustup
+/// is keg-only: only `rustup` is linked into `/opt/homebrew/bin`, and its `cargo`/`rustc` proxies
+/// stay in the keg's own bin folder, where `rustup default` puts no `~/.cargo/bin` either (#2252).
 #[cfg(unix)]
 const USUAL_HOME_DIRS: &[&str] =
     &[".local/bin", ".claude/local", ".npm-global/bin", ".bun/bin", ".volta/bin", ".cargo/bin", ".opencode/bin", ".grok/bin", "bin"];
 #[cfg(unix)]
-const USUAL_DIRS: &[&str] = &["/opt/homebrew/bin", "/usr/local/bin"];
+const USUAL_DIRS: &[&str] = &["/opt/homebrew/bin", "/usr/local/bin", "/opt/homebrew/opt/rustup/bin", "/usr/local/opt/rustup/bin"];
 // Claude Code's installer, npm (without a custom prefix), WinGet's portable packages (Claude
 // Code's WinGet install), bun, cargo, Hermes Agent's installer (`%LOCALAPPDATA%\hermes\bin`, #116),
 // Grok Build (`%USERPROFILE%\.grok\bin`) and the DeepSeek Harness desktop app, whose `dsh.cmd` is
@@ -585,6 +587,9 @@ mod tests {
         let npm = usize::from(npm_global_bin(&home).is_some());
         assert_eq!(dirs.len(), 1 + USUAL_HOME_DIRS.len() + USUAL_DIRS.len() + npm, "nothing twice");
         assert!(dirs.contains(&PathBuf::from("/opt/homebrew/bin")));
+        // #2252: rustup's keg bin folder too, so a short PATH still finds it.
+        assert!(dirs.contains(&PathBuf::from("/opt/homebrew/opt/rustup/bin")));
+        assert!(dirs.contains(&PathBuf::from("/usr/local/opt/rustup/bin")));
         // No PATH and no home folder: the system-wide folders still.
         assert_eq!(with_usual_dirs(None, None, None), std::env::join_paths(USUAL_DIRS).ok());
     }
