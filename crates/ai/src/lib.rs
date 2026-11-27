@@ -168,9 +168,22 @@ impl BackendKind {
             BackendKind::Openrouter => openai::OPENROUTER_MODELS,
             BackendKind::Gemini => openai::GEMINI_MODELS,
             BackendKind::OpenaiCompatible => &[],
-            BackendKind::AgentCli => {
-                &["claude-code", "codex", "copilot", "grok", "gemini-cli", "opencode", "antigravity", "hermes", "maki", "aider", "dsh", "devin", "kimi-code"]
-            }
+            BackendKind::AgentCli => &[
+                "claude-code",
+                "codex",
+                "copilot",
+                "grok",
+                "gemini-cli",
+                "opencode",
+                "antigravity",
+                "hermes",
+                "maki",
+                "aider",
+                "dsh",
+                "devin",
+                "kimi-code",
+                "zcode",
+            ],
         }
     }
 
@@ -1460,9 +1473,11 @@ impl AiHub {
         let start = Instant::now();
         if e.config.kind == BackendKind::AgentCli {
             let program = cli_agents::program_of(&e.config, &e.options)?;
+            // Started as a run starts it, so an agent inside a desktop app (ZCode) runs headless.
+            let probe = cli_agents::AgentAdapters::built_in().for_backend(&e.config.model, &e.options);
             let p = match e.config.ssh_host.as_deref().filter(|h| !h.trim().is_empty()) {
                 Some(h) => craft_anything_platform::Process::new("ssh").args(ssh::ssh_args(h, &[program.clone(), "--version".into()])),
-                None => craft_anything_platform::Process::new(&program).arg("--version"),
+                None => probe.process(&program).args(probe.version_args()),
             };
             let out = p.timeout(Duration::from_secs(15)).run_checked()?;
             let mut reply = out.stdout_text().lines().next().unwrap_or_default().trim().to_string();

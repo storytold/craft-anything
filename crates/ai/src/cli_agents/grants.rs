@@ -97,6 +97,18 @@ const DECLARED: &[Declared] = &[
         approvals: Given::NotYet("its headless profile asks nothing of the host, and no run has checked whether an approval request reaches us"),
         mid_turn_notes: Given::No,
     },
+    // `zcode.cjs -p` (#1781). ZCode reads servers from `~/.zcode/cli/config.json`, where Setup can
+    // register ours, but a run hands it nothing for this build's project, and nothing in `-p`
+    // asks anyone: its `--mode` decides alone.
+    Declared {
+        id: "zcode",
+        path: Path::Argv,
+        tool_server: Given::NotYet(
+            "a run names no server of its own; ZCode's saved config (~/.zcode/cli/config.json) may hold ours from Setup, but no headless run has confirmed it reads it, and it wouldn't be this build's project",
+        ),
+        approvals: Given::NotYet("`-p` can't ask anyone; `--mode build` decides what it does, and no run has checked what that mode refuses"),
+        mid_turn_notes: Given::No,
+    },
     // Any other CLI: the prompt as its last argument, its output streamed as text.
     Declared {
         id: "plain",

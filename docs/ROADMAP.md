@@ -1613,6 +1613,16 @@ Owner: open · Status: in progress
       — claimed: gtxy27, branch `bugfix/r2.2-dsh-stdin`
 - [ ] DeepSeek Harness: no resume (its headless profile keeps no session), and a build on the harness's
       desktop profile is untried
+- [x] #1781: ZCode as a coding agent: its desktop app runs `resources/glm/zcode.cjs` headless with
+      `ELECTRON_RUN_AS_NODE=1` (`-p`, `--mode build|plan`), found under `%LOCALAPPDATA%\Programs\ZCode`
+      only with that script, its output read as text, an over-long message refused before it starts,
+      and "Select a model" turned into the fix. Stand-in tests only
+      - claimed: ilijachrchev, branch `feature/1781-zcode-agent`
+- [ ] ZCode: run the real app on Windows (detection, a chat, a build); read a sample of `--json`
+      events and parse them; take the message on stdin or from a file if ZCode adds a way (a build's
+      brief is usually longer than its command line holds); pass a model once it has a `--model`
+      flag or variable; hand it our tool server per run and resume with `--resume`, both once a run
+      shows how; find where the app lives on macOS and Linux
 - [x] Apply repeated client selections and aliases once, preserving their first selection order.
       — claimed: Plastic-time, branch rrfz/bugfix-r2.2-deduplicate-clients
 - [ ] `setup` writes the plain `mcp` command, so it drops an `--all-tools` an entry already has, and
