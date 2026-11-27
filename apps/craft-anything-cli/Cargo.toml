@@ -29,6 +29,9 @@ wasm-plugins = ["craft-anything-engine/wasm-plugins"]
 
 [dev-dependencies]
 tempfile = "3"
+# The man-and-completions example (RFC-0018 rule 1.9): not part of the binary.
+clap_complete = "4"
+clap_mangen = "0.2"
 
 [build-dependencies]
 # The DPI-aware manifest for craft-anything-cli.exe; build.rs only uses it when targeting Windows.

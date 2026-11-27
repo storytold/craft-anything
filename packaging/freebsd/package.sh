@@ -4,7 +4,8 @@
 #   $DIST/craft-anything-<version>-freebsd-x86_64.tar.gz   a /usr/local-style tree:
 #       craft-anything-<version>-freebsd-x86_64/{bin, share/applications, share/icons,
 #       share/metainfo, share/doc/craft-anything}
-#   bin/ holds craft-anything, plus craft-anything-cli once apps/craft-anything-cli exists.
+#   bin/ holds craft-anything, plus craft-anything-cli once apps/craft-anything-cli exists, which also
+#   brings share/man/man1 and the bash, zsh and fish completions.
 #
 # Install by copying the tree's contents into /usr/local:
 #   tar -xzf craft-anything-<version>-freebsd-x86_64.tar.gz --strip-components 1 -C /usr/local
@@ -66,6 +67,9 @@ echo "==> Craft Anything $VERSION for FreeBSD $ARCH"
 export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-4}"
 if [[ "$SKIP_BUILD" = 0 ]]; then
   (cd "$ROOT" && cargo build --release --locked "${CARGO_PKGS[@]}")
+  if [[ "$HAS_CLI" = 1 ]]; then
+    (cd "$ROOT" && cargo build --release --locked -p craft-anything-cli --example man-and-completions)
+  fi
 fi
 WORK="$CARGO_TARGET_DIR/freebsd-package"
 STAGE="$WORK/$BASENAME"
@@ -94,6 +98,26 @@ for b in "${BINS[@]}"; do
   install -m 755 "$BIN/$b" "$STAGE/bin/"
   strip "$STAGE/bin/$b" 2>/dev/null || true
 done
+# craft-anything-cli's man pages and bash, zsh and fish completions (RFC-0018 rule 1.9), written from
+# its clap definition by the man-and-completions example (built apart from the binaries, so its
+# dev-dependencies' features don't reach them; a dry run uses stub files).
+if [[ "$HAS_CLI" = 1 ]]; then
+  CLI_DOCS="$WORK/cli-docs"
+  mkdir -p "$CLI_DOCS"
+  if [[ "$DRY_RUN" = 1 ]]; then
+    for f in craft-anything-cli.1 craft-anything-cli.bash _craft-anything-cli craft-anything-cli.fish; do : >"$CLI_DOCS/$f"; done
+  else
+    GENERATOR="$CARGO_TARGET_DIR/release/examples/man-and-completions"
+    if [[ ! -x "$GENERATOR" ]]; then echo "error: $GENERATOR is not built (cargo build --release -p craft-anything-cli --example man-and-completions)" >&2; exit 1; fi
+    "$GENERATOR" "$CLI_DOCS"
+  fi
+  mkdir -p "$STAGE/share/man/man1" "$STAGE/share/bash-completion/completions" \
+    "$STAGE/share/zsh/site-functions" "$STAGE/share/fish/vendor_completions.d"
+  for page in "$CLI_DOCS"/*.1; do install -m 644 "$page" "$STAGE/share/man/man1/"; done
+  install -m 644 "$CLI_DOCS/craft-anything-cli.bash" "$STAGE/share/bash-completion/completions/craft-anything-cli"
+  install -m 644 "$CLI_DOCS/_craft-anything-cli" "$STAGE/share/zsh/site-functions/_craft-anything-cli"
+  install -m 644 "$CLI_DOCS/craft-anything-cli.fish" "$STAGE/share/fish/vendor_completions.d/craft-anything-cli.fish"
+fi
 # The desktop entry, metainfo and icons are the freedesktop files Linux ships.
 install -m 644 "$LINUX/$APP_ID.desktop" "$STAGE/share/applications/$APP_ID.desktop"
 sed -e "s/@VERSION@/$VERSION/g" -e "s/@DATE@/$CRAFT_ANYTHING_BUILD_DATE/g" \

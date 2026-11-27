@@ -135,3 +135,66 @@ fn a_tool_prints_its_version() {
         assert!(text(&r.stdout).contains(env!("CARGO_PKG_VERSION")), "{}", text(&r.stdout));
     }
 }
+
+// Man pages and completions: the example itself, so the test writes the files exactly as the packages get them.
+#[allow(dead_code)]
+#[path = "../../examples/man-and-completions.rs"]
+mod example;
+
+#[test]
+fn the_command_is_consistent_and_every_shell_gets_completions() {
+    use clap::ValueEnum;
+    craft_anything_cli::command().debug_assert();
+    for &shell in clap_complete::Shell::value_variants() {
+        let mut out = Vec::new();
+        clap_complete::generate(shell, &mut craft_anything_cli::command(), "craft-anything-cli", &mut out);
+        assert!(!out.is_empty(), "{shell}");
+    }
+}
+
+/// The example writes the five completion files under the names the packages install, a page for
+/// the command and a page per subcommand, and none for the `help` subcommand.
+#[test]
+fn the_example_writes_the_files_the_packages_install() {
+    let dir = tempfile::tempdir().unwrap();
+    example::generate(dir.path()).unwrap();
+    let mut written: Vec<String> = std::fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
+    written.sort();
+    for completion in ["craft-anything-cli.bash", "_craft-anything-cli", "craft-anything-cli.fish", "craft-anything-cli.elv", "_craft-anything-cli.ps1"] {
+        assert!(written.iter().any(|w| w == completion), "{completion} in {written:?}");
+    }
+    let pages: Vec<&String> = written.iter().filter(|w| w.ends_with(".1")).collect();
+    assert!(!pages.iter().any(|p| p.contains("-help")), "{pages:?}");
+    for sub in craft_anything_cli::command().get_subcommands().filter(|s| s.get_name() != "help" && !s.is_hide_set()) {
+        let page = format!("craft-anything-cli-{}.1", sub.get_name());
+        assert!(written.contains(&page), "{page} in {written:?}");
+    }
+    assert!(written.iter().any(|w| w == "craft-anything-cli.1"));
+}
+
+/// The FreeBSD package (staged from stubs in a dry run) installs the bash, zsh and fish
+/// completions and the man pages.
+#[cfg(unix)]
+#[test]
+fn the_freebsd_package_installs_completions_and_man_pages() {
+    let work = tempfile::tempdir().unwrap();
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packaging/freebsd/package.sh");
+    let out = Command::new("bash")
+        .arg(&script)
+        .arg("--dry-run")
+        .env("DIST", work.path().join("dist"))
+        .env("CARGO_TARGET_DIR", work.path().join("target"))
+        .env_remove("CARGO_BUILD_TARGET")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}{}", text(&out.stdout), text(&out.stderr));
+    let listing = text(&out.stdout);
+    for path in [
+        "share/bash-completion/completions/craft-anything-cli",
+        "share/zsh/site-functions/_craft-anything-cli",
+        "share/fish/vendor_completions.d/craft-anything-cli.fish",
+        "share/man/man1/craft-anything-cli.1",
+    ] {
+        assert!(listing.contains(path), "{path} missing from the package:\n{listing}");
+    }
+}

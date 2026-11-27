@@ -50,8 +50,16 @@ echo "==> Craft Anything $VERSION for Linux $ARCH ($FORMATS; ${BINS[*]})"
 
 if [[ "$SKIP_BUILD" = 0 ]]; then
   (cd "$ROOT" && cargo build --release --locked "${CARGO_PKGS[@]}" ${CROSS_TARGET:+--target "$CROSS_TARGET"})
+  # The man-and-completions example writes craft-anything-cli's man pages and shell completions below.
+  # It is built in its own cargo run: built with the binaries, its dev-dependencies' features would be
+  # unified into them. A cross build cannot run it, so it is built for the host.
+  if [[ "$HAS_CLI" = 1 ]]; then
+    (cd "$ROOT" && cargo build --release --locked -p craft-anything-cli --example man-and-completions)
+  fi
 fi
 BIN="$CARGO_TARGET_DIR/${CROSS_TARGET:+$CROSS_TARGET/}release"
+# Host-built: the example is run here, so a cross build finds it in the host's release directory.
+HOST_BIN="$CARGO_TARGET_DIR/release"
 WORK="$CARGO_TARGET_DIR/linux-package"
 STAGE="$WORK/root"
 rm -rf "$WORK"
@@ -61,6 +69,21 @@ for bin in "${BINS[@]}"; do
   install -Dm755 "$BIN/$bin" "$STAGE/usr/bin/$bin"
   "${CROSS_COMPILE:-}strip" "$STAGE/usr/bin/$bin" 2>/dev/null || true
 done
+# craft-anything-cli's man pages and shell completions (RFC-0018 rule 1.9), from its clap definition, written
+# by the example built above (a --skip-build run needs it built too). zsh reads site-functions on Fedora
+# and openSUSE; the deb also links the completion into Debian's vendor-completions (nfpm.yaml).
+if [[ "$HAS_CLI" = 1 ]]; then
+  CLI_DOCS="$HOST_BIN/examples/man-and-completions"
+  if [[ ! -x "$CLI_DOCS" ]]; then
+    echo "error: $CLI_DOCS is not built (cargo build --release -p craft-anything-cli --example man-and-completions)" >&2
+    exit 1
+  fi
+  "$CLI_DOCS" "$WORK/cli-docs"
+  install -Dm644 -t "$STAGE/usr/share/man/man1" "$WORK"/cli-docs/*.1
+  install -Dm644 "$WORK/cli-docs/craft-anything-cli.bash" "$STAGE/usr/share/bash-completion/completions/craft-anything-cli"
+  install -Dm644 "$WORK/cli-docs/_craft-anything-cli" "$STAGE/usr/share/zsh/site-functions/_craft-anything-cli"
+  install -Dm644 "$WORK/cli-docs/craft-anything-cli.fish" "$STAGE/usr/share/fish/vendor_completions.d/craft-anything-cli.fish"
+fi
 install -Dm644 "$HERE/$APP_ID.desktop" "$STAGE/usr/share/applications/$APP_ID.desktop"
 mkdir -p "$STAGE/usr/share/metainfo"
 sed -e "s/@VERSION@/$VERSION/g" -e "s/@DATE@/$CRAFT_ANYTHING_BUILD_DATE/g" \
