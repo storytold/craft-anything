@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 /// An analysis of `bytes` for `project` that waits for another process's lock, so it runs until
 /// it's stopped.
 fn waiting_analysis(d: &Path, project: &Path, bytes: &'static [u8]) -> std::thread::JoinHandle<Result<(), String>> {
-    let launcher = d.join("analyzeHeadless");
+    let launcher = d.join(if cfg!(windows) { "analyzeHeadless.bat" } else { "analyzeHeadless" });
     std::fs::write(&launcher, "").unwrap();
     let store = d.join("store");
     let mut settings = craft_anything_engine::testing::session().settings.clone();

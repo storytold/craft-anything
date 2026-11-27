@@ -5159,7 +5159,7 @@ fn a_sign_in_that_stopped_working_is_called_that() {
 /// (a fresh lock beside its saved analysis), so the analysis waits until `limit_secs`.
 fn waiting_for_another_analysis(d: &Path, limit_secs: u64) -> (Worker, std::sync::mpsc::Receiver<RunEvent>, Workspace, PathBuf) {
     let ws = Workspace::create(d, "Game", "Copy this game", TargetRef::None).unwrap();
-    let launcher = d.join("analyzeHeadless");
+    let launcher = d.join(if cfg!(windows) { "analyzeHeadless.bat" } else { "analyzeHeadless" });
     std::fs::write(&launcher, "").unwrap();
     let program = d.join("game.bin");
     std::fs::write(&program, b"not really a program").unwrap();

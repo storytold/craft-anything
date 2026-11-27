@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 #[test]
 fn closing_stops_an_analysis() {
     let d = tempfile::Builder::new().prefix("ca").tempdir().unwrap();
-    let launcher = d.path().join("analyzeHeadless");
+    let launcher = d.path().join(if cfg!(windows) { "analyzeHeadless.bat" } else { "analyzeHeadless" });
     std::fs::write(&launcher, "").unwrap();
     let store = d.path().join("store");
     let mut settings = craft_anything_engine::testing::session().settings.clone();

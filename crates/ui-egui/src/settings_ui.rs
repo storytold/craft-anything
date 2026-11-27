@@ -1897,9 +1897,9 @@ mod tests {
         };
         let engine = app.engine.clone();
         let session = engine.session();
-        app.handle_done(Finished { job: 0, result: Ok(Done::AgentModelChoices { request: 1, context: context.clone(), result: Ok(Vec::new()) }) });
+        app.handle_done(Finished { job: 0, result: Ok(Done::AgentModelChoices { request: 1, context: Box::new(context.clone()), result: Ok(Vec::new()) }) });
         assert!(app.agent_model_picker.as_ref().unwrap().result.is_none(), "an older reload must still be ignored");
-        app.handle_done(Finished { job: 0, result: Ok(Done::AgentModelChoices { request: 2, context, result: Ok(Vec::new()) }) });
+        app.handle_done(Finished { job: 0, result: Ok(Done::AgentModelChoices { request: 2, context: Box::new(context), result: Ok(Vec::new()) }) });
         draw(&mut app);
         assert!(app.agent_model_picker.as_ref().unwrap().result.as_ref().unwrap().is_ok(), "a busy frame must keep the completed catalogue");
         drop(session);

@@ -21,6 +21,19 @@ jobs:
     # Tracks @main so suite-wide CI fixes reach every app without a PR in each repository.
     uses: storytold/craft-common-actions/.github/workflows/gate.yml@main
     with:
+      # A Windows leg, so the `cfg(windows)` tests (search paths, consoles, Job Objects) run
+      # somewhere. The gate runs it on main and manual runs, and on a pull request only when it can
+      # change platform behaviour or is labelled `full-ci` (the gate's `select-label` default):
+      # a Windows build of the workspace is slow. No macOS: the org's macOS runners are kept for
+      # releases.
+      os: '["ubuntu-24.04","windows-latest"]'
+      select-os: '["windows-latest"]'
+      # Windows checks what differs by platform: clippy (cfg(windows) code) and the tests. Two of
+      # crates/ai's tests start the CLI, so it is built first.
+      windows-command: |
+        cargo clippy --workspace --all-targets --locked -- -D warnings
+        cargo build -p craft-anything-cli --locked
+        cargo test --workspace --locked --no-fail-fast
       # Same craft-fonts commit as release.yml.
       craft-fonts-ref: b076417b5880bd4154bd22f00695b1d28c6bea83
       packages: >-

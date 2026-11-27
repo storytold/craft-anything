@@ -233,7 +233,7 @@ impl CraftApp {
             let mut query = context.clone();
             query.backend.options.cli_model = model;
             let result = hub.agent_models(&query);
-            Ok(crate::Done::AgentModelChoices { request, context, result })
+            Ok(crate::Done::AgentModelChoices { request, context: Box::new(context), result })
         });
     }
 
