@@ -16,10 +16,13 @@
 //! **RFC-0052.** This table is Craft Anything's parity report for
 //! [RFC-0052](https://github.com/storytold/craft-contrib/blob/main/rfcs/0052-headless-reach.md)'s
 //! `headless:` column, which it already carries in another shape. The mapping ([`rfc0052`]):
-//! `Tool` and `Cli` are `yes` (the CLI and the MCP server reach it), `Pending` is `no` with
-//! `reach: engine-gap` (a tool could do it; it isn't one yet), `UiOnly` is `no` with
-//! `reach: window` (a view action, nothing lost without the app). No row is `partial` or
-//! `unknown`: every action must have a row. [`summary`] prints the counts.
+//! `Tool` is `yes` (a registered tool, so the CLI and the MCP server both reach it), and so is a
+//! `Cli` row run through `tool <id>` (the CLI's door to the same registry). Any other `Cli` row
+//! is `partial` with `reach: engine-gap`: the CLI reaches it, but the MCP server lists only
+//! registered tools, so it waits for a tool. `Pending` is `no` with `reach: engine-gap` (a tool
+//! could do it; it isn't one yet), `UiOnly` is `no` with `reach: window` (a view action, nothing
+//! lost without the app). No row is `unknown`: every action must have a row. [`summary`] prints
+//! the counts.
 
 use craft_anything_engine::Registry;
 use std::path::{Path, PathBuf};
@@ -317,24 +320,34 @@ fn every_row_says_why_when_there_is_no_counterpart() {
     }
 }
 
+/// A CLI command that runs a registered tool (`tool <id> …`), which the MCP server lists too.
+fn is_tool_command(c: &str) -> bool {
+    c == "tool <id>" || c.starts_with("tool <id> ")
+}
+
 /// A row's RFC-0052 `(headless, reach)` (see the module docs).
 fn rfc0052(h: &Headless) -> (&'static str, Option<&'static str>) {
     match h {
-        Tool(_) | Cli(_) => ("yes", None),
+        Tool(_) => ("yes", None),
+        Cli(c) if is_tool_command(c) => ("yes", None),
+        Cli(_) => ("partial", Some("engine-gap")),
         Pending { .. } => ("no", Some("engine-gap")),
         UiOnly(_) => ("no", Some("window")),
     }
 }
 
 #[test]
-fn only_a_tool_or_cli_command_is_headless_yes() {
+fn only_a_registered_tool_is_headless_yes() {
     assert_eq!(rfc0052(&Tool(&["project_list"])), ("yes", None));
-    assert_eq!(rfc0052(&Cli("ai on <name>")), ("yes", None));
+    assert_eq!(rfc0052(&Cli("tool <id>")), ("yes", None));
+    assert_eq!(rfc0052(&Cli("tool <id> --allow-run")), ("yes", None));
+    assert_eq!(rfc0052(&Cli("ai on <name>")), ("partial", Some("engine-gap")));
+    assert_eq!(rfc0052(&Cli("toolbox")), ("partial", Some("engine-gap")));
     assert_eq!(rfc0052(&Pending { tool: None, why: "x" }), ("no", Some("engine-gap")));
     assert_eq!(rfc0052(&UiOnly("x")), ("no", Some("window")));
     let yes = ACTIONS.iter().filter(|a| rfc0052(&a.headless).0 == "yes").count();
-    let counterpart = ACTIONS.iter().filter(|a| matches!(a.headless, Tool(_) | Cli(_))).count();
-    assert_eq!(yes, counterpart, "a pending or UI-only row is never yes");
+    let tools = ACTIONS.iter().filter(|a| matches!(a.headless, Tool(_)) || matches!(a.headless, Cli(c) if is_tool_command(c))).count();
+    assert_eq!(yes, tools, "only a row that reaches a registered tool is yes");
 }
 
 /// Counts, for the PR and the roadmap: `cargo test -p craft-anything-ui-egui --test headless_parity -- --nocapture`.
@@ -351,10 +364,11 @@ fn summary() {
     println!("headless parity: {covered} covered, {pending} pending, {ui_only} UI-only ({} actions)", ACTIONS.len());
     let count = |v: &str, r: Option<&str>| ACTIONS.iter().filter(|a| rfc0052(&a.headless) == (v, r)).count();
     println!(
-        "RFC-0052: {} yes, {} no (window {}, os 0, engine-gap {}), 0 partial, 0 unknown",
+        "RFC-0052: {} yes, {} no (window {}, os 0, engine-gap {}), {} partial, 0 unknown",
         count("yes", None),
         count("no", Some("window")) + count("no", Some("engine-gap")),
         count("no", Some("window")),
-        count("no", Some("engine-gap"))
+        count("no", Some("engine-gap")),
+        count("partial", Some("engine-gap"))
     );
 }
