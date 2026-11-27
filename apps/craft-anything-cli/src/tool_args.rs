@@ -16,6 +16,8 @@ pub struct ToolInvocation {
     /// tool has no `format` option of its own).
     pub output_format: Option<String>,
     pub help: bool,
+    /// `--version` or `-V`.
+    pub version: bool,
 }
 
 /// A tool command line that can't be turned into the tool's parameters: a usage error.
@@ -45,6 +47,14 @@ pub enum ToolArgsError {
     StdinRead(#[source] std::io::Error),
     #[error("parameters on standard input are over the limit of {limit} bytes; use @file.json")]
     StdinTooBig { limit: u64 },
+    #[error("--{0} was given more than once")]
+    Duplicate(String),
+    #[error("--{0} is also set by --json or an @file.json; give each parameter once")]
+    Conflict(String),
+    #[error("--{flag} needs a value, not the option {value}; to pass a value that starts with -, write --{flag}={value}")]
+    ValueLooksLikeFlag { flag: String, value: String },
+    #[error("unknown option {0}; put an argument that starts with - after --")]
+    UnknownFlag(String),
     #[error("{command} doesn't take another argument ({arg:?})")]
     ExtraArgument { command: String, arg: String },
 }
@@ -162,41 +172,84 @@ fn read_bounded_json<R: std::io::Read>(input: R) -> Result<String, ToolArgsError
     Ok(text)
 }
 
+/// Whether `v` is meant as a flag rather than a value: it starts with `-`, and is neither `-` (standard
+/// input) nor a negative number.
+fn looks_like_flag(v: &str) -> bool {
+    v.starts_with('-') && v != "-" && v.parse::<f64>().is_err()
+}
+
+/// A value the flag `key` takes: the part after `=`, or the next argument, which must not itself be
+/// a flag (a value that starts with `-` is written `--key=-value`).
+fn take_value(args: &[String], i: &mut usize, key: &str, inline: Option<String>) -> Result<String, ToolArgsError> {
+    if let Some(v) = inline {
+        return Ok(v);
+    }
+    let v = args.get(*i).ok_or_else(|| ToolArgsError::NeedsValue(key.to_string()))?;
+    if looks_like_flag(v) {
+        return Err(ToolArgsError::ValueLooksLikeFlag { flag: key.to_string(), value: v.clone() });
+    }
+    *i += 1;
+    Ok(v.clone())
+}
+
+/// Records that an option was given, and refuses it the second time.
+pub fn once(seen: &mut Vec<String>, key: &str) -> Result<(), ToolArgsError> {
+    if seen.iter().any(|s| s == key) {
+        return Err(ToolArgsError::Duplicate(key.to_string()));
+    }
+    seen.push(key.to_string());
+    Ok(())
+}
+
+/// Turns the words after a tool's name into its parameters, checking them against the tool's schema
+/// before anything runs: an unknown, repeated or conflicting option, a value that is another flag, a
+/// wrong type and malformed JSON are all errors (RFC-0018 rule 1.4). `--` ends the options.
 pub fn parse(spec: &ToolSpec, schema: &Value, args: &[String]) -> Result<ToolInvocation, ToolArgsError> {
     let props = schema_props(schema);
     let mut params = Map::new();
+    // Keys given by `--json`/`@file`, so an option can't silently change one of them.
+    let mut from_json: Vec<String> = Vec::new();
+    let mut seen: Vec<String> = Vec::new();
     let mut positionals = Vec::new();
     let mut inv = ToolInvocation::default();
     let mut i = 0usize;
+    let mut options_ended = false;
     while let Some(a) = args.get(i) {
         i += 1;
+        if options_ended {
+            positionals.push(a.clone());
+            continue;
+        }
+        if a == "--" {
+            options_ended = true;
+            continue;
+        }
         if a == "--help" || a == "-h" {
             inv.help = true;
             continue;
         }
-        if a == "--json" || a == "--params" {
-            let raw = args.get(i).ok_or_else(|| ToolArgsError::NeedsValue("json".into()))?;
-            i += 1;
-            merge(&mut params, read_json_arg(raw)?)?;
+        if a == "--version" || a == "-V" {
+            inv.version = true;
             continue;
         }
-        if let Some(rest) = a.strip_prefix("--") {
-            let (key, inline) = match rest.split_once('=') {
-                Some((k, v)) => (k.to_string(), Some(v.to_string())),
-                None => (rest.to_string(), None),
-            };
+        let long = a.strip_prefix("--").map(|rest| match rest.split_once('=') {
+            Some((k, v)) => (k.to_string(), Some(v.to_string())),
+            None => (rest.to_string(), None),
+        });
+        // The tool's parameters as JSON: `--json '{..}'`, `--json=@file.json`, `--json -`; `--params` is the old name.
+        if let Some((key, inline)) = long.as_ref().filter(|(k, _)| (k == "json" || k == "params") && !props.contains_key(k)) {
+            once(&mut seen, "json")?;
+            let raw = take_json_value(args, &mut i, key, inline.clone())?;
+            merge(&mut params, &mut from_json, read_json_arg(&raw)?)?;
+            continue;
+        }
+        if let Some((key, inline)) = long {
             let snake = key.replace('-', "_");
             let is_target = spec.requires == Requires::Target;
             // Output format and target-open options, unless the tool has an option of the same name.
             if !props.contains_key(&snake) && (snake == "output_format" || snake == "format" || (is_target && OPEN_OPTIONS.contains(&snake.as_str()))) {
-                let raw = match inline {
-                    Some(v) => v,
-                    None => {
-                        let v = args.get(i).ok_or_else(|| ToolArgsError::NeedsValue(key.clone()))?.clone();
-                        i += 1;
-                        v
-                    }
-                };
+                once(&mut seen, if snake == "format" { "output_format" } else { &snake })?;
+                let raw = take_value(args, &mut i, &key, inline)?;
                 if snake == "output_format" || (snake == "format" && !(is_target && OPEN_FORMATS.contains(&raw.as_str()))) {
                     inv.output_format = Some(raw);
                 } else {
@@ -213,14 +266,18 @@ pub fn parse(spec: &ToolSpec, schema: &Value, args: &[String]) -> Result<ToolInv
                 }
             })?;
             let ty = prop_type(schema, prop);
+            // A list option is repeatable; every other option is given once.
+            if ty != "array" {
+                once(&mut seen, &snake)?;
+            }
+            if from_json.contains(&snake) {
+                return Err(ToolArgsError::Conflict(key));
+            }
             let raw = match inline {
                 Some(v) => v,
-                None if ty == "boolean" && args.get(i).is_none_or(|n| n.starts_with("--")) => "true".to_string(),
-                None => {
-                    let v = args.get(i).ok_or_else(|| ToolArgsError::NeedsValue(key.clone()))?.clone();
-                    i += 1;
-                    v
-                }
+                // A yes/no option alone means yes; it only takes the next word when that is true or false.
+                None if ty == "boolean" && args.get(i).is_none_or(|n| !is_bool_word(n)) => "true".to_string(),
+                None => take_value(args, &mut i, &key, None)?,
             };
             let value = convert(&ty, &key, &raw)?;
             if ty == "array"
@@ -233,10 +290,13 @@ pub fn parse(spec: &ToolSpec, schema: &Value, args: &[String]) -> Result<ToolInv
             params.insert(snake, value);
             continue;
         }
+        if looks_like_flag(a) && !a.starts_with('@') {
+            return Err(ToolArgsError::UnknownFlag(a.clone()));
+        }
         if let Some(path) = a.strip_prefix('@')
             && path.ends_with(".json")
         {
-            merge(&mut params, read_json_arg(a)?)?;
+            merge(&mut params, &mut from_json, read_json_arg(a)?)?;
             continue;
         }
         positionals.push(a.clone());
@@ -272,10 +332,36 @@ pub fn parse(spec: &ToolSpec, schema: &Value, args: &[String]) -> Result<ToolInv
     Ok(inv)
 }
 
-fn merge(into: &mut Map<String, Value>, v: Value) -> Result<(), ToolArgsError> {
+/// Whether `--json`'s next word is the tool's parameters (inline JSON, `@file` or `-`) rather than another argument.
+pub fn is_json_params(next: &str) -> bool {
+    next.starts_with('{') || next.starts_with('@') || next == "-"
+}
+
+fn is_bool_word(word: &str) -> bool {
+    matches!(word.trim(), "true" | "yes" | "1" | "false" | "no" | "0")
+}
+
+/// The value of `--json`: after `=`, or the next argument (`-` is standard input).
+fn take_json_value(args: &[String], i: &mut usize, key: &str, inline: Option<String>) -> Result<String, ToolArgsError> {
+    if let Some(v) = inline {
+        return Ok(v);
+    }
+    let v = args.get(*i).ok_or_else(|| ToolArgsError::NeedsValue(key.to_string()))?;
+    *i += 1;
+    Ok(v.clone())
+}
+
+/// Adds a JSON object's keys to the parameters. Two `--json` objects can't give the same key.
+fn merge(into: &mut Map<String, Value>, keys: &mut Vec<String>, v: Value) -> Result<(), ToolArgsError> {
     match v {
         Value::Object(m) => {
-            into.extend(m);
+            for (k, v) in m {
+                if into.contains_key(&k) {
+                    return Err(ToolArgsError::Conflict(k.replace('_', "-")));
+                }
+                keys.push(k.clone());
+                into.insert(k, v);
+            }
             Ok(())
         }
         _ => Err(ToolArgsError::ParamsNotObject),
@@ -322,7 +408,9 @@ pub fn help(spec: &ToolSpec, schema: &Value) -> String {
     if spec.requires == Requires::Target {
         s.push_str(" <target-path>");
     }
-    s.push_str(" [options] [--json '{...}' | @params.json | -]\n");
+    s.push_str(" [options] [--json '{...}' | --json=@params.json | --json -] [--] [arguments]\n");
+    s.push_str("\nEach option may be given once (list options repeat). A value that starts with - is written --option=-value; -- ends the options.\n");
+    s.push_str("--json with parameters after it sets the tool's parameters; a bare --json is --format json.\n");
     if !props.is_empty() {
         s.push_str("\nOptions:\n");
         for (k, p) in &props {
@@ -494,5 +582,88 @@ mod tests {
         use std::io::Read as _;
         assert!(read_bounded_json(big).unwrap_err().to_string().contains("over the limit"));
         assert!(read_bounded_json(&[0xffu8, 0xfe][..]).is_err(), "bad text is an error");
+    }
+
+    /// A tool whose schema has one option of each kind, to pin the strict rules (RFC-0018 rule 1.4).
+    fn strict(args: &[&str]) -> Result<ToolInvocation, ToolArgsError> {
+        let r = Registry::with_all_tools();
+        let spec = r.get("core_journal_read").unwrap();
+        let schema = json!({"type": "object", "properties": {
+            "name": {"type": "string"},
+            "limit": {"type": "integer"},
+            "tag": {"type": "array", "items": {"type": "string"}},
+            "verbose": {"type": "boolean"},
+            "path": {"type": "string"},
+        }});
+        let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+        super::parse(spec, &schema, &args)
+    }
+
+    #[test]
+    fn an_option_given_twice_is_refused_unless_it_is_a_list() {
+        for args in [
+            &["--name", "a", "--name", "b"][..],
+            &["--limit=1", "--limit", "2"],
+            &["--verbose", "--verbose"],
+            &["--json", "{}", "--json", "{}"],
+            &["--output-format", "md", "--format", "text"],
+        ] {
+            let e = strict(args).unwrap_err();
+            assert!(matches!(e, ToolArgsError::Duplicate(_)), "{args:?}: {e}");
+        }
+        // A list option is repeatable and collects every value.
+        assert_eq!(strict(&["--tag", "a", "--tag=b"]).unwrap().params, json!({"tag": ["a", "b"]}));
+    }
+
+    #[test]
+    fn a_value_is_never_the_next_flag() {
+        let e = strict(&["--name", "--verbose"]).unwrap_err();
+        assert!(matches!(e, ToolArgsError::ValueLooksLikeFlag { .. }), "{e}");
+        assert!(e.to_string().contains("--name=--verbose"), "{e}");
+        // `=` passes a value that starts with `-`; a negative number and `-` are values.
+        assert_eq!(strict(&["--name=-x"]).unwrap().params, json!({"name": "-x"}));
+        assert_eq!(strict(&["--limit", "-5"]).unwrap().params, json!({"limit": -5}));
+        assert_eq!(strict(&["--name", "-"]).unwrap().params, json!({"name": "-"}));
+        assert!(matches!(strict(&["--name"]).unwrap_err(), ToolArgsError::NeedsValue(_)));
+    }
+
+    #[test]
+    fn a_short_flag_the_tool_lacks_is_refused_and_double_dash_ends_the_options() {
+        assert!(matches!(strict(&["-x"]).unwrap_err(), ToolArgsError::UnknownFlag(_)));
+        assert!(matches!(strict(&["--nope"]).unwrap_err(), ToolArgsError::UnknownOption { .. }));
+        // After `--` an argument that starts with `-` is a positional (here the `name` slot).
+        let inv = strict(&["--", "--odd"]).unwrap();
+        assert_eq!(inv.params, json!({"path": "--odd"}));
+        assert_eq!(strict(&["--", "-x", "-y"]).unwrap().params, json!({"path": "-x", "name": "-y"}));
+        assert!(matches!(strict(&["--", "a", "b", "c"]).unwrap_err(), ToolArgsError::ExtraArgument { .. }));
+    }
+
+    #[test]
+    fn an_option_cannot_silently_change_a_parameter_given_as_json() {
+        let e = strict(&["--json", r#"{"limit":3}"#, "--limit", "4"]).unwrap_err();
+        assert!(matches!(e, ToolArgsError::Conflict(_)), "{e}");
+        // Whichever comes first.
+        let e = strict(&["--limit", "4", "--json", r#"{"limit":3}"#]).unwrap_err();
+        assert!(matches!(e, ToolArgsError::Conflict(_)), "{e}");
+        // Different keys merge.
+        assert_eq!(strict(&["--json", r#"{"limit":3}"#, "--name", "n"]).unwrap().params, json!({"limit": 3, "name": "n"}));
+        // `--json=` takes the parameters inline, from a file or from standard input like `--json`.
+        assert_eq!(strict(&["--json={\"limit\":3}"]).unwrap().params, json!({"limit": 3}));
+        assert!(matches!(strict(&["--json", "[1]"]).unwrap_err(), ToolArgsError::ParamsNotObject));
+        assert!(matches!(strict(&["--json", "{oops"]).unwrap_err(), ToolArgsError::ParamsNotJson(_)));
+    }
+
+    #[test]
+    fn a_yes_no_option_alone_means_yes_and_leaves_the_next_word_alone() {
+        assert_eq!(strict(&["--verbose", "somewhere"]).unwrap().params, json!({"verbose": true, "path": "somewhere"}));
+        assert_eq!(strict(&["--verbose", "false"]).unwrap().params, json!({"verbose": false}));
+        assert_eq!(strict(&["--verbose=no"]).unwrap().params, json!({"verbose": false}));
+        assert!(matches!(strict(&["--verbose=maybe"]).unwrap_err(), ToolArgsError::ExpectsBool { .. }));
+    }
+
+    #[test]
+    fn version_is_asked_for_like_help() {
+        assert!(strict(&["--version"]).unwrap().version);
+        assert!(strict(&["-V"]).unwrap().version);
     }
 }

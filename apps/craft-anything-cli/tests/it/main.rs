@@ -77,3 +77,61 @@ fn mcp_writes_nothing_but_protocol_to_stdout() {
         assert_eq!(v["jsonrpc"], "2.0");
     }
 }
+
+#[test]
+fn tool_options_are_checked_before_any_work() {
+    let cfg = tempfile::tempdir().unwrap();
+    let project = cfg.path().join("made-by-mistake.cany");
+    let project = project.to_str().unwrap();
+    for args in [
+        vec!["core-session-show", "--bogus"],
+        vec!["core-session-show", "--allow-run", "--allow-run"],
+        vec!["core-session-show", "--deep", "--clean-room"],
+        vec!["core-session-show", "--project", project, "--project", project],
+        vec!["core-session-show", "--project"],
+        vec!["core-journal-read", "--limit", "1", "--limit", "2"],
+        vec!["core-journal-read", "--limit", "--compact"],
+        vec!["core-journal-read", "-x"],
+        vec!["core-journal-read", "--json", "{\"limit\":1}", "--limit", "2"],
+    ] {
+        let r = run(cfg.path(), &args, &[]);
+        assert_eq!(r.status.code(), Some(2), "{args:?}: {}", text(&r.stderr));
+        assert_eq!(text(&r.stdout), "", "{args:?}");
+        assert!(text(&r.stderr).starts_with("error: "), "{args:?}: {}", text(&r.stderr));
+    }
+    assert!(!Path::new(project).exists(), "a refused command line must not create the project");
+}
+
+#[test]
+fn json_after_a_tool_name_is_its_parameters_with_a_value_and_the_output_format_without() {
+    let cfg = tempfile::tempdir().unwrap();
+    let project = cfg.path().join("p.cany");
+    let project = project.to_str().unwrap();
+    let ok = |args: &[&str]| {
+        // The journal is kept per project: every call opens (or makes) this one.
+        let args: Vec<&str> = ["--project", project].into_iter().chain(args.iter().copied()).collect();
+        let r = run(cfg.path(), &args, &[]);
+        assert_eq!(r.status.code(), Some(0), "{args:?}: {}", text(&r.stderr));
+        serde_json::from_str::<serde_json::Value>(&text(&r.stdout)).unwrap_or_else(|e| panic!("{args:?}: {e}"))
+    };
+    // With parameters after it: the tool's own `--json`, in any order with other options.
+    ok(&["core-journal-read", "--json", "{\"limit\":1}"]);
+    ok(&["core-journal-read", "--json={\"limit\":1}", "--kind", "tool_call"]);
+    // Bare: the shorthand for `--format json`, even after `--output-format text`'s default would apply.
+    ok(&["core-journal-read", "--json"]);
+    ok(&["core-journal-read", "--json", "--limit", "1"]);
+    // Before the tool name it is the shorthand too, and it cannot be combined with --format.
+    ok(&["--json", "core-journal-read"]);
+    let both = run(cfg.path(), &["--json", "--format", "text", "commands"], &[]);
+    assert_eq!(both.status.code(), Some(2));
+}
+
+#[test]
+fn a_tool_prints_its_version() {
+    let cfg = tempfile::tempdir().unwrap();
+    for flag in ["--version", "-V"] {
+        let r = run(cfg.path(), &["core-session-show", flag], &[]);
+        assert_eq!(r.status.code(), Some(0), "{}", text(&r.stderr));
+        assert!(text(&r.stdout).contains(env!("CARGO_PKG_VERSION")), "{}", text(&r.stdout));
+    }
+}

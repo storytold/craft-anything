@@ -137,6 +137,46 @@ fn a_command_that_fails_exits_1_with_the_error_on_both_streams() {
     assert!(r.err.starts_with("error: "), "{}", r.err);
 }
 
+#[test]
+fn a_tool_answers_its_version_and_refuses_repeated_and_conflicting_options_in_process() {
+    for flag in ["--version", "-V"] {
+        let r = invoke(&["core-session-show", flag]);
+        assert_eq!((r.code, r.err.as_str()), (0, ""));
+        assert!(r.out.contains(env!("CARGO_PKG_VERSION")), "{}", r.out);
+    }
+    for args in [
+        &["core-session-show", "--allow-run", "--allow-run"][..],
+        &["core-session-show", "--compact", "--compact"],
+        &["core-session-show", "--project"],
+        &["core-session-show", "--project=", "--compact"],
+        &["--json", "--format", "text", "commands"],
+    ] {
+        let r = invoke(args);
+        assert_eq!((r.code, r.out.as_str()), (2, ""), "{args:?}: {}", r.err);
+    }
+    // `--` ends the global options: what follows is the tool's.
+    let r = invoke(&["core-session-show", "--", "--compact"]);
+    assert_eq!(r.code, 2, "--compact after -- is the tool's argument, which it doesn't take: {}", r.err);
+}
+
+#[test]
+fn project_is_taken_out_of_a_tools_arguments_once() {
+    use super::take_project;
+    let mut args: Vec<String> = ["a", "--project", "p", "b"].map(String::from).into();
+    assert_eq!(take_project(&mut args).unwrap(), Some(std::path::PathBuf::from("p")));
+    assert_eq!(args, ["a", "b"]);
+    let mut args: Vec<String> = ["--project=q"].map(String::from).into();
+    assert_eq!(take_project(&mut args).unwrap(), Some(std::path::PathBuf::from("q")));
+    // After `--` it is the tool's own argument.
+    let mut args: Vec<String> = ["--", "--project", "x"].map(String::from).into();
+    assert_eq!(take_project(&mut args).unwrap(), None);
+    assert_eq!(args.len(), 3);
+    for bad in [&["--project"][..], &["--project", "--compact"], &["--project="], &["--project", "a", "--project=b"]] {
+        let mut args: Vec<String> = bad.iter().map(|s| s.to_string()).collect();
+        assert!(take_project(&mut args).is_err(), "{bad:?}");
+    }
+}
+
 // ---- commands that save settings, keys and client configuration, over a folder of their own ----
 
 fn sandbox() -> (tempfile::TempDir, crate::Context) {

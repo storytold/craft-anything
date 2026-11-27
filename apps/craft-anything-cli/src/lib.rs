@@ -38,7 +38,8 @@ pub static INTERRUPTED: AtomicBool = AtomicBool::new(false);
     about = "Craft Anything on the command line: every tool, the MCP server, setup and doctor."
 )]
 #[command(after_help = "Every tool is also a subcommand: `craft-anything-cli commands` lists them, `craft-anything-cli <tool> --help` shows its options.\n\
-When a tool has its own --format option (core-target-open, ...), --format after the tool name goes to the tool; pick the output with --output-format (or --format before the tool name). `report` has no format option of its own: use `report --html` for HTML.")]
+When a tool has its own --format option (core-target-open, ...), --format after the tool name goes to the tool; pick the output with --output-format (or --format before the tool name). `report` has no format option of its own: use `report --html` for HTML.\n\
+`--json` before a tool name, or bare after it, means `--format json`; `--json '{..}'`, `--json=@file.json` or `--json -` after a tool name gives the tool's parameters. Each option may be given once (list options repeat), a value that starts with - is written `--option=-value`, and `--` ends the options.")]
 pub struct Cli {
     /// Where state lives and whose home `setup` configures: this computer's, unless a test gives another.
     #[arg(skip)]
@@ -47,7 +48,7 @@ pub struct Cli {
     #[arg(long, global = true, value_enum, default_value_t = Format::Json, alias = "output-format")]
     pub format: Format,
     /// Shorthand for --format json.
-    #[arg(long, global = true)]
+    #[arg(long, global = true, conflicts_with = "format")]
     pub json: bool,
     /// A project folder (`*.cany`): evidence, memory and the journal are kept there. Created if missing.
     #[arg(long, global = true)]
@@ -677,24 +678,71 @@ fn report(io: &mut Io<'_>, cli: &Cli, path: Option<&str>, format: &str, out_file
     }
 }
 
+/// Takes `--project <folder>` (or `--project=<folder>`) out of a tool's arguments, up to a `--`. It may be
+/// given once, and its value is not another flag.
+fn take_project(args: &mut Vec<String>) -> Result<Option<PathBuf>, UsageError> {
+    let end = args.iter().position(|a| a == "--").unwrap_or(args.len());
+    let mut found = None;
+    let mut i = 0;
+    while i < end.min(args.len()) {
+        let (len, value) = match args[i].as_str() {
+            "--project" => match args.get(i + 1) {
+                Some(v) if i + 1 < end && !v.starts_with('-') => (2, v.clone()),
+                _ => return Err(UsageError::ProjectNeedsFolder),
+            },
+            a if a.starts_with("--project=") => (1, a["--project=".len()..].to_string()),
+            _ => {
+                i += 1;
+                continue;
+            }
+        };
+        if found.is_some() {
+            return Err(tool_args::ToolArgsError::Duplicate("project".into()).into());
+        }
+        if value.is_empty() {
+            return Err(UsageError::ProjectNeedsFolder);
+        }
+        found = Some(PathBuf::from(value));
+        args.drain(i..i + len);
+    }
+    Ok(found)
+}
+
 fn tool(io: &mut Io<'_>, cli: &Cli, args: &[String], f: Format) -> i32 {
     let Some((name, rest)) = args.split_first() else { return usage(io, UsageError::MissingCommand) };
-    // Global flags written after the tool name land here; pick them out.
+    // Global flags written after the tool name land here; pick them out, each at most once, up to
+    // a `--` (after which everything is the tool's). `--format` and `--project` are left to
+    // tool_args when the tool has an option of that name (`project-show --project <folder>`);
+    // otherwise they're the global flags.
     let mut f = f;
-    let (mut allow_run, mut deep, mut clean_room) = (cli.allow_run, cli.deep, cli.clean_room);
+    let (mut allow_run, mut deep, mut clean_room, mut compact) = (cli.allow_run, cli.deep, cli.clean_room, cli.compact);
+    let mut seen = Vec::new();
     let mut rest_args = Vec::new();
     let mut it = rest.iter().peekable();
-    // `--format` and `--project` are left to tool_args when the tool has an option of that name
-    // (`project-show --project <folder>`); otherwise they're the global flags.
     while let Some(a) = it.next() {
-        match a.as_str() {
-            "--allow-run" => allow_run = true,
-            "--deep" => deep = true,
-            "--clean-room" => clean_room = true,
-            "--json" if it.peek().is_none_or(|n| !(n.starts_with('{') || n.starts_with('@') || n.as_str() == "-")) => f = Format::Json,
-            _ => rest_args.push(a.clone()),
+        let step = match a.as_str() {
+            "--" => {
+                rest_args.push(a.clone());
+                rest_args.extend(it.by_ref().cloned());
+                break;
+            }
+            "--allow-run" => tool_args::once(&mut seen, "allow-run").map(|()| allow_run = true),
+            "--deep" => tool_args::once(&mut seen, "deep").map(|()| deep = true),
+            "--clean-room" => tool_args::once(&mut seen, "clean-room").map(|()| clean_room = true),
+            "--compact" => tool_args::once(&mut seen, "compact").map(|()| compact = true),
+            // Bare, `--json` is the shorthand for `--format json`; with parameters after it (`{`,
+            // `@file` or `-`) it is the tool's own `--json` parameters, which tool_args reads.
+            "--json" if it.peek().is_none_or(|n| !tool_args::is_json_params(n)) => tool_args::once(&mut seen, "json-format").map(|()| f = Format::Json),
+            _ => {
+                rest_args.push(a.clone());
+                Ok(())
+            }
+        };
+        if let Err(e) = step {
+            return usage(io, e);
         }
     }
+    io.pretty = !compact;
     // The engine first (tools from higher layers are only known through it), with the project
     // given before the tool name.
     if deep && clean_room {
@@ -707,7 +755,7 @@ fn tool(io: &mut Io<'_>, cli: &Cli, args: &[String], f: Format) -> i32 {
         allow_run,
         deep,
         clean_room,
-        compact: cli.compact,
+        compact,
         log: cli.log,
         command: Command::Commands,
         context: cli.context.clone(),
@@ -720,11 +768,16 @@ fn tool(io: &mut Io<'_>, cli: &Cli, args: &[String], f: Format) -> i32 {
         return usage(io, UsageError::UnknownCommand(name.clone()));
     };
     let schema = engine.registry().input_schema(&spec);
+    let project_before = cli.project.clone();
     let tool_has_project = schema.pointer("/properties/project").is_some();
-    if !tool_has_project && let Some(i) = rest_args.iter().position(|a| a == "--project") {
-        let Some(p) = rest_args.get(i + 1).cloned() else { return usage(io, UsageError::ProjectNeedsFolder) };
-        rest_args.drain(i..i + 2);
-        cli.project = Some(PathBuf::from(p));
+    if !tool_has_project {
+        match take_project(&mut rest_args) {
+            Ok(Some(dir)) => cli.project = Some(dir),
+            Ok(None) => {}
+            Err(e) => return usage(io, e),
+        }
+    }
+    if !tool_has_project && cli.project.as_deref() != project_before.as_deref() {
         engine = match make_engine_in(&cli.context, cli.project.as_deref(), cli.deep_for_run()) {
             Ok(e) => e,
             Err(e) => return fail(io, &e, f),
@@ -736,6 +789,10 @@ fn tool(io: &mut Io<'_>, cli: &Cli, args: &[String], f: Format) -> i32 {
         Ok(i) => i,
         Err(e) => return usage(io, e),
     };
+    if inv.version {
+        io.line(&format!("craft-anything-cli {} {}", spec.cli_name(), env!("CARGO_PKG_VERSION")));
+        return 0;
+    }
     if let Some(v) = &inv.output_format {
         match <Format as clap::ValueEnum>::from_str(v, true) {
             Ok(v) => f = v,
