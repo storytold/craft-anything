@@ -1369,7 +1369,7 @@ fn run_details(app: &mut CraftApp, ui: &mut Ui, status_row: bool) {
         ui,
         |ui| {
             // Each project's box keeps its own height and wrapping.
-            pop_out = crate::activity_box::inline(ui, run, egui::Id::new(("run_details", &root)));
+            pop_out = crate::activity_box::inline(ui, run, egui::Id::unique(("run_details", &root)));
             ui.horizontal(|ui| {
                 ui.label(RichText::new(tr("A command's output shows here when it finishes.")).color(t.text_faint).size(theme::CAPTION));
                 open_log = widgets::open_log_button(ui, &log);

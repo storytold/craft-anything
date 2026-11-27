@@ -859,7 +859,7 @@ fn the_approvals_link_is_clear_of_send() {
             h.get_by_label("Approvals").click();
         }
         h.run_steps(2);
-        assert!(egui::Popup::is_id_open(&h.ctx, egui::Id::new("project-approvals")), "the menu opened, {case}");
+        assert!(egui::Popup::is_id_open(&h.ctx, egui::Id::unique("project-approvals")), "the menu opened, {case}");
     }
 }
 
@@ -1464,7 +1464,7 @@ fn disabled_chat_recovery_can_turn_on_the_saved_ai_without_sending_the_draft() {
 fn disabled_chat_recovery_offers_enabled_choices_and_keeps_the_question() {
     let mut h = harness(|| disabled_chat_app(Mode::Beginner));
     h.run_steps(4);
-    h.get_by_value("Choose another AI").click();
+    h.get_by_role_and_label(egui::Role::ComboBox, "Choose another AI").click();
     h.run_steps(2);
     assert!(h.query_by_label("Other off").is_none(), "the recovery menu only offers enabled AIs");
     h.get_by_label("Chat ready").click();
@@ -3199,7 +3199,7 @@ fn the_build_details_box_keeps_its_height_wraps_and_opens_in_its_own_window() {
     // From its title to the grip under it: ten lines and the card's edges.
     let tall = h.get_by_label("Drag to change the height").rect().top() - h.get_by_label("More detail").rect().bottom();
     assert!(tall >= 10.0 * LINE, "the box is {tall} points tall at the bottom of a long feed");
-    let id = egui::Id::new(("run_details", &ws.root));
+    let id = egui::Id::unique(("run_details", &ws.root));
     assert_eq!(Look::of(&h.ctx, id), Look::default());
 
     // One line, not cut off: the box scrolls sideways.

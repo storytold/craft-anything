@@ -179,7 +179,7 @@ fn toolbar(ui: &mut Ui, rect: egui::Rect, id: Id, look: &mut Look, run: &Rebuild
         focused |= r.has_focus();
         let wrap = look.wrap;
         let r = icons::button(ui, "wrap-text", BUTTON, wrap, "Wrap long lines");
-        r.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, wrap, tr("Wrap long lines")));
+        r.widget_info(|| egui::WidgetInfo::selected(egui::Role::CheckBox, true, wrap, tr("Wrap long lines")));
         if r.clicked() {
             look.wrap = !look.wrap;
         }
@@ -232,7 +232,7 @@ pub fn windows(app: &mut CraftApp, ctx: &egui::Context) {
             continue;
         };
         let running = app.runs.is_busy(&w.root);
-        let id = Id::new(("activity-window", &w.root));
+        let id = Id::unique(("activity-window", &w.root));
         let title = trf("{name}: build activity", &[("name", &w.name)]);
         let builder = egui::ViewportBuilder::default().with_title(&title).with_inner_size([820.0, 560.0]).with_min_inner_size([360.0, 220.0]);
         let (close, log) = ctx.show_viewport_immediate(egui::ViewportId::from_hash_of(id), builder, |ui, class| {

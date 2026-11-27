@@ -73,7 +73,7 @@ pub fn show(app: &mut CraftApp, ctx: &egui::Context) {
 
 fn tabs(app: &mut CraftApp, ui: &mut Ui, horizontal: bool, height: f32) {
     let t = Tokens::get(ui.ctx());
-    let id = egui::Id::new("shown-settings-tab");
+    let id = egui::Id::unique("shown-settings-tab");
     let shown = (app.state.settings_tab, horizontal, ui.ctx().content_rect().size());
     let changed = ui.data_mut(|d| {
         let previous = d.get_temp::<(SettingsTab, bool, Vec2)>(id);
@@ -93,14 +93,14 @@ fn tabs(app: &mut CraftApp, ui: &mut Ui, horizontal: bool, height: f32) {
         if !horizontal && tab == SettingsTab::About {
             ui.add_space((height - ui.min_rect().height() - ui.spacing().item_spacing.y - TAB_H).max(theme::space::SM));
         }
-        let id = egui::Id::new(("settings-tab", title));
+        let id = egui::Id::unique(("settings-tab", title));
         let title = tr(title);
         let galley = ui.painter().layout_no_wrap(title.clone(), theme::medium(theme::BODY), if app.state.settings_tab == tab { t.text } else { t.text_dim });
         let w = if horizontal { galley.size().x + theme::icon::MD + 3.0 * theme::space::MD } else { ui.available_width() };
         let on = app.state.settings_tab == tab;
         let (_, rect) = ui.allocate_space(Vec2::new(w, TAB_H));
         let r = ui.interact(rect, id, egui::Sense::click());
-        r.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, &title));
+        r.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, on, &title));
         if on {
             ui.painter().rect_filled(rect, t.radius, t.accent_soft);
         } else if r.hovered() {
@@ -150,7 +150,7 @@ fn tabs(app: &mut CraftApp, ui: &mut Ui, horizontal: bool, height: f32) {
 
 fn page(app: &mut CraftApp, ui: &mut Ui, h: f32) {
     // The page moves between responsive parents; its widgets keep the same UI identity.
-    ui.scope_builder(egui::UiBuilder::new().id(egui::Id::new("settings-page-layout")), |ui| page_content(app, ui, h));
+    ui.scope_builder(egui::UiBuilder::new().scope_id(egui::Id::unique("settings-page-layout")), |ui| page_content(app, ui, h));
 }
 
 fn page_content(app: &mut CraftApp, ui: &mut Ui, h: f32) {
@@ -159,7 +159,7 @@ fn page_content(app: &mut CraftApp, ui: &mut Ui, h: f32) {
     ui.set_width(w);
     let content_w = (w - ui.spacing().scroll.allocated_width() - theme::SETTINGS_CONTENT_INSET).max(0.0);
     // A new save error starts in view, even if the person was editing near the page's end.
-    let page_id = egui::Id::new("settings-page").with((app.toast_error_revision, app.state.toasts.iter().rfind(|(_, error)| *error).map(|(text, _)| text)));
+    let page_id = egui::Id::unique("settings-page").with((app.toast_error_revision, app.state.toasts.iter().rfind(|(_, error)| *error).map(|(text, _)| text)));
     // Fixed bounds across tabs, with the header outside the scrolling page.
     egui::ScrollArea::vertical().id_salt(page_id).auto_shrink([false, false]).min_scrolled_height(h).max_height(h).max_width(w).show(ui, |ui| {
         ui.set_max_width(content_w);
@@ -199,7 +199,7 @@ fn row(ui: &mut Ui, title: &str, sub: &str, add: impl FnOnce(&mut Ui)) {
     // The narrow branch adds a controls container. Its descendants must keep their draft,
     // keyboard focus and cursor when moving back to the horizontal row.
     let add = |ui: &mut Ui| {
-        ui.scope_builder(egui::UiBuilder::new().id(egui::Id::new(("settings-row-controls", title))), add);
+        ui.scope_builder(egui::UiBuilder::new().scope_id(egui::Id::unique(("settings-row-controls", title))), add);
     };
     let labels = |ui: &mut Ui| {
         ui.set_width(if narrow { ui.available_width() } else { 280.0 });
@@ -751,7 +751,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                 };
                 // One change at a time: jobs finish in any order, so a second change's refresh could land before the
                 // first's and Settings would show the older choice. The row waits for the saving job, as the rate does.
-                let job_id = egui::Id::new(("settings-tool-list-job", &b.name));
+                let job_id = egui::Id::unique(("settings-tool-list-job", &b.name));
                 let pending_job = ui.data(|data| data.get_temp::<u64>(job_id));
                 let pending = app.jobs.running().any(|job| Some(job.id) == pending_job);
                 if !pending && pending_job.is_some() {
@@ -777,7 +777,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                 let saved = app.backend_options.get(&b.name).and_then(|o| o.requests_per_minute).unwrap_or_default();
                 // Drafts and pending jobs belong to this backend, independently of the
                 // responsive parent UI or a new error's scroll-area identity.
-                let id = egui::Id::new(("settings-request-rate", &b.name));
+                let id = egui::Id::unique(("settings-request-rate", &b.name));
                 let saved_text = if saved == 0 { String::new() } else { saved.to_string() };
                 let (mut text, pending_job) = ui.data(|data| data.get_temp::<(String, Option<u64>)>(id)).unwrap_or((saved_text.clone(), None));
                 let pending = app.jobs.running().any(|job| Some(job.id) == pending_job);

@@ -124,6 +124,21 @@ and diff checks passed. Optional multilingual font packages were not embedded in
 this local run. Hosted Linux CI is a distinct verification, not implied by these
 local results.
 
+On 2026-11-26, the branch was rebased onto upstream `3e59a9c`. Cargo
+regenerated the GUI dependency resolution from the new upstream lockfile,
+retaining the fixed macOS adapter. The updated responsive Settings keeps
+its layout-independent focus and control IDs, and segment animations
+remain scoped to each row. The activity panel and its controls use the
+same egui 0.37 ID and accessibility APIs as the rest of the desktop UI.
+The native Quit/window-close observations still refer to November 9.
+
+Local desktop/GUI validation passed 353 tests, including all 136 smoke
+tests, responsive Settings, and the locked adapter guard. The same
+unchanged upstream non-UTF-8 folder fixture failed before application code
+ran (macOS error 92), and one existing clipboard test remained ignored.
+The chat recovery selector keeps its existing behavior and now exposes
+its translated name to egui 0.37 accessibility clients.
+
 ## Recovery and upstream review
 
 Keep the prior application bundle and settings before installing. A local

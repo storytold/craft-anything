@@ -375,7 +375,7 @@ fn disabled_backend_recovery(app: &mut CraftApp, ui: &mut Ui) {
     let Some(name) = app.backends.iter().find(|b| Some(&b.name) == app.state.backend.as_ref() && !b.enabled).map(|b| b.name.clone()) else {
         return;
     };
-    let pending_id = ui.id().with(("enable-chat-backend", &name));
+    let pending_id = ui.scope_id().with(("enable-chat-backend", &name));
     let pending = ui.data(|d| d.get_temp::<u64>(pending_id)).is_some_and(|id| app.jobs.list.iter().any(|j| j.id == id && j.outcome.is_none()));
     if !pending {
         ui.data_mut(|d| d.remove::<u64>(pending_id));
@@ -391,7 +391,7 @@ fn disabled_backend_recovery(app: &mut CraftApp, ui: &mut Ui) {
             ui.data_mut(|d| d.insert_temp(pending_id, job));
         }
         let enabled: Vec<_> = app.backends.iter().filter(|b| b.enabled).map(|b| b.name.clone()).collect();
-        widgets::dropdown("chat-recovery-backend").selected_text(tr("Choose another AI")).show_ui(ui, |ui| {
+        let choice = widgets::dropdown("chat-recovery-backend").selected_text(tr("Choose another AI")).show_ui(ui, |ui| {
             for name in enabled {
                 if widgets::menu_item(ui, false, &name).clicked() {
                     app.choose_backend(Some(name));
@@ -403,6 +403,7 @@ fn disabled_backend_recovery(app: &mut CraftApp, ui: &mut Ui) {
                 ui.close();
             }
         });
+        widgets::named(choice.response, "Choose another AI");
     });
     ui.add_space(theme::space::SM);
 }
