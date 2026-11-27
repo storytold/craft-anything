@@ -2246,7 +2246,7 @@ impl CraftApp {
         let mut dismiss = None;
         // Where each card keeps room for its close button.
         let mut close_at = Vec::with_capacity(self.state.toasts.len());
-        egui::Area::new(egui::Id::new("toasts"))
+        egui::Area::new(egui::Id::unique("toasts"))
             .order(egui::Order::Foreground)
             .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, titlebar::HEIGHT + theme::space::SM))
             .interactable(false)
@@ -2291,7 +2291,7 @@ impl CraftApp {
                 }
             });
         for (i, slot) in close_at {
-            egui::Area::new(egui::Id::new(("toast-close", i))).order(egui::Order::Tooltip).fixed_pos(slot.min).show(ctx, |ui| {
+            egui::Area::new(egui::Id::unique(("toast-close", i))).order(egui::Order::Tooltip).fixed_pos(slot.min).show(ctx, |ui| {
                 if icons::button(ui, "x", theme::ControlSize::Small, false, "Dismiss").clicked() {
                     dismiss = Some(i);
                 }
@@ -2305,13 +2305,14 @@ impl CraftApp {
         }
     }
 
+    /// Show whether hovered files will attach as pictures or open as targets, without opening them.
     fn drop_overlay(&self, ctx: &egui::Context) {
         if !ctx.input(|i| !i.raw.hovered_files.is_empty()) {
             return;
         }
         let t = theme::Tokens::get(ctx);
         let rect = ctx.content_rect();
-        let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("drop")));
+        let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::unique("drop")));
         painter.rect_filled(rect, 0.0, t.shadow);
         let inner = rect.shrink(40.0);
         painter.rect_stroke(inner, t.radius_lg, egui::Stroke::new(2.0, t.accent), egui::StrokeKind::Inside);

@@ -45,7 +45,7 @@ fn harness(mode: Mode, size: egui::Vec2, zoom: f32, lang: &str) -> Harness<'stat
 }
 
 fn modal(h: &Harness<'_, CraftApp>) -> egui::Rect {
-    h.ctx.memory(|m| m.area_rect(egui::Id::new("settings-window"))).expect("Settings area")
+    h.ctx.memory(|m| m.area_rect(egui::Id::unique("settings-window"))).expect("Settings area")
 }
 
 fn screenshot(h: &mut Harness<'_, CraftApp>, name: &str) {
@@ -344,13 +344,13 @@ fn translated_key_rows_fit(mode: Mode, failures: &mut Vec<String>) {
                     theme::apply(ui.ctx(), app.theme_kind());
                     ui.set_width(width);
                     let bounds = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(width, 480.0));
-                    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("key-row-bounds"), bounds));
+                    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::unique("key-row-bounds"), bounds));
                     craft_anything_ui_egui::engine_ui::assets_settings(app, ui);
                 },
                 app,
             );
             h.run_steps(4);
-            let bounds = h.ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new("key-row-bounds"))).unwrap();
+            let bounds = h.ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::unique("key-row-bounds"))).unwrap();
             let save = h.get_by_label(&i18n::tr("Save")).rect();
             if !bounds.contains_rect(save) {
                 failures.push(format!("review/key/{lang}/{width}: Save {save:?} exceeds {bounds:?}"));

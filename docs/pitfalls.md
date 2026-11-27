@@ -1404,3 +1404,17 @@ otherwise a missed click looks like a backend mutation that never completed.
 jobs, focus and cursors need layout-independent identities. Test continued typing without
 refocusing and tab activation across both rail orientations. On resize, egui keeps only the last
 scroll request: combine selection and focus when both fit, otherwise keep focus visible.
+
+**A passing headless suite did not exercise native macOS shutdown.** Touch Bar AppKit
+observers can abort during AccessKit window teardown after the app's own exit hook returns.
+Keep accessibility enabled and adopt the released observer-preservation fix; an early
+`process::exit` can skip asynchronous preference writes and process-ownership cleanup.
+Test actual Quit and window close on the affected hardware, check new crash reports and
+reopen to verify persistence. A dependency-version guard prevents downgrades but does not
+replace that native test. See `docs/macos-touchbar-crash.md`.
+
+**A no-optional-font test inherited optional fonts from CI.** Calling the normal font
+installer let CI's compiled-in fallbacks hide a missing bundled arrow face. Construct
+definitions with an explicit empty optional input, including inherited weighted families,
+and check that removing the bundled fallback makes the test fail even with optional fonts
+compiled in. A partial synthetic font manifest tests that contract, not full language coverage.

@@ -24,7 +24,7 @@ pub fn show(app: &mut CraftApp, ctx: &egui::Context) {
     let available = ctx.content_rect().size() - Vec2::splat(2.0 * theme::space::SM) - frame.total_margin().sum();
     // A modal (dimmed backdrop, Esc or a click outside closes) with a full-size close button;
     // egui's window close box is 14 px.
-    let resp = egui::Modal::new(egui::Id::new("settings-window")).frame(frame).show(ctx, |ui| {
+    let resp = egui::Modal::new(egui::Id::unique("settings-window")).frame(frame).show(ctx, |ui| {
         let width = (ctx.content_rect().width() - 2.0 * theme::space::XXL).min(860.0).min(available.x).max(0.0);
         ui.set_width(width);
         ui.set_max_height(available.y.max(0.0));
@@ -73,7 +73,7 @@ pub fn show(app: &mut CraftApp, ctx: &egui::Context) {
 
 fn tabs(app: &mut CraftApp, ui: &mut Ui, horizontal: bool, height: f32) {
     let t = Tokens::get(ui.ctx());
-    let id = egui::Id::new("shown-settings-tab");
+    let id = egui::Id::unique("shown-settings-tab");
     let shown = (app.state.settings_tab, horizontal, ui.ctx().content_rect().size());
     let changed = ui.data_mut(|d| {
         let previous = d.get_temp::<(SettingsTab, bool, Vec2)>(id);
@@ -93,14 +93,14 @@ fn tabs(app: &mut CraftApp, ui: &mut Ui, horizontal: bool, height: f32) {
         if !horizontal && tab == SettingsTab::About {
             ui.add_space((height - ui.min_rect().height() - ui.spacing().item_spacing.y - TAB_H).max(theme::space::SM));
         }
-        let id = egui::Id::new(("settings-tab", title));
+        let id = egui::Id::unique(("settings-tab", title));
         let title = tr(title);
         let galley = ui.painter().layout_no_wrap(title.clone(), theme::medium(theme::BODY), if app.state.settings_tab == tab { t.text } else { t.text_dim });
         let w = if horizontal { galley.size().x + theme::icon::MD + 3.0 * theme::space::MD } else { ui.available_width() };
         let on = app.state.settings_tab == tab;
         let (_, rect) = ui.allocate_space(Vec2::new(w, TAB_H));
         let r = ui.interact(rect, id, egui::Sense::click());
-        r.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, &title));
+        r.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, on, &title));
         if on {
             ui.painter().rect_filled(rect, t.radius, t.accent_soft);
         } else if r.hovered() {
@@ -150,7 +150,7 @@ fn tabs(app: &mut CraftApp, ui: &mut Ui, horizontal: bool, height: f32) {
 
 fn page(app: &mut CraftApp, ui: &mut Ui, h: f32) {
     // The page moves between responsive parents; its widgets keep the same UI identity.
-    ui.scope_builder(egui::UiBuilder::new().id(egui::Id::new("settings-page-layout")), |ui| page_content(app, ui, h));
+    ui.scope_builder(egui::UiBuilder::new().scope_id(egui::Id::unique("settings-page-layout")), |ui| page_content(app, ui, h));
 }
 
 fn page_content(app: &mut CraftApp, ui: &mut Ui, h: f32) {
@@ -159,7 +159,7 @@ fn page_content(app: &mut CraftApp, ui: &mut Ui, h: f32) {
     ui.set_width(w);
     let content_w = (w - ui.spacing().scroll.allocated_width() - theme::SETTINGS_CONTENT_INSET).max(0.0);
     // A new save error starts in view, even if the person was editing near the page's end.
-    let page_id = egui::Id::new("settings-page").with((app.toast_error_revision, app.state.toasts.iter().rfind(|(_, error)| *error).map(|(text, _)| text)));
+    let page_id = egui::Id::unique("settings-page").with((app.toast_error_revision, app.state.toasts.iter().rfind(|(_, error)| *error).map(|(text, _)| text)));
     // Fixed bounds across tabs, with the header outside the scrolling page.
     egui::ScrollArea::vertical().id_salt(page_id).auto_shrink([false, false]).min_scrolled_height(h).max_height(h).max_width(w).show(ui, |ui| {
         ui.set_max_width(content_w);
@@ -199,7 +199,7 @@ fn row(ui: &mut Ui, title: &str, sub: &str, add: impl FnOnce(&mut Ui)) {
     // The narrow branch adds a controls container. Its descendants must keep their draft,
     // keyboard focus and cursor when moving back to the horizontal row.
     let add = |ui: &mut Ui| {
-        ui.scope_builder(egui::UiBuilder::new().id(egui::Id::new(("settings-row-controls", title))), add);
+        ui.scope_builder(egui::UiBuilder::new().scope_id(egui::Id::unique(("settings-row-controls", title))), add);
     };
     let labels = |ui: &mut Ui| {
         ui.set_width(if narrow { ui.available_width() } else { 280.0 });
@@ -247,6 +247,7 @@ fn about(ui: &mut Ui) {
     });
 }
 
+/// Render general preferences and route confirmed edits through the app's persistence path.
 fn general(app: &mut CraftApp, ui: &mut Ui) {
     row(ui, "Mode", "Simple: say what you want and it's handled for you. Advanced: every tool, the evidence and the logs.", |ui| {
         ui.vertical(|ui| {
@@ -287,7 +288,7 @@ fn general(app: &mut CraftApp, ui: &mut Ui) {
     }
     row(ui, "When a folder you pick has files", "Whether they're the app to edit in place, or material the app starts from beside them.", |ui| {
         let current = crate::folders::EXISTING_CHOICES.iter().find(|(_, v)| *v == app.settings.existing_files).map_or("Ask each time", |(l, _)| *l);
-        widgets::dropdown("existing-files").selected_text(tr(current)).show_ui(ui, |ui| {
+        let response = widgets::dropdown("existing-files").selected_text(tr(current)).show_ui(ui, |ui| {
             for (label, value) in crate::folders::EXISTING_CHOICES {
                 if widgets::menu_item(ui, app.settings.existing_files == value, tr(label)).clicked() {
                     app.settings.existing_files = value;
@@ -295,6 +296,7 @@ fn general(app: &mut CraftApp, ui: &mut Ui) {
                 }
             }
         });
+        response.response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, tr("When a folder you pick has files")));
     });
     row(ui, "Theme", "", |ui| {
         // System first: it's the default, and the other two are what it picks between.
@@ -322,11 +324,12 @@ fn general(app: &mut CraftApp, ui: &mut Ui) {
     });
 }
 
+/// Choose the UI language using its native name and persist the selected locale.
 fn language(app: &mut CraftApp, ui: &mut Ui) {
     row(ui, "Language", "", |ui| {
         let selected = (!app.settings.language.trim().is_empty()).then(|| crate::i18n::language_from_tag(&app.settings.language).unwrap_or("en"));
         let current = LANGUAGES.iter().find(|l| Some(l.code) == selected).map(|l| l.name).unwrap_or("System");
-        widgets::dropdown("lang").selected_text(tr(current)).show_ui(ui, |ui| {
+        let response = widgets::dropdown("lang").selected_text(tr(current)).show_ui(ui, |ui| {
             if widgets::menu_item(ui, app.settings.language.trim().is_empty(), tr("System")).clicked() {
                 app.settings.language.clear();
                 crate::i18n::set_language("");
@@ -340,6 +343,7 @@ fn language(app: &mut CraftApp, ui: &mut Ui) {
                 }
             }
         });
+        response.response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::ComboBox, true, tr("Language")));
     });
 }
 
@@ -436,7 +440,8 @@ fn model_options_loading(ui: &mut Ui, backend: &str) {
     ui.add_enabled_ui(false, |ui| {
         controls(ui, |ui| {
             ui.label(tr("Context window"));
-            widgets::dropdown(("model-context", backend)).selected_text(tr("Default")).show_ui(ui, |_| {});
+            let response = widgets::dropdown(("model-context", backend)).selected_text(tr("Default")).show_ui(ui, |_| {});
+            widgets::named(response.response, "Context window");
         });
     });
 }
@@ -479,7 +484,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
     // A saved API key being replaced or forgotten (the keychain work happens off this frame).
     let (mut save_key, mut forget_key) = (None, None);
     // The AI whose Remove was pressed once: asked again before its key is deleted.
-    let confirm_id = egui::Id::new("remove-ai");
+    let confirm_id = egui::Id::unique("remove-ai");
     let confirming: Option<String> = ui.data(|d| d.get_temp(confirm_id));
     for b in &app.backends {
         widgets::panel(&t).show(ui, |ui| {
@@ -550,7 +555,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                     // account. Saved on Enter or when the field is left; empty is its usual one.
                     if craft_anything_ai::folder_var(b).is_some() {
                         let saved = app.backend_options.get(&b.name).and_then(|o| o.config_dir.clone()).unwrap_or_default();
-                        let id = egui::Id::new(("agent-folder", &b.name));
+                        let id = egui::Id::unique(("agent-folder", &b.name));
                         // What was typed stays until it's saved (or refused, so it can be fixed).
                         if folder_drafts.get(&b.name).is_some_and(|d| d.trim() == saved) && !ui.memory(|m| m.has_focus(id)) {
                             folder_drafts.remove(&b.name);
@@ -584,7 +589,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                     let effort = craft_anything_ai::effort_in_use(b, app.backend_options.get(&b.name));
                     let effort_levels = craft_anything_ai::effort_levels(b);
                     if b.kind == BackendKind::AgentCli && b.ssh_host.as_deref().is_some_and(|h| !h.trim().is_empty()) {
-                        let id = egui::Id::new(("remote-agent-program", &b.name));
+                        let id = egui::Id::unique(("remote-agent-program", &b.name));
                         let mut program = ui
                             .data_mut(|d| d.get_temp::<String>(id))
                             .unwrap_or_else(|| app.backend_options.get(&b.name).and_then(|o| o.command.clone()).unwrap_or_default());
@@ -671,7 +676,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                                                 }
                                             }
                                         });
-                                    r.response.on_hover_text(&picked);
+                                    widgets::named(r.response, "Model").on_hover_text(&picked);
                                     if widgets::caption_link(ui, "Cancel").clicked() {
                                         close_picker = true;
                                     }
@@ -680,7 +685,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                             if !effort_levels.is_empty() {
                                 ui.label(RichText::new(tr("Effort:")).color(t.text_faint).size(theme::CAPTION));
                                 let shown = effort.map_or("default", craft_anything_ai::Effort::as_str);
-                                widgets::dropdown(("effort", &b.name)).selected_text(shown).show_ui(ui, |ui| {
+                                let response = widgets::dropdown(("effort", &b.name)).selected_text(shown).show_ui(ui, |ui| {
                                     // Claude always has a level; an OpenAI-style API is sent none until one is chosen.
                                     let unset = (effort_levels != craft_anything_ai::Effort::ALL).then_some(None);
                                     for e in unset.into_iter().chain(effort_levels.iter().map(|&e| Some(e))) {
@@ -690,6 +695,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                                         }
                                     }
                                 });
+                                widgets::named(response.response, "Effort:");
                             }
                         });
                     }
@@ -705,12 +711,13 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                                             .and_then(|value| choices.context.iter().find(|choice| choice.value == value))
                                             .map(|choice| tr(&choice.label))
                                             .unwrap_or_else(|| tr("Default"));
-                                        widgets::dropdown(("model-context", &b.name)).selected_text(label).show_ui(ui, |ui| {
+                                        let response = widgets::dropdown(("model-context", &b.name)).selected_text(label).show_ui(ui, |ui| {
                                             changed |= widgets::menu_choice(ui, &mut draft.context, None, tr("Default"));
                                             for choice in &choices.context {
                                                 changed |= widgets::menu_choice(ui, &mut draft.context, Some(choice.value), tr(&choice.label));
                                             }
                                         });
+                                        widgets::named(response.response, "Context window");
                                     });
                                 });
                                 if changed {
@@ -744,7 +751,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                 };
                 // One change at a time: jobs finish in any order, so a second change's refresh could land before the
                 // first's and Settings would show the older choice. The row waits for the saving job, as the rate does.
-                let job_id = egui::Id::new(("settings-tool-list-job", &b.name));
+                let job_id = egui::Id::unique(("settings-tool-list-job", &b.name));
                 let pending_job = ui.data(|data| data.get_temp::<u64>(job_id));
                 let pending = app.jobs.running().any(|job| Some(job.id) == pending_job);
                 if !pending && pending_job.is_some() {
@@ -770,7 +777,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                 let saved = app.backend_options.get(&b.name).and_then(|o| o.requests_per_minute).unwrap_or_default();
                 // Drafts and pending jobs belong to this backend, independently of the
                 // responsive parent UI or a new error's scroll-area identity.
-                let id = egui::Id::new(("settings-request-rate", &b.name));
+                let id = egui::Id::unique(("settings-request-rate", &b.name));
                 let saved_text = if saved == 0 { String::new() } else { saved.to_string() };
                 let (mut text, pending_job) = ui.data(|data| data.get_temp::<(String, Option<u64>)>(id)).unwrap_or((saved_text.clone(), None));
                 let pending = app.jobs.running().any(|job| Some(job.id) == pending_job);
@@ -1183,6 +1190,7 @@ fn number<T: egui::emath::Numeric>(ui: &mut Ui, value: &mut T, range: std::ops::
     ui.add(egui::DragValue::new(value).range(range).prefix(prefix).suffix(suffix)).changed()
 }
 
+/// Edit build goals and asset-generation settings, persisting changes after rendering.
 fn builds(app: &mut CraftApp, ui: &mut Ui) {
     let mut changed = false;
     let b = &mut app.settings.build;
@@ -1235,7 +1243,7 @@ fn builds(app: &mut CraftApp, ui: &mut Ui) {
     let table = craft_anything_engines::assets::Catalogue::built_in();
     row(ui, "Picture model", "What pictures and textures are made with.", |ui| {
         let current = table.image_model(a.image_model.as_deref()).or_else(|_| table.image_model(None)).map(|m| m.name.clone()).unwrap_or_default();
-        widgets::dropdown("image-model").selected_text(current).show_ui(ui, |ui| {
+        let response = widgets::dropdown("image-model").selected_text(current).show_ui(ui, |ui| {
             for m in table.images() {
                 let price = crate::usage::asset_cost_words(m.cost(craft_anything_engines::assets::Shape::Square));
                 let label = format!("{} · {} {}", m.name, price, tr("a picture"));
@@ -1246,6 +1254,7 @@ fn builds(app: &mut CraftApp, ui: &mut Ui) {
                 }
             }
         });
+        widgets::named(response.response, "Picture model");
     });
     if changed {
         app.settings_changed();
@@ -1805,6 +1814,7 @@ mod tests {
     }
 
     #[test]
+    /// The shared picker deduplicates model labels without losing the selected model's identity.
     fn identical_model_names_are_shown_once_in_the_shared_picker() {
         use craft_anything_ai::{AgentModel, BackendEntry, ModelContext};
         use egui_kittest::{Harness, kittest::Queryable};
@@ -1844,6 +1854,7 @@ mod tests {
     }
 
     #[test]
+    /// Missing-model warnings identify the configured backend rather than another agent.
     fn shared_picker_warnings_name_the_configured_agent() {
         use craft_anything_ai::{BackendEntry, ModelContext};
         use egui_kittest::{Harness, kittest::Queryable};

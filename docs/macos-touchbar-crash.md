@@ -1,0 +1,152 @@
+# macOS Touch Bar shutdown crash
+
+## Report and diagnosis
+
+A native Apple Silicon build on a Touch Bar MacBook Pro (MacBookPro17,1,
+macOS 27.0) aborted when Quit was selected during installation verification.
+The main-thread exception passes through Foundation observer removal,
+`_NSTouchBarFinderObservation::invalidate`, AppKit's display-cycle flush and
+eframe's `run_and_return`. This is an Objective-C exception, not a Rust panic
+or a Codex provider error. The raw report stays private: it contains machine
+identifiers and local paths.
+
+The locked `accesskit_macos` 0.26.3 implementation unconditionally restores the
+view's previous runtime class when its subclassing adapter drops. AppKit can
+have installed a KVO subclass above AccessKit's subclass. Restoring the older
+class discards that observation; AppKit subsequently tries to remove it and
+raises an exception. This matches the reported stack and the upstream fix in
+[AccessKit #835](https://github.com/AccessKit/accesskit/pull/835), released in
+`accesskit_macos` 0.27.2. Stack agreement is strong evidence, not a claim that
+the original app's internal view state was inspected under a debugger.
+
+## Change and scope
+
+The 0.36 GUI stack requires the 0.26 macOS adapter line, so a lockfile-only
+0.27.2 update cannot satisfy its dependency constraints. Move the coordinated
+eframe, egui, egui_extras and egui_kittest dependencies to published 0.37
+releases, which resolve the fixed 0.27.2 adapter. Keep the workspace's existing
+Rust minimum; do not change the graphics backend or add default features.
+
+The source migration is mechanical: `WidgetType` becomes `Role`, including
+`Checkbox` → `CheckBox`, `SelectableLabel` → `Button` and `Other` → `Unknown`
+(the same native roles the previous version produced). `Id::unique` replaces
+the deprecated `Id::new` alias; `scope_id` replaces `Ui::id`. These renames do
+not intentionally alter control labels, IDs, styles or product behavior.
+
+The newer test harness also makes missing glyphs an error. Component tests now
+install normal fonts and image loaders before their first frame, rather than
+letting unloaded SVG icons enter the generic error-image path. The locale
+selection test explicitly permits placeholder glyphs in minimal builds without
+optional CJK fonts; it asserts translated labels and persistence, not typography.
+The other UI tests retain strict glyph checking.
+The stricter accessibility checks also exposed unnamed settings selectors;
+their existing translated row titles now name the controls without adding visible
+text. Locale tests identify the selector by role as well as label, since the
+visible row title and accessible control now correctly share that name.
+Bundled JetBrains Mono is also a proportional-font fallback for navigation
+arrows when optional craft-fonts are absent; a strict-glyph regression renders
+those hints in regular, medium and semibold. Modal smoke checks wait for their
+accessibility-tree frames after observing the asynchronous state change.
+
+The arrow regression constructs font definitions with no optional input, including
+the inherited medium and semibold families, even when CI embeds craft-fonts.
+An optional-input fixture separately checks inheritance. A negative mutation
+probe with an arrow-capable optional font compiled in failed on the missing
+U+2192 arrow after removing the bundled fallback, then passed after restoration.
+
+Accessibility remains enabled. No exception suppression, `unsafe` application
+code, private AppKit API, forced process exit, or vendored dependency is added.
+Normal preference saving, job cancellation and child-process cleanup retain
+their existing shutdown path. The broader dependency migration is intentional
+and should be reviewed independently of the Codex discovery/sign-in feature.
+
+## Regression and verification
+
+`apps/craft-anything/tests/accessibility_lock.rs` parses the checked-in lockfile
+and requires every macOS adapter resolution to include a stable release at
+least 0.27.2. Fixtures reject the old 0.26.3 resolution, pre-fix versions,
+prereleases, invalid/missing packages and mixed fixed/vulnerable resolutions.
+This is a dependency regression guard, **not** an automated native crash test.
+
+Before calling this fixed, build and run the native app on the affected Mac,
+exercise both Quit and the red window-close button, check process exit status
+and newly created DiagnosticReports, and verify saved UI settings after reopening.
+Headless GUI tests, accessibility-tree checks and clippy supplement that test;
+they cannot substitute for AppKit's actual display-cycle teardown. Windows,
+Linux and VoiceOver require their own live checks before an upstream release.
+
+On the affected M1 Touch Bar Mac, the earlier personal-fork candidate produced normal `closed` log
+markers after menu Quit and window close, with no new Craft Anything crash
+reports. Reopening retained the selected Codex backend and Advanced mode.
+The native accessibility tree and window contents were inspected. These were
+idle-app checks: shutdown during an active build and VoiceOver were not tested,
+and launchd's numeric exit status was not captured. The existing exit-settings
+integration test separately checks pending settings and AI settings preservation.
+
+The upstream candidate was separately verified on 2026-11-09 on the same class
+of hardware, using a distinct test bundle and temporary configuration directory.
+Menu Quit and the native red window-close control each returned process exit
+code 0, produced normal `closed` markers and created no new matching diagnostic
+reports. Reopening retained Advanced mode in the temporary settings; no account
+was connected for these checks. The installed application was not replaced.
+The desktop/GUI suites passed 238 tests (one existing ignored), including the
+dependency guard, strict arrow-glyph regression and exit-settings integration.
+All-target clippy with warnings denied, fmt, layering, lock, translation and secret
+checks passed; the native desktop and companion CLI built with locked dependencies.
+
+Review on 2026-11-13 identified that optional fonts compiled into CI could hide
+the bundled-arrow regression. The explicit optional-input constructor and mutation
+probe above address that gap. The branch was rebased on upstream `1c7d619`, keeping
+its version 0.6.1 and intervening behavior, including newer controls' accessibility
+metadata. The native shutdown observations above refer to the November 9
+implementation, not a new native run after this rebase.
+
+On 2026-11-21, the author requested conflict resolution against upstream `e64d7cb`.
+That base still uses the vulnerable 0.26 adapter line. The migration retains
+upstream's newer Figtree variable font and bold script fallbacks, shared control
+sizes, animated dropdowns and segments, Settings/About page, and click-through
+toast layout. The shared dropdown constructor now returns an owned
+`ComboBox<'static>` as required by egui 0.37; its controls retain accessible names.
+Upstream removed Help from the title bar, so its zoom regression checks the
+remaining Settings and Advanced controls with the same strict tolerances rather
+than restoring the obsolete menu. This is an update of the existing layout test,
+not a skipped or relaxed assertion for an extant control. The lockfile is normalized
+by Cargo after reconciliation. Native shutdown evidence above remains dated
+November 9 and is not claimed as a new native run of this revision.
+
+Local validation of this rebase on macOS: 308 desktop/GUI tests passed, one
+existing clipboard test was ignored, and the unchanged upstream
+`a_non_text_folder_is_refused_before_a_look_starts` fixture failed at `create_dir`
+with OS error 92 (illegal byte sequence), before reaching app behavior. The
+fixture and its assertions are unchanged. All 123 smoke tests passed. All-target
+clippy on Rust 1.99.1, formatting, layering, locks, translation coverage, secrets
+and diff checks passed. Optional multilingual font packages were not embedded in
+this local run. Hosted Linux CI is a distinct verification, not implied by these
+local results.
+
+On 2026-11-26, the branch was rebased onto upstream `3e59a9c`. Cargo
+regenerated the GUI dependency resolution from the new upstream lockfile,
+retaining the fixed macOS adapter. The updated responsive Settings keeps
+its layout-independent focus and control IDs, and segment animations
+remain scoped to each row. The activity panel and its controls use the
+same egui 0.37 ID and accessibility APIs as the rest of the desktop UI.
+The native Quit/window-close observations still refer to November 9.
+
+Local desktop/GUI validation passed 353 tests, including all 136 smoke
+tests, responsive Settings, and the locked adapter guard. The same
+unchanged upstream non-UTF-8 folder fixture failed before application code
+ran (macOS error 92), and one existing clipboard test remained ignored.
+The chat recovery selector keeps its existing behavior and now exposes
+its translated name to egui 0.37 accessibility clients.
+
+## Recovery and upstream review
+
+Keep the prior application bundle and settings before installing. A local
+ad-hoc-signed build is not a notarized release. Rollback installs the retained
+bundle; reverting the dependency migration also restores the known crash risk.
+Do not remove user projects, authentication stores or settings during recovery.
+
+An upstream submission should include the sanitized stack, the exact dependency
+versions, this rationale for avoiding early-exit/accessibility workarounds,
+the lockfile regression guard, and the observed native test results. Do not
+attach raw account logs or the private crash report.

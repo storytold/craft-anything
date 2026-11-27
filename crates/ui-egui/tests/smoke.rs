@@ -859,11 +859,12 @@ fn the_approvals_link_is_clear_of_send() {
             h.get_by_label("Approvals").click();
         }
         h.run_steps(2);
-        assert!(egui::Popup::is_id_open(&h.ctx, egui::Id::new("project-approvals")), "the menu opened, {case}");
+        assert!(egui::Popup::is_id_open(&h.ctx, egui::Id::unique("project-approvals")), "the menu opened, {case}");
     }
 }
 
 #[test]
+/// Approval choices in the prompt and menu update the selected project's permission settings.
 fn approvals_are_chosen_from_the_prompt_box_and_its_menu() {
     use craft_anything_engine::workspace::{ActionKind, Approval, TargetRef, Workspace};
     let d = tempfile::tempdir().unwrap();
@@ -899,7 +900,7 @@ fn approvals_are_chosen_from_the_prompt_box_and_its_menu() {
     // The menu under the box: one row per kind, and a click saves it.
     h.get_by_label("Approvals").click();
     h.run_steps(2);
-    assert!(egui::Popup::is_id_open(&h.ctx, egui::Id::new("project-approvals")), "the menu opened");
+    assert!(egui::Popup::is_id_open(&h.ctx, egui::Id::unique("project-approvals")), "the menu opened");
     h.get_by_label("Reading the web");
     h.get_by_label("Pushing and publishing");
     let refuse = h.get_all_by_label("Refuse").count();
@@ -1283,6 +1284,7 @@ fn simple_and_advanced_use_the_same_text_sizes() {
 }
 
 #[test]
+/// Mode and Deep controls update state while preserving the consent interaction.
 fn mode_switch_and_deep_toggle() {
     let store = tempfile::tempdir().unwrap();
     let empty = store.path().to_path_buf();
@@ -1305,6 +1307,8 @@ fn mode_switch_and_deep_toggle() {
     assert!(wait(&mut h, |a| a.engine.try_session().is_some_and(|s| s.settings.mode == Mode::Experienced)));
     h.state_mut().set_deep(true);
     assert!(wait(&mut h, |a| a.engine.try_session().is_some_and(|s| s.settings.deep_mode && !s.clean_room())));
+    // State changes can precede the modal's accessibility-tree frame.
+    h.run_steps(3);
     // No Ghidra in the store: Deep mode offers it first. (Hover first, as a mouse does: the
     // dialog's button only takes a click once the pointer has been over it for a frame.)
     h.get_by_label("Not now").hover();
@@ -1460,7 +1464,7 @@ fn disabled_chat_recovery_can_turn_on_the_saved_ai_without_sending_the_draft() {
 fn disabled_chat_recovery_offers_enabled_choices_and_keeps_the_question() {
     let mut h = harness(|| disabled_chat_app(Mode::Beginner));
     h.run_steps(4);
-    h.get_by_value("Choose another AI").click();
+    h.get_by_role_and_label(egui::Role::ComboBox, "Choose another AI").click();
     h.run_steps(2);
     assert!(h.query_by_label("Other off").is_none(), "the recovery menu only offers enabled AIs");
     h.get_by_label("Chat ready").click();
@@ -1570,6 +1574,7 @@ fn opening_a_missing_file_is_a_calm_error() {
 }
 
 #[test]
+/// A Clean room request requiring Deep mode presents consent before opening the target.
 fn clean_room_asks_for_deep_mode_instead_of_opening_a_file() {
     use craft_anything_ui_egui::state::Modal;
     let mut h = harness(|| demo::app(demo::engine(Mode::Beginner, true)));
@@ -1577,6 +1582,7 @@ fn clean_room_asks_for_deep_mode_instead_of_opening_a_file() {
     h.state_mut().open_path(std::path::PathBuf::from("/samples/tool.exe"));
     assert!(wait(&mut h, |a| a.state.modal == Some(Modal::DeepMode)), "Clean room never opens the original");
     assert!(!h.state().state.toasts.iter().any(|(_, err)| *err), "no error, a question");
+    h.run_steps(3);
     h.get_by_label("Looking inside needs Deep mode");
     // Hover first, as a mouse does: a dialog's button takes a click once the pointer was over it.
     h.get_by_label("Not now").hover();
@@ -1769,6 +1775,7 @@ fn the_command_palette_stays_where_it_was_scrolled() {
     // Over the list's first rows (this one may be below what the list shows).
     h.event(egui::Event::PointerMoved(egui::pos2(before.center().x, 250.0)));
     h.event(egui::Event::MouseWheel {
+        source: egui::MouseWheelSource::Unknown,
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, -300.0),
         phase: egui::TouchPhase::Move,
@@ -1901,6 +1908,7 @@ fn an_api_backends_tool_list_is_chosen_in_settings() {
 /// #54, #98: an AI server on another computer is added by its address in Settings → AI, with a
 /// model that can chat, and the form empties once it's added.
 #[test]
+/// Adding a server by address remains reachable by scrolling past the settings credential rows.
 fn an_ai_server_is_added_by_its_address() {
     let url = model_server();
     let mut h = harness(|| {
@@ -1918,6 +1926,7 @@ fn an_ai_server_is_added_by_its_address() {
     // page first, as a person would.
     h.event(egui::Event::PointerMoved(egui::pos2(640.0, 400.0)));
     h.event(egui::Event::MouseWheel {
+        source: egui::MouseWheelSource::Unknown,
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, -300.0),
         phase: egui::TouchPhase::Move,
@@ -1951,6 +1960,7 @@ fn a_model_picked_from_a_servers_list_is_chosen_there_and_goes_with_its_address(
     // The form sits below the fold of the AI page: scroll to it, as a person would.
     h.event(egui::Event::PointerMoved(egui::pos2(640.0, 400.0)));
     h.event(egui::Event::MouseWheel {
+        source: egui::MouseWheelSource::Unknown,
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, -300.0),
         phase: egui::TouchPhase::Move,
@@ -2050,7 +2060,7 @@ fn a_claude_ais_effort_is_set_in_settings() {
     h.state_mut().state.settings_open = true;
     h.state_mut().state.settings_tab = craft_anything_ui_egui::state::SettingsTab::Ai;
     h.run_steps(2);
-    h.get_by_label("Effort:");
+    h.get_by_role_and_label(egui::Role::ComboBox, "Effort:");
     assert!(h.state().backend_options.get("Claude Code").and_then(|o| o.effort).is_none(), "the usual level until one is chosen");
     // Chosen through the dropdown itself, which shows the level in use.
     h.get_by_value("high").click();
@@ -2084,7 +2094,7 @@ fn an_openai_compatible_ais_effort_is_set_in_settings() {
     h.state_mut().state.settings_open = true;
     h.state_mut().state.settings_tab = craft_anything_ui_egui::state::SettingsTab::Ai;
     h.run_steps(2);
-    h.get_by_label("Effort:");
+    h.get_by_role_and_label(egui::Role::ComboBox, "Effort:");
     h.get_by_value("default").click();
     h.run();
     assert!(h.query_by_label("max").is_none(), "only OpenAI's levels");
@@ -2301,6 +2311,7 @@ fn title_bar_keeps_its_size_when_zoomed() {
             let r = h.get_all_by_label(label).map(|n| n.rect()).min_by(|a, b| a.top().total_cmp(&b.top())).unwrap();
             egui::Rect::from_min_max(r.min * zoom, r.max * zoom)
         };
+        // Upstream moved Help into Settings/About; exercise the controls still in this bar.
         (rect("Settings"), rect("Advanced"), rect("Filter"))
     };
     let (settings, advanced, filter) = on_screen(1.0);
@@ -3188,7 +3199,7 @@ fn the_build_details_box_keeps_its_height_wraps_and_opens_in_its_own_window() {
     // From its title to the grip under it: ten lines and the card's edges.
     let tall = h.get_by_label("Drag to change the height").rect().top() - h.get_by_label("More detail").rect().bottom();
     assert!(tall >= 10.0 * LINE, "the box is {tall} points tall at the bottom of a long feed");
-    let id = egui::Id::new(("run_details", &ws.root));
+    let id = egui::Id::unique(("run_details", &ws.root));
     assert_eq!(Look::of(&h.ctx, id), Look::default());
 
     // One line, not cut off: the box scrolls sideways.
