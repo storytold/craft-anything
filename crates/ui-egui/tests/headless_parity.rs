@@ -12,6 +12,14 @@
 //! - a pending tool that now exists fails the test, so its row is moved to `Tool`;
 //! - every `&mut self` method on `CraftApp` is either a row here or in [`PLUMBING`], so a new
 //!   method can't slip in without a decision.
+//!
+//! **RFC-0052.** This table is Craft Anything's parity report for
+//! [RFC-0052](https://github.com/storytold/craft-contrib/blob/main/rfcs/0052-headless-reach.md)'s
+//! `headless:` column, which it already carries in another shape. The mapping ([`rfc0052`]):
+//! `Tool` and `Cli` are `yes` (the CLI and the MCP server reach it), `Pending` is `no` with
+//! `reach: engine-gap` (a tool could do it; it isn't one yet), `UiOnly` is `no` with
+//! `reach: window` (a view action, nothing lost without the app). No row is `partial` or
+//! `unknown`: every action must have a row. [`summary`] prints the counts.
 
 use craft_anything_engine::Registry;
 use std::path::{Path, PathBuf};
@@ -309,6 +317,26 @@ fn every_row_says_why_when_there_is_no_counterpart() {
     }
 }
 
+/// A row's RFC-0052 `(headless, reach)` (see the module docs).
+fn rfc0052(h: &Headless) -> (&'static str, Option<&'static str>) {
+    match h {
+        Tool(_) | Cli(_) => ("yes", None),
+        Pending { .. } => ("no", Some("engine-gap")),
+        UiOnly(_) => ("no", Some("window")),
+    }
+}
+
+#[test]
+fn only_a_tool_or_cli_command_is_headless_yes() {
+    assert_eq!(rfc0052(&Tool(&["project_list"])), ("yes", None));
+    assert_eq!(rfc0052(&Cli("ai on <name>")), ("yes", None));
+    assert_eq!(rfc0052(&Pending { tool: None, why: "x" }), ("no", Some("engine-gap")));
+    assert_eq!(rfc0052(&UiOnly("x")), ("no", Some("window")));
+    let yes = ACTIONS.iter().filter(|a| rfc0052(&a.headless).0 == "yes").count();
+    let counterpart = ACTIONS.iter().filter(|a| matches!(a.headless, Tool(_) | Cli(_))).count();
+    assert_eq!(yes, counterpart, "a pending or UI-only row is never yes");
+}
+
 /// Counts, for the PR and the roadmap: `cargo test -p craft-anything-ui-egui --test headless_parity -- --nocapture`.
 #[test]
 fn summary() {
@@ -321,4 +349,12 @@ fn summary() {
         }
     }
     println!("headless parity: {covered} covered, {pending} pending, {ui_only} UI-only ({} actions)", ACTIONS.len());
+    let count = |v: &str, r: Option<&str>| ACTIONS.iter().filter(|a| rfc0052(&a.headless) == (v, r)).count();
+    println!(
+        "RFC-0052: {} yes, {} no (window {}, os 0, engine-gap {}), 0 partial, 0 unknown",
+        count("yes", None),
+        count("no", Some("window")) + count("no", Some("engine-gap")),
+        count("no", Some("window")),
+        count("no", Some("engine-gap"))
+    );
 }
