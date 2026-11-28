@@ -872,6 +872,7 @@ yet, and the quick start is how every new person begins.
 - [ ] A live build in a picked folder each way (edit in place, start from), checked end to end
 - [ ] Thresholds under pressure: a clone that's off by a few pixels (a page with fluid type or
       `clamp()` spacing) to see whether 4 / 2 / 8 px is too strict
+      — claimed: scks1, branch docs/r5.7-thresholds-fluid-type-live-run
 - [ ] Screenshot check: in a live run the final check once got no picture from an Electron app
       within 90 s while the same check passed in the builder's turn and on a re-run; not
       reproduced. The app waited on animation frames, which a window behind others may not get;
