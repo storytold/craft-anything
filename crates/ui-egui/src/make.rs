@@ -122,9 +122,9 @@ pub fn hero(app: &mut CraftApp, ui: &mut Ui, w: f32) {
         mine(app, ui, w);
         return;
     }
-    ui.label(theme::heading(tr("What do you want to make?"), theme::TITLE));
+    crate::i18n::heading(ui, &tr("What do you want to make?"), theme::TITLE);
     ui.add_space(theme::space::SM);
-    ui.label(RichText::new(tr("Choose what to recreate, say what you want, then press Start.")).size(theme::LEAD).color(t.text_dim));
+    crate::i18n::rich_label(ui, &tr("Choose what to recreate, say what you want, then press Start."), |r| r.size(theme::LEAD).color(t.text_dim));
     ui.add_space(theme::space::LG);
     widgets::card(&t).inner_margin(theme::pad::ROOMY).show(ui, |ui| {
         ui.set_width(w - 50.0);
@@ -182,9 +182,9 @@ pub fn hero(app: &mut CraftApp, ui: &mut Ui, w: f32) {
 /// edits in place, and what to change. There's no original to pick, so no Clean room / Deep choice.
 fn mine(app: &mut CraftApp, ui: &mut Ui, w: f32) {
     let t = Tokens::get(ui.ctx());
-    ui.label(theme::heading(tr("Work on a project you already have"), theme::TITLE));
+    crate::i18n::heading(ui, &tr("Work on a project you already have"), theme::TITLE);
     ui.add_space(theme::space::SM);
-    ui.label(RichText::new(tr("Pick its folder, say what you want, then press Start.")).size(theme::LEAD).color(t.text_dim));
+    crate::i18n::rich_label(ui, &tr("Pick its folder, say what you want, then press Start."), |r| r.size(theme::LEAD).color(t.text_dim));
     ui.add_space(theme::space::LG);
     widgets::card(&t).inner_margin(theme::pad::ROOMY).show(ui, |ui| {
         ui.set_width(w - 50.0);
@@ -208,7 +208,7 @@ fn mine(app: &mut CraftApp, ui: &mut Ui, w: f32) {
                 });
                 ui.horizontal_wrapped(|ui| {
                     ui.add_space(theme::space::XL);
-                    ui.label(RichText::new(tr("your files there are the app, edited in place")).size(theme::SMALL).color(t.text_dim));
+                    crate::i18n::rich_label(ui, &tr("your files there are the app, edited in place"), |r| r.size(theme::SMALL).color(t.text_dim));
                     ui.label(RichText::new("·").size(theme::SMALL).color(t.text_faint));
                     if widgets::link(ui, "Pick another folder…").clicked() {
                         app.pick(Pick::OwnProject);
@@ -292,9 +292,9 @@ fn engine_choices(app: &mut CraftApp, ui: &mut Ui) {
 /// "Just look inside": what to look at, each opening straight away. Nothing is built or run.
 fn look(app: &mut CraftApp, ui: &mut Ui, w: f32) {
     let t = Tokens::get(ui.ctx());
-    ui.label(theme::heading(tr("What do you want to look inside?"), theme::TITLE));
+    crate::i18n::heading(ui, &tr("What do you want to look inside?"), theme::TITLE);
     ui.add_space(theme::space::SM);
-    ui.label(RichText::new(tr("We only read it; nothing runs. Every answer shows how sure we are.")).size(theme::LEAD).color(t.text_dim));
+    crate::i18n::rich_label(ui, &tr("We only read it; nothing runs. Every answer shows how sure we are."), |r| r.size(theme::LEAD).color(t.text_dim));
     ui.add_space(theme::space::LG);
     widgets::card(&t).inner_margin(theme::pad::ROOMY).show(ui, |ui| {
         ui.set_width(w - 50.0);
@@ -330,7 +330,7 @@ fn step_title(ui: &mut Ui, n: u32, text: &str) {
         let g = widgets::label_galley(ui, &n.to_string(), theme::SMALL, t.text);
         ui.painter().galley_with_override_text_color(r.center() - g.size() / 2.0, g, t.text);
         ui.add_space(theme::space::XS);
-        ui.label(theme::heading(tr(text), theme::SECTION));
+        crate::i18n::heading(ui, &tr(text), theme::SECTION);
     });
 }
 
@@ -387,7 +387,7 @@ fn choose_target(app: &mut CraftApp, ui: &mut Ui) {
     if let TargetRef::Local { path } = m.target.clone() {
         ui.add_space(theme::space::LG);
         ui.horizontal(|ui| {
-            ui.label(RichText::new(tr("You chose:")).size(theme::BODY).color(t.text_dim));
+            crate::i18n::rich_label(ui, &tr("You chose:"), |r| r.size(theme::BODY).color(t.text_dim));
             // A long name (an APK from a mirror) is cut short, whole on hover, so the row never widens the page.
             let name = m.target.label();
             ui.add(egui::Label::new(RichText::new(name.clone()).font(theme::semibold(theme::BODY))).truncate()).on_hover_text(name);
@@ -395,7 +395,7 @@ fn choose_target(app: &mut CraftApp, ui: &mut Ui) {
         });
     } else if website {
         ui.add_space(theme::space::LG);
-        ui.label(RichText::new(tr("Type the website's address:")).size(theme::BODY).color(t.text_dim));
+        crate::i18n::rich_label(ui, &tr("Type the website's address:"), |r| r.size(theme::BODY).color(t.text_dim));
         ui.add_space(theme::space::SM);
         let r = ui.add(
             egui::TextEdit::singleline(&mut m.url)
@@ -412,7 +412,7 @@ fn choose_target(app: &mut CraftApp, ui: &mut Ui) {
             ui.add_space(theme::space::XS);
             ui.horizontal(|ui| {
                 icons::show(ui, "triangle-alert", theme::icon::MD, t.danger);
-                ui.label(RichText::new(tr(problem)).color(t.danger).size(theme::BODY));
+                crate::i18n::rich_label(ui, &tr(problem), |r| r.color(t.danger).size(theme::BODY));
             });
         }
     }
@@ -437,7 +437,7 @@ fn sign_in(app: &mut CraftApp, ui: &mut Ui, url: Option<&str>, from_request: boo
     ui.horizontal_wrapped(|ui| {
         icons::show(ui, "key-round", theme::icon::MD, t.icon);
         if let Some(job) = app.signing_in {
-            ui.label(RichText::new(tr("Sign in in the browser window that opened, then close it.")).size(theme::SMALL).color(t.text_dim));
+            crate::i18n::rich_label(ui, &tr("Sign in in the browser window that opened, then close it."), |r| r.size(theme::SMALL).color(t.text_dim));
             if widgets::link(ui, "Stop waiting").clicked() {
                 app.jobs.cancel(job);
             }
@@ -464,7 +464,11 @@ fn sign_in(app: &mut CraftApp, ui: &mut Ui, url: Option<&str>, from_request: boo
             }
             if saved {
                 let forget = ui.add(widgets::Button::new(widgets::ButtonKind::Secondary, "Forget the saved sign-in").enabled(free));
-                let forget = if free { forget.on_hover_text(tr("Studies of this site start signed out again.")) } else { forget.on_disabled_hover_text(busy.as_str()) };
+                let forget = if free {
+                    forget.on_hover_text(crate::i18n::display(&tr("Studies of this site start signed out again.")).as_ref())
+                } else {
+                    forget.on_disabled_hover_text(busy.as_str())
+                };
                 if forget.clicked() && free {
                     app.forget_site_sign_in(url);
                 }
@@ -504,8 +508,8 @@ fn look_inside(app: &mut CraftApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     // The app's one setting (the title bar's switch), not this project's: said where it's chosen.
     ui.horizontal_wrapped(|ui| {
-        ui.label(RichText::new(tr("How closely may Craft Anything look at it?")).size(theme::BODY).color(t.text_dim));
-        ui.label(RichText::new(tr("For everything you make, like the switch in the title bar.")).size(theme::SMALL).color(t.text_faint));
+        crate::i18n::rich_label(ui, &tr("How closely may Craft Anything look at it?"), |r| r.size(theme::BODY).color(t.text_dim));
+        crate::i18n::rich_label(ui, &tr("For everything you make, like the switch in the title bar."), |r| r.size(theme::SMALL).color(t.text_faint));
     });
     ui.add_space(theme::space::SM);
     let deep = app.settings.deep_mode;
@@ -546,7 +550,9 @@ fn look_inside(app: &mut CraftApp, ui: &mut Ui) {
         ui.add_space(theme::space::SM);
         ui.horizontal(|ui| {
             icons::show(ui, "triangle-alert", theme::icon::MD, t.warning);
-            ui.label(RichText::new(tr("Ghidra isn't on this computer yet, so the built-in decompiler stands in.")).size(theme::SMALL).color(t.text_dim));
+            crate::i18n::rich_label(ui, &tr("Ghidra isn't on this computer yet, so the built-in decompiler stands in."), |r| {
+                r.size(theme::SMALL).color(t.text_dim)
+            });
             if app.ghidra.job.is_none() && widgets::secondary(ui, Some("download"), "Get Ghidra").clicked() {
                 app.state.modal = Some(crate::state::Modal::Ghidra);
             }
@@ -564,7 +570,7 @@ fn suggestions(app: &mut CraftApp, ui: &mut Ui) {
     };
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = Vec2::splat(theme::space::SM);
-        ui.label(RichText::new(tr("Ideas:")).size(theme::BODY).color(t.text_dim));
+        crate::i18n::rich_label(ui, &tr("Ideas:"), |r| r.size(theme::BODY).color(t.text_dim));
         for s in list.iter().take(2) {
             if widgets::suggestion(ui, s).clicked() {
                 app.state.make.request = tr(s);
@@ -597,8 +603,9 @@ fn mode_choice(app: &mut CraftApp, ui: &mut Ui) {
             app.state.screen = Screen::Home;
         }
     }
-    ui.label(RichText::new(tr("Mode")).size(theme::SMALL).color(t.text_dim))
-        .on_hover_text(tr("Simple: say what you want and it's handled for you. Advanced: every tool, the evidence and the logs."));
+    crate::i18n::rich_label(ui, &tr("Mode"), |r| r.size(theme::SMALL).color(t.text_dim)).on_hover_text(
+        crate::i18n::display(&tr("Simple: say what you want and it's handled for you. Advanced: every tool, the evidence and the logs.")).as_ref(),
+    );
 }
 
 /// Clean room or Deep, shown from the start so the choice is in view before anything is picked.
@@ -610,7 +617,7 @@ fn reach_choice(app: &mut CraftApp, ui: &mut Ui) {
     if !original {
         let t = Tokens::get(ui.ctx());
         ui.add_space(theme::space::XS);
-        ui.label(RichText::new(tr("This applies once you choose something to recreate above.")).size(theme::SMALL).color(t.text_faint));
+        crate::i18n::rich_label(ui, &tr("This applies once you choose something to recreate above."), |r| r.size(theme::SMALL).color(t.text_faint));
     }
 }
 

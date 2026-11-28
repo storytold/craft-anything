@@ -83,7 +83,7 @@ Issues are ranked by people affected and how badly, after leaving out what's alr
 | 3 Depth | The rest of R2.2 | — | Detection waits for reports from 0.3.0 or later; ACP after the adapters work |
 | 3 | R2.4 Runtime study, R2.5 Behaviour checks | scripted input (R2.4) before R2.5's sheet check | Makes "ready" mean more for apps and games |
 | 3 | R2.7, R2.8 | — | Small gaps left in finished work |
-| 3 | R2.9 Everyday use, R2.10 Pinned builds | — | Open to anyone at any time; most lines stand alone |
+| 3 | R2.9 Everyday use, R2.10 Pinned builds, R2.11 Right-to-left languages | — | Open to anyone at any time; most lines stand alone |
 | 3 | R1.5 | — | Small leftovers |
 | Any | M3: R3.3, R3.9, R3.11 | — | Open lane |
 | Later | R4.1 macOS CLI, R4.2 Managed tier | **decision** | Not before M5 |
@@ -2525,6 +2525,28 @@ to the project next.
 - [ ] Opening a pin that's already running brings its window to the front, instead of a message
 - [x] How much space pins take in Settings
       — claimed: Afloat16, branch feature/r2.10-pinned-copy-storage
+
+### R2.11 Right-to-left interface languages
+Owner: maintainers · Status: in progress
+First right-to-left language support (Hebrew and the shared RTL text, wrapping, and font pipeline).
+- [x] Core right-to-left UI support: `is_rtl_code`/`is_rtl` detection, legacy `iw` → `he`
+      normalisation, visual RTL reordering in UI labels and widgets (`tr()`/`trf()` kept in
+      logical reading order for accessibility, search, and native menus), logical-before-visual
+      wrapping (`wrapped_label`) for egui 0.36, RTL-gated desktop Hebrew fallback font lookup, and
+      RTL/LTR UI layout and shape tests at the 760×520 minimum window — claimed: hrb9, branch
+      feat/hebrew-i18n-and-rtl; PR #2181
+- [ ] Hebrew (`he`) UI catalog in `storytold/craft-i18n` and language registration in `LANGUAGES`
+      (follow-up PR on top of #2181)
+- [ ] Mixed-direction text in prose and feed items: full UAX #9 paragraph embedding/directional
+      runs for multi-sentence mixed RTL/LTR content (tool notes, agent replies, feed cards)
+      beyond single-label UI strings
+- [ ] Right-to-left text input fields (`TextEdit`): right-aligned cursor, RTL caret movement,
+      and selection highlighting when typing RTL text in prompt boxes, search inputs, and
+      settings fields
+- [ ] Code, hex, and evidence views under an RTL UI language: keep code, disassembly, hex, and
+      file paths explicitly LTR-isolated while keeping surrounding chrome and headings readable
+- [ ] Full right-to-left chrome mirroring (sidebar side, header/row direction, directional icons)
+      once individual screens are audited for RTL ergonomics
 
 ---
 

@@ -166,11 +166,11 @@ fn target_card(app: &mut CraftApp, ui: &mut Ui) {
                 });
                 ui.add_space(theme::space::MD);
                 widgets::caption(ui, "What is it");
-                ui.label(RichText::new(tr(target.kind.plain())).size(theme::BODY));
+                crate::i18n::rich_label(ui, &tr(target.kind.plain()), |r| r.size(theme::BODY));
                 ui.add_space(theme::space::MD);
                 ui.horizontal_wrapped(|ui| {
                     if app.view.clean_room {
-                        widgets::pill(ui, "Clean room", t.success, t.raised).on_hover_text(tr("Nothing inside it is read."));
+                        widgets::pill(ui, "Clean room", t.success, t.raised).on_hover_text(crate::i18n::display(&tr("Nothing inside it is read.")).as_ref());
                     } else {
                         widgets::pill(ui, "Deep", t.accent_ink, t.accent_soft);
                     }
@@ -205,10 +205,13 @@ fn target_card(app: &mut CraftApp, ui: &mut Ui) {
     ui.add_space(theme::space::LG);
     ui.horizontal(|ui| {
         widgets::toggle(ui, &mut app.state.explain_new, "Explain like I'm new")
-            .on_hover_text(tr("Plain words, short sentences, and every technical word explained."));
+            .on_hover_text(crate::i18n::display(&tr("Plain words, short sentences, and every technical word explained.")).as_ref());
     });
     ui.add_space(theme::space::MD);
-    if widgets::secondary(ui, Some("download"), "Export a report").on_hover_text(tr("Everything found so far, as a Markdown file.")).clicked() {
+    if widgets::secondary(ui, Some("download"), "Export a report")
+        .on_hover_text(crate::i18n::display(&tr("Everything found so far, as a Markdown file.")).as_ref())
+        .clicked()
+    {
         app.export_report();
     }
 }
@@ -308,7 +311,7 @@ fn history(app: &mut CraftApp, ui: &mut Ui, dense: bool, pad: f32, max_w: f32) {
 fn greeting(app: &CraftApp, ui: &mut Ui, dense: bool) {
     let t = Tokens::get(ui.ctx());
     if dense {
-        ui.label(RichText::new(tr("Ask the agent about this target. It cites evidence for every claim.")).color(t.text_faint));
+        crate::i18n::rich_label(ui, &tr("Ask the agent about this target. It cites evidence for every claim."), |r| r.color(t.text_faint));
         return;
     }
     ui.add_space(theme::space::XL);
@@ -324,7 +327,7 @@ fn greeting(app: &CraftApp, ui: &mut Ui, dense: bool) {
     } else {
         "No AI brain is set up, so answers come straight from the built-in engines. Add one any time for plain-words explanations."
     };
-    ui.label(RichText::new(tr(sub)).color(t.text_dim));
+    crate::i18n::rich_label(ui, &tr(sub), |r| r.color(t.text_dim));
     ui.add_space(theme::space::LG);
 }
 
@@ -383,9 +386,11 @@ fn disabled_backend_recovery(app: &mut CraftApp, ui: &mut Ui) {
         ui.data_mut(|d| d.remove::<u64>(pending_id));
     }
     let t = Tokens::get(ui.ctx());
-    ui.add(
-        egui::Label::new(RichText::new(crate::i18n::trf("{name} is turned off. Turn it on or choose another AI.", &[("name", &name)])).color(t.text_dim))
-            .wrap(),
+    crate::i18n::wrapped_label(
+        ui,
+        &crate::i18n::trf("{name} is turned off. Turn it on or choose another AI.", &[("name", &name)]),
+        egui::TextStyle::Body.resolve(ui.style()),
+        |r| r.color(t.text_dim),
     );
     ui.horizontal_wrapped(|ui| {
         if widgets::primary_icon(ui, None, "Turn on", !pending).clicked() {
@@ -393,7 +398,7 @@ fn disabled_backend_recovery(app: &mut CraftApp, ui: &mut Ui) {
             ui.data_mut(|d| d.insert_temp(pending_id, job));
         }
         let enabled: Vec<_> = app.backends.iter().filter(|b| b.enabled).map(|b| b.name.clone()).collect();
-        widgets::dropdown("chat-recovery-backend").selected_text(tr("Choose another AI")).show_ui(ui, |ui| {
+        widgets::dropdown("chat-recovery-backend").selected_text(crate::i18n::display(&tr("Choose another AI")).as_ref()).show_ui(ui, |ui| {
             for name in enabled {
                 if widgets::menu_item(ui, false, &name).clicked() {
                     app.choose_backend(Some(name));
@@ -492,7 +497,7 @@ fn item_ui(ui: &mut Ui, item: &ChatItem, beginner: bool, dense: bool, open: bool
                 }
                 if let Some(b) = backend {
                     ui.add_space(theme::space::XS);
-                    ui.label(RichText::new(crate::i18n::trf("Answered by {name}", &[("name", b)])).color(t.text_faint).size(theme::CAPTION));
+                    crate::i18n::rich_label(ui, &crate::i18n::trf("Answered by {name}", &[("name", b)]), |r| r.color(t.text_faint).size(theme::CAPTION));
                 }
             });
         }
@@ -533,14 +538,12 @@ fn item_ui(ui: &mut Ui, item: &ChatItem, beginner: bool, dense: bool, open: bool
                 ui.set_width(ui.available_width());
                 ui.horizontal(|ui| {
                     icons::show(ui, "shield", theme::icon::LG, t.warning);
-                    ui.label(RichText::new(crate::i18n::trf("May I run \"{title}\"?", &[("title", title)])).font(theme::semibold(theme::BODY)));
+                    crate::i18n::rich_label(ui, &crate::i18n::trf("May I run \"{title}\"?", &[("title", title)]), |r| r.font(theme::semibold(theme::BODY)));
                 });
                 ui.label(RichText::new(explanation).color(t.text_dim));
-                ui.label(
-                    RichText::new(tr("This runs code from the target or changes a device. Nothing runs until you say so."))
-                        .color(t.text_faint)
-                        .size(theme::CAPTION),
-                );
+                crate::i18n::rich_label(ui, &tr("This runs code from the target or changes a device. Nothing runs until you say so."), |r| {
+                    r.color(t.text_faint).size(theme::CAPTION)
+                });
                 ui.add_space(theme::space::SM);
                 match answer {
                     None => {
@@ -562,7 +565,7 @@ fn item_ui(ui: &mut Ui, item: &ChatItem, beginner: bool, dense: bool, open: bool
                             ConsentAnswer::AlwaysForProject => "Allowed for this project.",
                             ConsentAnswer::Deny => "Not allowed.",
                         };
-                        ui.label(RichText::new(tr(text)).color(t.text_faint));
+                        crate::i18n::rich_label(ui, &tr(text), |r| r.color(t.text_faint));
                     }
                 }
             });
@@ -595,10 +598,11 @@ fn item_ui(ui: &mut Ui, item: &ChatItem, beginner: bool, dense: bool, open: bool
                 ui.horizontal(|ui| {
                     icons::show(ui, "sparkles", theme::icon::LG, t.accent_ink);
                     ui.vertical(|ui| {
-                        ui.label(RichText::new(tr("Want answers in plain words?")).font(theme::semibold(theme::BODY)));
-                        ui.label(
-                            RichText::new(tr("Add an AI brain and I'll read this evidence for you, answer follow-up questions and point at the proof."))
-                                .color(t.text_dim),
+                        crate::i18n::rich_label(ui, &tr("Want answers in plain words?"), |r| r.font(theme::semibold(theme::BODY)));
+                        crate::i18n::rich_label(
+                            ui,
+                            &tr("Add an AI brain and I'll read this evidence for you, answer follow-up questions and point at the proof."),
+                            |r| r.color(t.text_dim),
                         );
                         ui.add_space(theme::space::XS);
                         if widgets::primary_icon(ui, Some("plus"), "Add a brain", true).clicked() {
@@ -745,7 +749,7 @@ fn paragraph(ui: &mut Ui, text: &str, bullet: bool, with_glossary: bool, body: &
     if let Some(span) = meaning {
         response.on_hover_ui(|ui| {
             ui.label(RichText::new(&span.word).font(theme::semibold(theme::SMALL)));
-            ui.label(tr(span.meaning));
+            crate::i18n::label(ui, &tr(span.meaning));
         });
     }
 }

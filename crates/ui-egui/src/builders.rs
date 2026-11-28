@@ -28,7 +28,7 @@ pub fn agent_model_picker(ui: &mut Ui, picker: &mut AgentModelPicker) -> bool {
     let t = Tokens::get(ui.ctx());
     let Some(result) = &picker.result else {
         ui.add(crate::widgets::Spinner::new().size(theme::CAPTION));
-        ui.label(tr("Asking for its models…"));
+        crate::i18n::label(ui, &tr("Asking for its models…"));
         return false;
     };
     let models = match result {
@@ -40,7 +40,7 @@ pub fn agent_model_picker(ui: &mut Ui, picker: &mut AgentModelPicker) -> bool {
     };
     let agent = craft_anything_ai::cli_agents::display_for(&picker.context.backend.config.model);
     if models.is_empty() {
-        ui.label(trf("No chat models are visible in {agent}. Check its setup, then reload.", &[("agent", &agent)]));
+        crate::i18n::label(ui, &trf("No chat models are visible in {agent}. Check its setup, then reload.", &[("agent", &agent)]));
     }
     let default = if picker.context.backend.config.model == "opencode" { tr("OpenCode default") } else { tr("Model default") };
     let selected = picker.model.as_deref().unwrap_or(&default);
@@ -61,12 +61,12 @@ pub fn agent_model_picker(ui: &mut Ui, picker: &mut AgentModelPicker) -> bool {
     let model = models.iter().find(|m| picker.model.as_ref() == Some(&m.id));
     let missing = picker.model.is_some() && model.is_none();
     if missing {
-        ui.label(
-            RichText::new(trf("The saved model is no longer visible. Choose another model or the {agent} default.", &[("agent", &agent)])).color(t.warning),
-        );
+        crate::i18n::rich_label(ui, &trf("The saved model is no longer visible. Choose another model or the {agent} default.", &[("agent", &agent)]), |r| {
+            r.color(t.warning)
+        });
     }
     let depths = model.map(|m| m.thinking.as_slice()).unwrap_or_default();
-    ui.label(tr("Thinking depth"));
+    crate::i18n::label(ui, &tr("Thinking depth"));
     let default_depth = tr("Model default");
     let response = widgets::dropdown(("agent-thinking", &picker.context.backend.config.name))
         .selected_text(picker.thinking.map(|d| d.title()).unwrap_or(&default_depth))
@@ -83,7 +83,9 @@ pub fn agent_model_picker(ui: &mut Ui, picker: &mut AgentModelPicker) -> bool {
     widgets::named(response.response, "Thinking depth");
     let unsupported = picker.thinking.is_some_and(|d| !depths.contains(&d));
     if unsupported {
-        ui.label(RichText::new(tr("The saved thinking depth is unavailable for this model. Choose its default or an offered depth.")).color(t.warning));
+        crate::i18n::rich_label(ui, &tr("The saved thinking depth is unavailable for this model. Choose its default or an offered depth."), |r| {
+            r.color(t.warning)
+        });
     }
     ui.add_enabled_ui(!missing && !unsupported, |ui| widgets::link(ui, "Apply").clicked()).inner
 }
@@ -386,7 +388,9 @@ pub fn built_by(app: &mut CraftApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     let Some(default) = app.default_builder() else {
         icons::show(ui, "triangle-alert", theme::icon::MD, t.warning);
-        ui.label(RichText::new(tr("Building needs a coding agent such as Claude Code, or an AI with an API key.")).size(theme::BODY).color(t.text_dim));
+        crate::i18n::rich_label(ui, &tr("Building needs a coding agent such as Claude Code, or an AI with an API key."), |r| {
+            r.size(theme::BODY).color(t.text_dim)
+        });
         if widgets::link(ui, "Set one up").clicked() {
             app.need_builder(false);
         }
@@ -402,10 +406,13 @@ pub fn built_by(app: &mut CraftApp, ui: &mut Ui) {
     }
     let automatic = trf("Automatic ({name})", &[("name", &default)]);
     let shown = app.state.make.ai.clone().unwrap_or_else(|| automatic.clone());
-    ui.label(RichText::new(tr("Built by")).size(theme::BODY).color(t.text_dim));
+    crate::i18n::rich_label(ui, &tr("Built by"), |r| r.size(theme::BODY).color(t.text_dim));
     let mut pick = None;
     let r = widgets::dropdown("built-by").selected_text(shown).width(220.0).show_ui(ui, |ui| {
-        if widgets::menu_item(ui, app.state.make.ai.is_none(), automatic).on_hover_text(tr("Whatever Settings → AI builds with.")).clicked() {
+        if widgets::menu_item(ui, app.state.make.ai.is_none(), automatic)
+            .on_hover_text(crate::i18n::display(&tr("Whatever Settings → AI builds with.")).as_ref())
+            .clicked()
+        {
             pick = Some(None);
         }
         for c in &choices {
@@ -431,15 +438,11 @@ pub fn need_builder_modal(app: &mut CraftApp, ui: &mut Ui, start: bool, close: &
         ui.painter().rect_filled(rect, t.radius, t.accent_soft);
         icons::paint(ui, rect, "bot", theme::icon::XL, t.accent_ink);
         ui.vertical(|ui| {
-            ui.label(theme::heading(tr("Set up a builder"), theme::CARD));
-            ui.add(
-                egui::Label::new(
-                    RichText::new(tr(
-                        "Building needs a coding agent on this computer (Claude Code, Codex or Gemini CLI: install one and sign in to it once in its own window), or an AI with an API key. Craft Anything never sees your account.",
-                    ))
-                    .color(t.text_dim),
-                )
-                .wrap(),
+            crate::i18n::heading(ui, &tr("Set up a builder"), theme::CARD);
+            crate::i18n::wrapped_rich_label(
+                ui,
+                &tr("Building needs a coding agent on this computer (Claude Code, Codex or Gemini CLI: install one and sign in to it once in its own window), or an AI with an API key. Craft Anything never sees your account."),
+                |r| r.color(t.text_dim),
             );
         });
     });
@@ -448,23 +451,26 @@ pub fn need_builder_modal(app: &mut CraftApp, ui: &mut Ui, start: bool, close: &
     if app.detecting {
         ui.horizontal(|ui| {
             ui.add(crate::widgets::Spinner::new().color(t.accent));
-            ui.label(RichText::new(tr("Looking on this computer…")).color(t.text_dim));
+            crate::i18n::rich_label(ui, &tr("Looking on this computer…"), |r| r.color(t.text_dim));
         });
     } else {
         if found.is_empty() {
-            ui.label(RichText::new(tr("No coding agent was found on this computer yet.")).color(t.text_dim));
+            crate::i18n::rich_label(ui, &tr("No coding agent was found on this computer yet."), |r| r.color(t.text_dim));
         }
         // Agents on other computers (from `~/.ssh/config`) are offered without checking them, so
         // they don't make the hints about this one any less true.
         let hints = if found.iter().all(|b| b.ssh_host.as_deref().is_some_and(|h| !h.trim().is_empty())) { &app.detect_hints[..] } else { &[] };
         for hint in hints {
             match hint {
-                craft_anything_ai::detect::DetectHint::ClaudeDesktopWithoutCli { .. } => ui.add(
-                    egui::Label::new(
-                        RichText::new(tr("The Claude desktop app is installed, but building needs Claude Code, its separate command-line tool. Install Claude Code, sign in to it once in a terminal, then look again.")).color(t.text_dim),
-                    )
-                    .wrap(),
-                ),
+                craft_anything_ai::detect::DetectHint::ClaudeDesktopWithoutCli { .. } => {
+                    crate::i18n::wrapped_rich_label(
+                        ui,
+                        &tr(
+                            "The Claude desktop app is installed, but building needs Claude Code, its separate command-line tool. Install Claude Code, sign in to it once in a terminal, then look again.",
+                        ),
+                        |r| r.color(t.text_dim),
+                    );
+                }
             };
         }
     }
@@ -475,7 +481,7 @@ pub fn need_builder_modal(app: &mut CraftApp, ui: &mut Ui, start: bool, close: &
                 icons::show(ui, "bot", theme::icon::LG, t.accent);
                 ui.vertical(|ui| {
                     ui.label(RichText::new(&b.name).font(theme::semibold(theme::SMALL)));
-                    ui.label(RichText::new(tr("Found on this computer")).color(t.text_faint).size(theme::CAPTION));
+                    crate::i18n::rich_label(ui, &tr("Found on this computer"), |r| r.color(t.text_faint).size(theme::CAPTION));
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let label = if start { trf("Build with {name}", &[("name", &b.name)]) } else { trf("Use {name}", &[("name", &b.name)]) };
@@ -495,7 +501,11 @@ pub fn need_builder_modal(app: &mut CraftApp, ui: &mut Ui, start: bool, close: &
     }
     ui.add_space(theme::space::MD);
     ui.horizontal(|ui| {
-        if !app.detecting && widgets::secondary(ui, Some("radar"), "Look again").on_hover_text(tr("After installing one, look for it again.")).clicked() {
+        if !app.detecting
+            && widgets::secondary(ui, Some("radar"), "Look again")
+                .on_hover_text(crate::i18n::display(&tr("After installing one, look for it again.")).as_ref())
+                .clicked()
+        {
             app.detect_backends();
         }
         if widgets::secondary(ui, Some("key-round"), "Use an API key…").clicked() {

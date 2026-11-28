@@ -6,7 +6,7 @@ use crate::state::{Modal, Screen};
 use crate::theme::{self, Tokens};
 use crate::{CraftApp, Pick, Route, icons, widgets};
 use craft_anything_engine::Consent;
-use egui::{RichText, Ui, Vec2};
+use egui::{Ui, Vec2};
 use serde_json::json;
 
 /// Tools that open a website, best first.
@@ -85,16 +85,16 @@ pub fn modals(app: &mut CraftApp, ctx: &egui::Context) {
                     ui.painter().rect_filled(rect, t.radius, t.accent_soft);
                     icons::paint(ui, rect, icon, theme::icon::XL, t.accent_ink);
                     ui.add_space(theme::space::MD);
-                    ui.label(theme::heading(tr(title), theme::SECTION));
+                    crate::i18n::heading(ui, &tr(title), theme::SECTION);
                     ui.add_space(theme::space::XS);
-                    ui.label(RichText::new(tr(body)).color(t.text_dim));
+                    crate::i18n::rich_label(ui, &tr(body), |r| r.color(t.text_dim));
                     ui.add_space(theme::space::LG);
                     if widgets::primary(ui, "Got it").clicked() {
                         close = true;
                     }
                 }
                 Modal::Website => {
-                    ui.label(theme::heading(tr("Look at a website"), theme::SECTION));
+                    crate::i18n::heading(ui, &tr("Look at a website"), theme::SECTION);
                     ui.add_space(theme::space::SM);
                     let r = ui.add(
                         egui::TextEdit::singleline(&mut app.state.url_input)
@@ -135,8 +135,8 @@ pub fn modals(app: &mut CraftApp, ctx: &egui::Context) {
                 }
                 Modal::Tutorial(i) => {
                     if let Some((_, title, blurb, steps)) = TUTORIALS.get(*i) {
-                        ui.label(theme::heading(tr(title), theme::SECTION));
-                        ui.label(RichText::new(tr(blurb)).color(t.text_dim));
+                        crate::i18n::heading(ui, &tr(title), theme::SECTION);
+                        crate::i18n::rich_label(ui, &tr(blurb), |r| r.color(t.text_dim));
                         ui.add_space(theme::space::MD);
                         for (n, s) in steps.iter().enumerate() {
                             ui.horizontal(|ui| {
@@ -149,7 +149,7 @@ pub fn modals(app: &mut CraftApp, ctx: &egui::Context) {
                                     theme::semibold(theme::CAPTION),
                                     t.accent_ink,
                                 );
-                                ui.add(egui::Label::new(tr(s)).wrap());
+                                crate::i18n::wrapped_label(ui, &tr(s), egui::TextStyle::Body.resolve(ui.style()), |r| r);
                             });
                             ui.add_space(theme::space::XS);
                         }
@@ -179,7 +179,7 @@ pub fn modals(app: &mut CraftApp, ctx: &egui::Context) {
                 Modal::PinDelete(root, id) => crate::pins::delete_modal(app, ui, root, *id, &mut close),
                 Modal::About => {
                     ui.label(theme::heading("Craft Anything", theme::SECTION));
-                    ui.label(RichText::new(format!("{} {}", tr("Version"), env!("CARGO_PKG_VERSION"))).color(t.text_dim));
+                    crate::i18n::rich_label(ui, &format!("{} {}", tr("Version"), env!("CARGO_PKG_VERSION")), |r| r.color(t.text_dim));
                     ui.add_space(theme::space::MD);
                     if widgets::primary(ui, "Close").clicked() {
                         close = true;

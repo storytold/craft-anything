@@ -165,7 +165,7 @@ fn rail_icons(app: &mut CraftApp, ui: &mut Ui) {
 fn panel_title(ui: &mut Ui, title: &str, count: Option<usize>) {
     let t = Tokens::get(ui.ctx());
     ui.horizontal(|ui| {
-        ui.label(theme::label_text(&tr(title), theme::LABEL).color(t.text));
+        crate::i18n::rich_label(ui, &tr(title), |r| r.font(theme::medium(theme::LABEL)).color(t.text));
         if let Some(n) = count {
             widgets::pill(ui, &n.to_string(), t.text_dim, t.raised);
         }
@@ -228,7 +228,7 @@ fn rail_list(app: &mut CraftApp, ui: &mut Ui, kind: RailKind, fill: &Fill) {
         Fill::Loading => {
             ui.horizontal(|ui| {
                 ui.add(crate::widgets::Spinner::new().color(t.accent));
-                ui.label(RichText::new(tr("Loading…")).color(t.text_dim));
+                crate::i18n::rich_label(ui, &tr("Loading…"), |r| r.color(t.text_dim));
             });
         }
         Fill::Unavailable(reason) => {
@@ -443,7 +443,7 @@ fn no_target(app: &mut CraftApp, ui: &mut Ui) {
         });
         ui.add_space(theme::space::MD);
         let t = Tokens::get(ui.ctx());
-        ui.label(RichText::new(tr("Tip: press Ctrl/⌘ K to run any tool.")).color(t.text_faint));
+        crate::i18n::rich_label(ui, &tr("Tip: press Ctrl/⌘ K to run any tool."), |r| r.color(t.text_faint));
     });
 }
 
@@ -467,7 +467,7 @@ fn tool_view(app: &mut CraftApp, ui: &mut Ui, tab: CenterTab) {
         Fill::Loading => {
             ui.horizontal(|ui| {
                 ui.add(crate::widgets::Spinner::new().color(Tokens::get(ui.ctx()).accent));
-                ui.label(tr("Working…"));
+                crate::i18n::label(ui, &tr("Working…"));
             });
         }
         Fill::Unavailable(reason) => widgets::empty_state(ui, tab.icon(), "Not available yet", &reason),
@@ -694,7 +694,7 @@ fn result_view(app: &mut CraftApp, ui: &mut Ui) {
         (Some(Fill::Loading), _) => {
             ui.horizontal(|ui| {
                 ui.add(crate::widgets::Spinner::new().color(t.accent));
-                ui.label(tr("Working…"));
+                crate::i18n::label(ui, &tr("Working…"));
             });
         }
         (Some(Fill::Error(m, r)), _) => widgets::empty_state(ui, "triangle-alert", &m, r.as_deref().unwrap_or("")),
@@ -745,7 +745,7 @@ fn right(app: &mut CraftApp, ui: &mut Ui) {
 }
 
 fn kv(ui: &mut Ui, k: &str, v: &str, t: &Tokens) {
-    ui.label(RichText::new(tr(k)).color(t.text_faint).size(theme::CAPTION));
+    crate::i18n::rich_label(ui, &tr(k), |r| r.color(t.text_faint).size(theme::CAPTION));
     ui.add(egui::Label::new(RichText::new(v).font(theme::mono(theme::CODE))).wrap());
     ui.end_row();
 }
@@ -785,7 +785,7 @@ fn inspector(app: &mut CraftApp, ui: &mut Ui) {
                         icons::show(ui, crate::kind_icon(tgt.kind), theme::icon::MD, t.accent);
                         ui.label(RichText::new(&tgt.name).font(theme::semibold(theme::SMALL)));
                     });
-                    ui.label(RichText::new(tr(tgt.kind.plain())).color(t.text_dim));
+                    crate::i18n::rich_label(ui, &tr(tgt.kind.plain()), |r| r.color(t.text_dim));
                     ui.add_space(theme::space::XS);
                     egui::Grid::new("tgt-grid").num_columns(2).spacing([10.0, 4.0]).show(ui, |ui| {
                         kv(ui, "Kind", &tgt.kind.id(), &t);
@@ -836,7 +836,9 @@ fn ledger(app: &mut CraftApp, ui: &mut Ui) {
             ui.add_space(theme::space::XS);
         }
         if app.view.ledger_len > app.view.ledger.len() {
-            ui.label(RichText::new(crate::i18n::trf("… {n} older", &[("n", &(app.view.ledger_len - app.view.ledger.len()).to_string())])).color(t.text_faint));
+            crate::i18n::rich_label(ui, &crate::i18n::trf("… {n} older", &[("n", &(app.view.ledger_len - app.view.ledger.len()).to_string())]), |r| {
+                r.color(t.text_faint)
+            });
         }
     });
     if let Some(id) = pick {
@@ -923,7 +925,7 @@ fn jobs(app: &mut CraftApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     let visible: Vec<_> = app.jobs.list.iter().filter(|j| j.visible).collect();
     if visible.is_empty() {
-        ui.label(RichText::new(tr("No jobs yet. Long tasks show their progress here, and you can cancel them.")).color(t.text_faint));
+        crate::i18n::rich_label(ui, &tr("No jobs yet. Long tasks show their progress here, and you can cancel them."), |r| r.color(t.text_faint));
         return;
     }
     let mut cancel = None;
@@ -937,7 +939,16 @@ fn jobs(app: &mut CraftApp, ui: &mut Ui) {
                     Some(Err(_)) => ("triangle-alert", t.danger),
                 };
                 icons::show(ui, icon, theme::icon::SM, col);
-                ui.add_sized(Vec2::new(220.0, 18.0), egui::Label::new(RichText::new(tr(&j.title)).font(theme::medium(theme::CAPTION))).truncate());
+                let title_logical = tr(&j.title);
+                let title_shown = crate::i18n::display(&title_logical);
+                let title_resp =
+                    ui.add_sized(Vec2::new(220.0, 18.0), egui::Label::new(RichText::new(title_shown.as_ref()).font(theme::medium(theme::CAPTION))).truncate());
+                if title_shown.as_ref() != title_logical {
+                    title_resp.ctx.accesskit_node_builder(title_resp.id, |b| {
+                        b.set_value(title_logical.clone());
+                        b.set_label(title_logical);
+                    });
+                }
                 let secs = j.finished_at.unwrap_or_else(std::time::Instant::now).duration_since(j.started).as_secs_f32();
                 ui.label(RichText::new(format!("{secs:.1}s")).font(theme::mono(theme::TINY)).color(t.text_faint));
                 match &j.outcome {

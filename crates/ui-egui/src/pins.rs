@@ -9,7 +9,7 @@ use crate::theme::{self, Tokens};
 use crate::{CraftApp, icons, widgets};
 use craft_anything_engine::evidence::ToolError;
 use craft_anything_engine::pins::{Pin, PinMode};
-use egui::{RichText, Ui, Vec2};
+use egui::{Ui, Vec2};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -196,7 +196,7 @@ pub fn section(app: &mut CraftApp, ui: &mut Ui, fold: bool) {
         })
         .inner
     };
-    let r = r.on_hover_text(tr(if collapsed { "Show pinned builds" } else { "Hide pinned builds" }));
+    let r = r.on_hover_text(crate::i18n::display(&tr(if collapsed { "Show pinned builds" } else { "Hide pinned builds" })).as_ref());
     widgets::named(r.clone(), "Pinned builds");
     if r.clicked() {
         app.state.pins_collapsed = !collapsed;
@@ -239,7 +239,9 @@ fn menu(app: &mut CraftApp, ui: &mut Ui, row: &PinRow) {
                 app.open_pin(row, false);
                 ui.close();
             }
-        } else if widgets::menu_item(ui, false, tr("Open another copy")).on_hover_text(tr("Copies share the files it saves beside itself.")).clicked() {
+        } else if crate::i18n::hover_text(widgets::menu_item(ui, false, tr("Open another copy")), &tr("Copies share the files it saves beside itself."))
+            .clicked()
+        {
             app.open_pin(row, true);
             ui.close();
         }
@@ -268,7 +270,12 @@ fn menu(app: &mut CraftApp, ui: &mut Ui, row: &PinRow) {
         ui.close();
     }
     ui.separator();
-    if ui.add_enabled_ui(!row.running, |ui| widgets::menu_item(ui, false, tr("Remove…"))).inner.on_disabled_hover_text(tr("Close it first.")).clicked() {
+    if ui
+        .add_enabled_ui(!row.running, |ui| widgets::menu_item(ui, false, tr("Remove…")))
+        .inner
+        .on_disabled_hover_text(crate::i18n::display(&tr("Close it first.")).as_ref())
+        .clicked()
+    {
         app.state.modal = Some(Modal::PinDelete(row.project.clone(), row.pin.id));
         ui.close();
     }
@@ -283,9 +290,14 @@ fn megabytes(bytes: u64) -> String {
 pub fn pin_modal(app: &mut CraftApp, ui: &mut Ui, close: &mut bool) {
     let t = Tokens::get(ui.ctx());
     ui.set_width(560.0);
-    ui.label(theme::heading(tr("Pin this build"), theme::SECTION));
+    crate::i18n::heading(ui, &tr("Pin this build"), theme::SECTION);
     ui.add_space(theme::space::XS);
-    ui.add(egui::Label::new(RichText::new(tr("Keep it in the sidebar to open any time, whatever later builds change.")).color(t.text_dim)).wrap());
+    crate::i18n::wrapped_label(
+        ui,
+        &tr("Keep it in the sidebar to open any time, whatever later builds change."),
+        egui::TextStyle::Body.resolve(ui.style()),
+        |r| r.color(t.text_dim),
+    );
     ui.add_space(theme::space::MD);
     let size = Vec2::new(268.0, 150.0);
     let mode = app.state.pin_draft.mode;
@@ -327,7 +339,7 @@ pub fn pin_modal(app: &mut CraftApp, ui: &mut Ui, close: &mut bool) {
             }
         }
     };
-    ui.add(egui::Label::new(RichText::new(note).color(color).size(theme::SMALL).line_height(Some(theme::leading(theme::SMALL)))).wrap());
+    crate::i18n::wrapped_label(ui, &note, egui::FontId::proportional(theme::SMALL), |r| r.color(color).line_height(Some(theme::leading(theme::SMALL))));
     ui.add_space(theme::space::MD);
     widgets::caption(ui, "Name (optional)");
     let r = ui.add(
@@ -355,7 +367,7 @@ pub fn pin_modal(app: &mut CraftApp, ui: &mut Ui, close: &mut bool) {
 
 pub fn rename_modal(app: &mut CraftApp, ui: &mut Ui, project: &Path, id: u32, close: &mut bool) {
     let t = Tokens::get(ui.ctx());
-    ui.label(theme::heading(tr("Rename the pin"), theme::SECTION));
+    crate::i18n::heading(ui, &tr("Rename the pin"), theme::SECTION);
     ui.add_space(theme::space::SM);
     let r = ui.add(egui::TextEdit::singleline(&mut app.state.rename_input).desired_width(f32::INFINITY).frame(widgets::text_field_frame(&t)));
     widgets::named(r.clone(), "Pin name");
@@ -383,7 +395,7 @@ pub fn delete_modal(app: &mut CraftApp, ui: &mut Ui, project: &Path, id: u32, cl
         *close = true;
         return;
     };
-    ui.label(theme::heading(trf("Remove {name}?", &[("name", &row.pin.name)]), theme::SECTION));
+    crate::i18n::heading(ui, &trf("Remove {name}?", &[("name", &row.pin.name)]), theme::SECTION);
     ui.add_space(theme::space::SM);
     // A copy may hold what the program saved; say so, since it can't be brought back.
     let what = if row.pin.mode.keeps_copy() {
@@ -391,10 +403,10 @@ pub fn delete_modal(app: &mut CraftApp, ui: &mut Ui, project: &Path, id: u32, cl
     } else {
         tr("Only the pin goes; the project and its app stay as they are.")
     };
-    ui.add(egui::Label::new(RichText::new(what).color(t.text_dim)).wrap());
+    crate::i18n::wrapped_label(ui, &what, egui::TextStyle::Body.resolve(ui.style()), |r| r.color(t.text_dim));
     if row.pin.mode.keeps_copy() {
         ui.add_space(theme::space::XS);
-        ui.label(RichText::new(tr("This can't be undone.")).color(t.danger).size(theme::SMALL));
+        crate::i18n::rich_label(ui, &tr("This can't be undone."), |r| r.color(t.danger).size(theme::SMALL));
     }
     ui.add_space(theme::space::MD);
     ui.horizontal(|ui| {

@@ -91,7 +91,10 @@ pub fn rows(app: &mut CraftApp, ui: &mut Ui, ws: &Workspace) {
     if widgets::action_row(ui, "file", "Rename", false).clicked() {
         ask_rename(app, ws);
     }
-    if widgets::action_row(ui, "copy", "Duplicate", false).on_hover_text(tr("A copy to try something else from here.")).clicked() {
+    if widgets::action_row(ui, "copy", "Duplicate", false)
+        .on_hover_text(crate::i18n::display(&tr("A copy to try something else from here.")).as_ref())
+        .clicked()
+    {
         app.duplicate_project(&ws.root);
     }
 }
@@ -114,7 +117,7 @@ fn project<'a>(app: &'a CraftApp, root: &Path) -> Option<&'a Workspace> {
 
 pub fn rename_modal(app: &mut CraftApp, ui: &mut Ui, root: &Path, close: &mut bool) {
     let t = Tokens::get(ui.ctx());
-    ui.label(theme::heading(tr("Rename the project"), theme::SECTION));
+    crate::i18n::heading(ui, &tr("Rename the project"), theme::SECTION);
     ui.add_space(theme::space::SM);
     let r = ui.add(egui::TextEdit::singleline(&mut app.state.rename_input).desired_width(f32::INFINITY).frame(widgets::text_field_frame(&t)));
     widgets::named(r.clone(), "Project name");
@@ -123,15 +126,9 @@ pub fn rename_modal(app: &mut CraftApp, ui: &mut Ui, root: &Path, close: &mut bo
     }
     let ok = !app.state.rename_input.trim().is_empty();
     let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-    ui.add(
-        egui::Label::new(
-            RichText::new(tr("Only its name changes; its folder stays where it is."))
-                .color(t.text_faint)
-                .size(theme::SMALL)
-                .line_height(Some(theme::leading(theme::SMALL))),
-        )
-        .wrap(),
-    );
+    crate::i18n::wrapped_rich_label(ui, &tr("Only its name changes; its folder stays where it is."), |r| {
+        r.color(t.text_faint).size(theme::SMALL).line_height(Some(theme::leading(theme::SMALL)))
+    });
     ui.add_space(theme::space::MD);
     ui.horizontal(|ui| {
         if (widgets::primary_icon(ui, None, "Rename", ok).clicked() || enter) && ok {
@@ -155,7 +152,7 @@ pub fn delete_modal(app: &mut CraftApp, ui: &mut Ui, root: &Path, close: &mut bo
         let (rect, _) = ui.allocate_exact_size(Vec2::splat(40.0), egui::Sense::hover());
         ui.painter().rect_filled(rect, t.radius, t.raised);
         icons::paint(ui, rect, "trash-2", theme::icon::LG, t.danger);
-        ui.label(theme::heading(trf("Delete {name}?", &[("name", &ws.manifest.name)]), theme::SECTION));
+        crate::i18n::heading(ui, &trf("Delete {name}?", &[("name", &ws.manifest.name)]), theme::SECTION);
     });
     ui.add_space(theme::space::SM);
     // What goes and what stays, in so many words: it can't be undone.
@@ -168,7 +165,7 @@ pub fn delete_modal(app: &mut CraftApp, ui: &mut Ui, root: &Path, close: &mut bo
     ui.add(egui::Label::new(RichText::new(what).color(t.text_dim)).wrap());
     ui.add(egui::Label::new(RichText::new(crate::short_path(&ws.root)).font(theme::mono(theme::CODE)).color(t.text_faint)).truncate());
     ui.add_space(theme::space::XS);
-    ui.label(RichText::new(tr("This can't be undone.")).color(t.danger).size(theme::SMALL));
+    crate::i18n::rich_label(ui, &tr("This can't be undone."), |r| r.color(t.danger).size(theme::SMALL));
     ui.add_space(theme::space::MD);
     ui.horizontal(|ui| {
         if widgets::danger(ui, Some("trash-2"), "Delete it").clicked() {

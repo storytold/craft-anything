@@ -31,7 +31,7 @@ pub fn make_line(app: &mut CraftApp, ui: &mut Ui) {
     // Where it goes (and what the files there are), then what can be changed, each on its own line.
     ui.horizontal(|ui| {
         crate::icons::show(ui, "folder", theme::icon::SM, t.text_faint);
-        ui.label(RichText::new(tr("Saved in")).size(theme::SMALL).color(t.text_dim));
+        crate::i18n::rich_label(ui, &tr("Saved in"), |r| r.size(theme::SMALL).color(t.text_dim));
         ui.add(egui::Label::new(RichText::new(&place).size(theme::SMALL).color(t.text)).truncate()).on_hover_text(&place);
     });
     ui.horizontal_wrapped(|ui| {
@@ -151,13 +151,13 @@ pub fn existing_modal(app: &mut CraftApp, ui: &mut Ui, close: &mut bool) {
         return;
     };
     let (names, count) = app.state.make.folder_files.clone().unwrap_or_default();
-    ui.label(theme::heading(tr("This folder already has files"), theme::SECTION));
+    crate::i18n::heading(ui, &tr("This folder already has files"), theme::SECTION);
     ui.add_space(theme::space::XS);
     let some = names.iter().take(4).cloned().collect::<Vec<_>>().join(", ");
     let more = if count > 4 { trf(" and {n} more", &[("n", &(count - 4).to_string())]) } else { String::new() };
     ui.add(egui::Label::new(RichText::new(format!("{}: {some}{more}.", folder.display())).color(t.text_dim)).wrap());
     ui.add_space(theme::space::XS);
-    ui.label(RichText::new(tr("How should the builder use them?")).color(t.text));
+    crate::i18n::rich_label(ui, &tr("How should the builder use them?"), |r| r.color(t.text));
     ui.add_space(theme::space::MD);
     let current = app.state.make.existing;
     let size = Vec2::new(268.0, 168.0);

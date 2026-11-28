@@ -170,14 +170,12 @@ pub fn card(ui: &mut Ui, a: &mut Asked, glossary: bool) {
                 ui.add_space(theme::space::XS);
                 let from = if ans.from_session { tr("from the builder's own memory of the build") } else { tr("from the project's files") };
                 let cost = ans.cost_usd.map(|c| format!(" · ${c:.2}")).unwrap_or_default();
-                ui.label(
-                    RichText::new(format!("{} {} · {}{cost}", tr("Just a question: nothing was changed. Answered by"), ans.backend, from))
-                        .color(t.text_faint)
-                        .size(theme::SMALL),
-                );
+                crate::i18n::rich_label(ui, &format!("{} {} · {}{cost}", tr("Just a question: nothing was changed. Answered by"), ans.backend, from), |r| {
+                    r.color(t.text_faint).size(theme::SMALL)
+                });
             }
             Some(Err(why)) => {
-                ui.add(egui::Label::new(RichText::new(format!("{} {why}", tr("Couldn't answer:"))).color(t.danger)).wrap());
+                crate::i18n::wrapped_label(ui, &format!("{} {why}", tr("Couldn't answer:")), egui::TextStyle::Body.resolve(ui.style()), |r| r.color(t.danger));
             }
         }
     });

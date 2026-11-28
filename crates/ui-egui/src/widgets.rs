@@ -8,7 +8,8 @@ use egui::{Color32, Frame, Response, RichText, Sense, Stroke, Ui, Vec2};
 
 /// Lay out `text` in the label style ([`theme::label_text`]) for painting.
 pub fn label_galley(ui: &Ui, text: &str, size: f32, color: Color32) -> std::sync::Arc<egui::Galley> {
-    egui::WidgetText::from(theme::label_text(text, size).color(color)).into_galley(
+    let shown = crate::i18n::display(text);
+    egui::WidgetText::from(theme::label_text(shown.as_ref(), size).color(color)).into_galley(
         ui,
         Some(egui::TextWrapMode::Extend),
         f32::INFINITY,
@@ -37,7 +38,14 @@ pub fn toggle(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
     let t = Tokens::get(ui.ctx());
     // The label wraps to the room left, so a long one can't push a narrow panel wider.
     let wrap = (ui.available_width() - 42.0).max(80.0);
-    let g = (!label.is_empty()).then(|| ui.painter().layout(tr(label), egui::FontId::proportional(theme::SMALL), t.text, wrap));
+    let logical = tr(label);
+    let rtl = crate::i18n::is_rtl();
+    let g_wrap = if rtl { f32::INFINITY } else { wrap };
+    let font = egui::FontId::proportional(theme::SMALL);
+    let g = (!label.is_empty()).then(|| {
+        let shown = crate::i18n::wrapped_visual_lines(ui.ctx(), rtl, &logical, font.clone(), wrap);
+        ui.painter().layout(shown, font, t.text, g_wrap)
+    });
     let w = 32.0 + g.as_ref().map_or(0.0, |g| g.size().x + 10.0);
     let h = g.as_ref().map_or(ControlSize::Small.height(), |g| g.size().y.max(ControlSize::Small.height()));
     let (rect, mut resp) = ui.allocate_exact_size(Vec2::new(w, h), Sense::click());
@@ -55,7 +63,7 @@ pub fn toggle(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
     }
     focus_ring(ui, &resp, sw);
     let state = *on;
-    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, state, tr(label)));
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, state, &logical));
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
@@ -100,20 +108,21 @@ pub fn menu_item_truncated(ui: &mut Ui, selected: bool, text: impl Into<String>)
 
 fn menu_item_layout(ui: &mut Ui, selected: bool, text: String, truncate: bool) -> Response {
     let t = Tokens::get(ui.ctx());
+    let shown = crate::i18n::display(&text);
     ui.set_opacity(popup_fade(ui));
     // Rows sit close together, whatever list they are in.
     ui.spacing_mut().item_spacing.y = theme::space::XXS;
     let size = ControlSize::Medium;
     let tick = size.icon() + theme::space::SM;
     let galley = if truncate {
-        egui::WidgetText::from(RichText::new(&text).font(egui::FontId::proportional(size.text())).color(t.text)).into_galley(
+        egui::WidgetText::from(RichText::new(shown.as_ref()).font(egui::FontId::proportional(size.text())).color(t.text)).into_galley(
             ui,
             Some(egui::TextWrapMode::Truncate),
             (ui.available_width() - theme::space::SM * 2.0 - tick).max(0.0),
             egui::FontSelection::Default,
         )
     } else {
-        ui.painter().layout_no_wrap(text.clone(), egui::FontId::proportional(size.text()), t.text)
+        ui.painter().layout_no_wrap(shown.into_owned(), egui::FontId::proportional(size.text()), t.text)
     };
     let wanted = galley.size().x + theme::space::SM * 2.0 + tick;
     // As wide as the list, which is as wide as its widest row: while the list is being measured
@@ -146,7 +155,8 @@ fn menu_item_layout(ui: &mut Ui, selected: bool, text: String, truncate: bool) -
 pub fn action_row(ui: &mut Ui, icon: &str, label: &str, danger: bool) -> Response {
     let t = Tokens::get(ui.ctx());
     let size = ControlSize::Medium;
-    let galley = ui.painter().layout_no_wrap(tr(label), egui::FontId::proportional(size.text()), t.text);
+    let logical = tr(label);
+    let galley = ui.painter().layout_no_wrap(crate::i18n::display(&logical).into_owned(), egui::FontId::proportional(size.text()), t.text);
     let wanted = galley.size().x + size.icon() + theme::space::SM * 3.0;
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(wanted.max(ui.available_width()), size.height()), Sense::click());
     let h = hover_t(ui, &resp);
@@ -157,7 +167,7 @@ pub fn action_row(ui: &mut Ui, icon: &str, label: &str, danger: bool) -> Respons
     icons::paint(ui, at, icon, size.icon(), if danger { t.danger } else { theme::mix(t.icon, t.text, h) });
     ui.painter().galley_with_override_text_color(egui::pos2(at.right() + theme::space::SM, rect.center().y - galley.size().y / 2.0), galley, ink);
     focus_ring(ui, &resp, rect);
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tr(label)));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &logical));
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
@@ -195,7 +205,11 @@ pub fn named(resp: Response, name: &str) -> Response {
 pub fn suggestion(ui: &mut Ui, text: &str) -> Response {
     let t = Tokens::get(ui.ctx());
     let max_w = ui.available_width().max(60.0);
-    let g = ui.painter().layout(tr(text), egui::FontId::proportional(theme::SMALL), t.text, max_w - 26.0);
+    let logical = tr(text);
+    let rtl = crate::i18n::is_rtl();
+    let font = egui::FontId::proportional(theme::SMALL);
+    let shown = crate::i18n::wrapped_visual_lines(ui.ctx(), rtl, &logical, font.clone(), max_w - 26.0);
+    let g = ui.painter().layout(shown, font, t.text, if rtl { f32::INFINITY } else { max_w - 26.0 });
     let w = if ui.layout().horizontal_justify() { max_w } else { (g.size().x + 26.0).min(max_w) };
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, (g.size().y + 14.0).max(32.0)), Sense::click());
     let h = hover_t(ui, &resp);
@@ -209,7 +223,7 @@ pub fn suggestion(ui: &mut Ui, text: &str) -> Response {
     let pos = egui::pos2(rect.left() + 13.0, rect.center().y - g.size().y / 2.0);
     ui.painter().galley_with_override_text_color(pos, g, theme::mix(t.text_dim, t.text, h));
     focus_ring(ui, &resp, rect);
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tr(text)));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &logical));
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
@@ -219,8 +233,17 @@ pub fn suggestion(ui: &mut Ui, text: &str) -> Response {
 pub fn choice_tile(ui: &mut Ui, size: Vec2, icon: &str, label: &str, blurb: &str, on: bool) -> Response {
     let t = Tokens::get(ui.ctx());
     let wrap = size.x - 84.0;
-    let g = ui.painter().layout(tr(label), theme::medium(theme::BODY), t.text, wrap);
-    let sub = (!blurb.is_empty()).then(|| ui.painter().layout(tr(blurb), egui::FontId::proportional(theme::SMALL), t.text_dim, wrap));
+    let rtl = crate::i18n::is_rtl();
+    let g_wrap = if rtl { f32::INFINITY } else { wrap };
+    let logical_label = tr(label);
+    let label_font = theme::medium(theme::BODY);
+    let label_text = crate::i18n::wrapped_visual_lines(ui.ctx(), rtl, &logical_label, label_font.clone(), wrap);
+    let g = ui.painter().layout(label_text, label_font, t.text, g_wrap);
+    let sub = (!blurb.is_empty()).then(|| {
+        let blurb_font = egui::FontId::proportional(theme::SMALL);
+        let blurb_text = crate::i18n::wrapped_visual_lines(ui.ctx(), rtl, &tr(blurb), blurb_font.clone(), wrap);
+        ui.painter().layout(blurb_text, blurb_font, t.text_dim, g_wrap)
+    });
     let text_h = g.size().y + sub.as_ref().map_or(0.0, |s| s.size().y + 3.0);
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(size.x, size.y.max(text_h + 24.0)), Sense::click());
     let h = hover_t(ui, &resp);
@@ -248,7 +271,7 @@ pub fn choice_tile(ui: &mut Ui, size: Vec2, icon: &str, label: &str, blurb: &str
         );
     }
     focus_ring(ui, &resp, rect);
-    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::RadioButton, resp.enabled(), on, tr(label)));
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::RadioButton, resp.enabled(), on, &logical_label));
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
@@ -428,7 +451,13 @@ pub fn danger(ui: &mut Ui, icon: Option<&str>, label: &str) -> Response {
 /// A borderless text button in the accent colour.
 pub fn link(ui: &mut Ui, label: &str) -> Response {
     let t = Tokens::get(ui.ctx());
-    let r = ui.add(egui::Label::new(RichText::new(tr(label)).color(t.accent_ink)).sense(Sense::click()));
+    let logical = tr(label);
+    let shown = crate::i18n::display(&logical);
+    let reordered = matches!(shown, std::borrow::Cow::Owned(_)) && shown.as_ref() != logical;
+    let r = ui.add(egui::Label::new(RichText::new(shown.as_ref()).color(t.accent_ink)).sense(Sense::click()));
+    if reordered {
+        r.ctx.accesskit_node_builder(r.id, |b| b.set_label(logical));
+    }
     let r = r.on_hover_cursor(egui::CursorIcon::PointingHand);
     if r.hovered() {
         let y = r.rect.bottom();
@@ -536,26 +565,28 @@ pub fn pill_sized(ui: &mut Ui, text: &str, fg: Color32, bg: Color32, text_size: 
 pub fn confidence_badge(ui: &mut Ui, c: Option<Confidence>) -> Response {
     let col = confidence_color(c);
     let font = theme::medium(theme::CAPTION);
-    let g = ui.painter().layout_no_wrap(tr(confidence_label(c)), font, col);
+    let logical = tr(confidence_label(c));
+    let g = ui.painter().layout_no_wrap(crate::i18n::display(&logical).into_owned(), font, col);
     let size = Vec2::new(g.size().x + 26.0, g.size().y + 7.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::hover());
     let bg = col.gamma_multiply(0.13);
     ui.painter().rect(rect, rect.height() / 2.0, bg, Stroke::new(1.0, col.gamma_multiply(0.45)), egui::StrokeKind::Inside);
     ui.painter().circle_filled(egui::pos2(rect.left() + 10.0, rect.center().y), 3.5, col);
     ui.painter().galley_with_override_text_color(egui::pos2(rect.left() + 18.0, rect.center().y - g.size().y / 2.0), g, col);
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &logical));
     let tip = match c {
         Some(Confidence::Observed) => "Seen it: read directly from the file, page or capture.",
         Some(Confidence::Derived) => "Worked it out: computed step by step from things we saw.",
         Some(Confidence::Inferred) => "Best guess: a reasonable reading, but not proven.",
         None => "Unknown: we couldn't establish this yet.",
     };
-    resp.on_hover_text(tr(tip))
+    crate::i18n::hover_text(resp, &tr(tip))
 }
 
 /// A section caption in the label style, faint.
 pub fn caption(ui: &mut Ui, text: &str) {
     let t = Tokens::get(ui.ctx());
-    ui.label(theme::label_text(&tr(text), theme::LABEL).color(t.text_faint));
+    crate::i18n::rich_label(ui, &tr(text), |r| r.font(theme::medium(theme::LABEL)).color(t.text_faint));
 }
 
 /// A caption on the left and its value on the right, or the value on a line of its own when the
@@ -590,9 +621,9 @@ pub fn empty_state(ui: &mut Ui, icon: &str, title: &str, body: &str) {
         ui.painter().circle_filled(rect.center(), 22.0, t.raised);
         icons::paint(ui, rect, icon, theme::icon::XL, t.text_faint);
         ui.add_space(theme::space::SM);
-        ui.label(RichText::new(tr(title)).font(theme::medium(theme::SMALL)).color(t.text_dim));
+        crate::i18n::rich_label(ui, &tr(title), |r| r.font(theme::medium(theme::SMALL)).color(t.text_dim));
         if !body.is_empty() {
-            ui.label(RichText::new(tr(body)).color(t.text_faint).size(theme::CAPTION));
+            crate::i18n::rich_label(ui, &tr(body), |r| r.color(t.text_faint).size(theme::CAPTION));
         }
         ui.add_space(theme::space::MD);
     });
@@ -613,20 +644,28 @@ pub fn big_card(ui: &mut Ui, size: Vec2, icon: &str, title: &str, blurb: &str, b
     ui.painter().rect_filled(icon_rect, t.radius, t.accent_soft);
     icons::paint(ui, icon_rect, icon, theme::icon::XL, t.accent_ink);
     if let Some(b) = badge {
-        let g = ui.painter().layout_no_wrap(tr(b), theme::medium(theme::TINY), t.text_dim);
+        let logical_badge = tr(b);
+        let g = ui.painter().layout_no_wrap(crate::i18n::display(&logical_badge).into_owned(), theme::medium(theme::TINY), t.text_dim);
         let br = egui::Rect::from_min_size(egui::pos2(rect.right() - g.size().x - 34.0, rect.top() + 22.0), g.size() + Vec2::new(16.0, 8.0));
         ui.painter().rect_filled(br, t.r_sm(), t.hover);
         ui.painter().galley_with_override_text_color(br.center() - g.size() / 2.0, g, t.text_dim);
     }
     let title_pos = egui::pos2(rect.left() + 22.0, icon_rect.bottom() + 18.0);
     // Titles wrap: the display face is wide, and translations are longer.
-    let title_g = theme::heading_galley(ui.painter(), tr(title), theme::CARD, t.text, rect.width() - 44.0);
+    let rtl = crate::i18n::is_rtl();
+    let max_w = rect.width() - 44.0;
+    let g_wrap = if rtl { f32::INFINITY } else { max_w };
+    let logical_title = tr(title);
+    let title_shown = crate::i18n::wrapped_visual_lines(ui.ctx(), rtl, &logical_title, theme::semibold(theme::CARD), max_w);
+    let title_g = theme::heading_galley(ui.painter(), title_shown, theme::CARD, t.text, g_wrap);
     let title_h = title_g.size().y;
     ui.painter().galley(title_pos, title_g, t.text);
-    let wrap = ui.painter().layout(tr(blurb), egui::FontId::proportional(theme::SMALL), t.text_dim, rect.width() - 44.0);
+    let blurb_font = egui::FontId::proportional(theme::SMALL);
+    let blurb_shown = crate::i18n::wrapped_visual_lines(ui.ctx(), rtl, &tr(blurb), blurb_font.clone(), max_w);
+    let wrap = ui.painter().layout(blurb_shown, blurb_font, t.text_dim, g_wrap);
     ui.painter().galley(title_pos + Vec2::new(0.0, title_h + 8.0), wrap, t.text_dim);
     focus_ring(ui, &resp, rect);
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tr(title)));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &logical_title));
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
@@ -643,7 +682,7 @@ pub fn glossary_word(ui: &mut Ui, word: &str, meaning: &str, font: egui::FontId)
     }
     resp.on_hover_ui(|ui| {
         ui.label(RichText::new(word.trim()).font(theme::semibold(theme::SMALL)));
-        ui.label(tr(meaning));
+        crate::i18n::label(ui, &tr(meaning));
     })
 }
 
@@ -855,9 +894,11 @@ pub fn working_since(ui: &mut Ui, title: &str, detail: Option<&str>, began: Opti
             ui.add_space(theme::space::XS);
             ui.vertical(|ui| {
                 ui.set_max_width((ui.available_width() - clock_width - ui.spacing().item_spacing.x).max(0.0));
-                ui.label(RichText::new(tr(title)).font(theme::semibold(theme::BODY)).color(t.text));
+                crate::i18n::rich_label(ui, &tr(title), |r| r.font(theme::semibold(theme::BODY)).color(t.text));
                 if !sub.is_empty() {
-                    ui.add(egui::Label::new(RichText::new(sub).color(t.text_dim).size(theme::SMALL).line_height(Some(theme::leading(theme::SMALL)))).wrap());
+                    crate::i18n::wrapped_label(ui, &sub, egui::FontId::proportional(theme::SMALL), |r| {
+                        r.color(t.text_dim).line_height(Some(theme::leading(theme::SMALL)))
+                    });
                 }
             });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

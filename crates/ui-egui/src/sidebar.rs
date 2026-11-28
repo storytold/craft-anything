@@ -7,7 +7,7 @@ use crate::make::{ago, status_shown};
 use crate::state::Screen;
 use crate::theme::{self, Tokens};
 use crate::{CraftApp, icons, widgets};
-use egui::{RichText, Sense, Ui, Vec2};
+use egui::{Sense, Ui, Vec2};
 
 pub const WIDTH: f32 = 248.0;
 /// Folded to icons.
@@ -83,7 +83,9 @@ pub fn show(app: &mut CraftApp, ui: &mut Ui) {
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             if app.projects.is_empty() && !fold {
                 egui::Frame::new().inner_margin(egui::Margin { left: 12, right: 8, top: 2, bottom: 2 }).show(ui, |ui| {
-                    ui.label(RichText::new(tr("Nothing made yet. What you make shows up here.")).color(t.text_faint).size(theme::SMALL));
+                    crate::i18n::wrapped_label(ui, &tr("Nothing made yet. What you make shows up here."), egui::FontId::proportional(theme::SMALL), |r| {
+                        r.color(t.text_faint)
+                    });
                 });
                 return;
             }

@@ -145,6 +145,8 @@ fn chinese_startup_language_menu_and_saved_selection() {
     assert_eq!(i18n::language(), "en");
     assert_eq!(i18n::tr("Settings"), "Settings");
     builder_replacement_notices(temp.path());
+    rtl_main_screens_at_smallest_window(temp.path());
+    ltr_screens_and_wrapped_label_unchanged(temp.path());
 }
 
 /// Run alongside the other locale checks in this test, never concurrently with them.
@@ -255,4 +257,277 @@ fn builder_replacement_notices(dir: &Path) {
         }
     }
     i18n::set_language("en");
+}
+
+const MINI_HE_CATALOG: &str = "\
+Change it\tשינוי
+Clean room\tחדר נקי
+Continue\tהמשך
+Continue where it paused\tהמשך מהנקודה שבה נעצר
+Export a report (Markdown)\tייצוא דוח (Markdown)
+General\tכללי
+Just ask\tפשוט לשאול
+Just look inside\tפשוט להציץ פנימה
+Language\tשפה
+Make my own version\tליצור גרסה משלי
+New project\tפרויקט חדש
+Plugins\tתוספים
+Plugins add tools Craft Anything offers as its own: MCP servers (a command or an address; read their tools after adding) or WebAssembly components (a .wasm file, which can't touch your files or the network).\tתוספים מוסיפים כלים ש-Craft Anything מציעה כשלה: שרתי MCP (פקודה או כתובת; ניתן לקרוא את הכלים שלהם לאחר ההוספה) או רכיבי WebAssembly (קובץ .wasm, שאינו יכול לגעת בקבצים או ברשת).
+Project details\tפרטי פרויקט
+Settings\tהגדרות
+Start\tהתחלה
+";
+
+fn smallest_harness(dir: &Path, lang: Option<(&str, &str)>, prepare: impl FnOnce(&mut CraftApp) + 'static) -> Harness<'static, CraftApp> {
+    let dir = dir.to_path_buf();
+    let custom = lang.map(|(code, cat)| (code.to_string(), cat.to_string()));
+    Harness::builder().with_size(egui::vec2(760.0, 520.0)).with_max_steps(32).build_eframe(move |cc| {
+        CraftApp::setup_context(&cc.egui_ctx);
+        let engine = demo::engine(Mode::Beginner, true);
+        {
+            let mut session = engine.session();
+            *session = Session::isolated(&dir);
+            session.settings = Settings { mode: Mode::Beginner, first_run_done: true, language: "en".into(), ..Default::default() };
+            session.settings.engines.store_dir = Some(dir.join("engines"));
+            session.settings.projects_dir = Some(dir.join("projects"));
+        }
+        let mut app = demo::app(engine);
+        if let Some((code, cat)) = custom {
+            craft_anything_ui_egui::testing::set_custom_catalog(&code, &cat);
+        } else {
+            i18n::set_language("en");
+        }
+        prepare(&mut app);
+        app
+    })
+}
+
+fn assert_control_inside_range(h: &Harness<'static, CraftApp>, label: &str, min_left: f32, max_right: f32) {
+    let nodes: Vec<_> = h.get_all_by_label(label).collect();
+    assert!(!nodes.is_empty(), "expected control labeled {label:?}");
+    for node in nodes {
+        let rect = node.rect();
+        assert!(rect.width() > 0.0 && rect.height() > 0.0, "empty rect for {label:?}: {rect:?}");
+        assert!(rect.left() >= min_left && rect.right() <= max_right, "{label:?} overflows horizontally at {rect:?} (allowed [{min_left}, {max_right}])");
+    }
+}
+
+fn assert_control_inside_window(h: &Harness<'static, CraftApp>, label: &str, width: f32) {
+    assert_control_inside_range(h, label, -2.0, width + 2.0);
+}
+
+fn assert_hebrew_shapes_inside_range(h: &Harness<'static, CraftApp>, min_left: f32, max_right: f32, screen: &str) {
+    let is_hebrew = |c: char| ('\u{0590}'..='\u{05FF}').contains(&c);
+    let mut saw_hebrew = false;
+    for clipped in &h.output().shapes {
+        if let egui::Shape::Text(text) = &clipped.shape
+            && text.galley.text().chars().any(is_hebrew)
+        {
+            saw_hebrew = true;
+            let bounds = text.galley.rect.translate(text.pos.to_vec2());
+            let visible_right = bounds.right().min(clipped.clip_rect.right());
+            assert!(
+                bounds.left() >= min_left && visible_right <= max_right,
+                "{screen}: Hebrew text {:?} overflows at bounds={bounds:?}, clip={:?} (allowed [{min_left}, {max_right}])",
+                text.galley.text(),
+                clipped.clip_rect
+            );
+        }
+    }
+    assert!(saw_hebrew, "{screen}: expected rendered Hebrew glyphs at 760x520");
+}
+
+fn assert_hebrew_shapes_inside_window(h: &Harness<'static, CraftApp>, width: f32, screen: &str) {
+    assert_hebrew_shapes_inside_range(h, -2.0, width + 2.0, screen);
+}
+
+/// Render Home, Make, Project, and Settings with an RTL language at the 760×520 minimum window
+/// and verify Hebrew strings appear without horizontal overflow or clipping regressions.
+fn rtl_main_screens_at_smallest_window(dir: &Path) {
+    let width = 760.0;
+
+    // 1. Home
+    let mut home = smallest_harness(&dir.join("rtl-home"), Some(("he", MINI_HE_CATALOG)), |_| {});
+    home.run_steps(3);
+    assert!(i18n::is_rtl());
+    for key in ["Make my own version", "Just look inside", "Settings", "Clean room"] {
+        assert_control_inside_window(&home, &i18n::tr(key), width);
+    }
+    assert_hebrew_shapes_inside_window(&home, width, "rtl-home");
+    drop(home);
+
+    // 2. Make (draft populated, Start visible via scroll)
+    let mut make = smallest_harness(&dir.join("rtl-make"), Some(("he", MINI_HE_CATALOG)), |app| {
+        demo::fill_projects(app);
+    });
+    make.run_steps(3);
+    make.get_all_by_label(&i18n::tr("Start")).next().unwrap().scroll_to_me();
+    make.run_steps(3);
+    for key in ["Make my own version", "Start"] {
+        assert_control_inside_window(&make, &i18n::tr(key), width);
+    }
+    assert_hebrew_shapes_inside_window(&make, width, "rtl-make");
+    drop(make);
+
+    // 3. Project
+    let mut project = smallest_harness(&dir.join("rtl-project"), Some(("he", MINI_HE_CATALOG)), |app| {
+        demo::fill_project(app);
+    });
+    project.run_steps(3);
+    for key in ["New project", "Project details", "Change it", "Just ask", "Settings"] {
+        assert_control_inside_window(&project, &i18n::tr(key), width);
+    }
+    assert_hebrew_shapes_inside_window(&project, width, "rtl-project");
+    drop(project);
+
+    // 4. Settings (General + wrapped Plugins note)
+    // At 760x520 the upstream General tab's unwrapped zoom hint already widens the centered Settings
+    // modal slightly past x = 0 in English LTR; verify RTL does not widen or clip beyond that baseline.
+    let mut ltr_settings = smallest_harness(&dir.join("ltr-settings-ref"), None, |app| {
+        demo::fill_projects(app);
+        app.state.settings_open = true;
+    });
+    ltr_settings.run_steps(3);
+    let ltr_settings_left = ltr_settings.get_all_by_label("Settings").map(|n| n.rect().left()).fold(f32::INFINITY, f32::min);
+    let settings_min_left = ltr_settings_left.min(0.0) - 2.0;
+    drop(ltr_settings);
+
+    let mut settings = smallest_harness(&dir.join("rtl-settings"), Some(("he", MINI_HE_CATALOG)), |app| {
+        demo::fill_projects(app);
+        app.state.settings_open = true;
+    });
+    settings.run_steps(3);
+    let rtl_settings_left = settings.get_all_by_label(&i18n::tr("Settings")).map(|n| n.rect().left()).fold(f32::INFINITY, f32::min);
+    assert!(rtl_settings_left >= ltr_settings_left - 2.0, "RTL widened Settings modal: rtl_left={rtl_settings_left} < ltr_left={ltr_settings_left}");
+    for key in ["Settings", "General", "Plugins", "Language"] {
+        assert_control_inside_range(&settings, &i18n::tr(key), settings_min_left, width + 2.0);
+    }
+    settings.get_all_by_label(&i18n::tr("Plugins")).next().unwrap().click();
+    settings.run_steps(3);
+    assert_hebrew_shapes_inside_range(&settings, settings_min_left, width + 2.0, "rtl-settings");
+    // AccessKit keeps logical reading order while painted shapes render in visual RTL order
+    // (opening words first, and mixed LTR runs + mirrored brackets intact).
+    let plugins_logical = i18n::tr(
+        "Plugins add tools Craft Anything offers as its own: MCP servers (a command or an address; read their tools after adding) or WebAssembly components (a .wasm file, which can't touch your files or the network).",
+    );
+    settings.get_by_label(&plugins_logical);
+    let painted_texts: Vec<String> = settings
+        .output()
+        .shapes
+        .iter()
+        .filter_map(|s| match &s.shape {
+            egui::Shape::Text(t) => Some(t.galley.text().to_owned()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        painted_texts.iter().any(|t| t.contains("MCP") && t.contains("כלים")),
+        "expected visual RTL wrapped line containing Hebrew + MCP, got {painted_texts:?}"
+    );
+    drop(settings);
+
+    // Command palette keeps logical title for AccessKit/search while painting visual RTL + mirrored brackets.
+    let mut palette = smallest_harness(&dir.join("rtl-palette"), Some(("he", MINI_HE_CATALOG)), |app| {
+        demo::fill_project(app);
+        app.state.palette.open = true;
+        app.state.palette.query = "ייצוא דוח".into();
+    });
+    palette.run_steps(3);
+    palette.get_by_label("ייצוא דוח (Markdown)");
+    let has_mixed_visual = palette.output().shapes.iter().any(|s| match &s.shape {
+        egui::Shape::Text(t) => t.galley.text() == "(Markdown) דוח ייצוא",
+        _ => false,
+    });
+    assert!(has_mixed_visual, "expected painted visual RTL '(Markdown) דוח ייצוא' in palette shapes");
+    drop(palette);
+
+    i18n::set_language("en");
+}
+
+fn text_shapes(h: &Harness<'static, CraftApp>) -> Vec<(String, egui::Rect)> {
+    h.output()
+        .shapes
+        .iter()
+        .filter_map(|clipped| match &clipped.shape {
+            egui::Shape::Text(t) => Some((t.galley.text().to_owned(), t.galley.rect.translate(t.pos.to_vec2()))),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Verify an LTR language renders identically at 760×520 (comparing shapes within this build
+/// before and after visiting RTL, rather than against a separate base-commit build) and
+/// `wrapped_label_for(..., false, ...)` matches plain `egui::Label::wrap()` geometry.
+fn ltr_screens_and_wrapped_label_unchanged(dir: &Path) {
+    let width = 760.0;
+
+    let mut home = smallest_harness(&dir.join("ltr-home"), None, |_| {});
+    home.run_steps(3);
+    assert!(!i18n::is_rtl());
+    for key in ["Make my own version", "Just look inside", "Settings", "Clean room"] {
+        assert_control_inside_window(&home, key, width);
+    }
+    let home_before = text_shapes(&home);
+    drop(home);
+
+    let mut project = smallest_harness(&dir.join("ltr-project"), None, |app| {
+        demo::fill_project(app);
+    });
+    project.run_steps(3);
+    for key in ["New project", "Project details", "Change it", "Just ask", "Settings"] {
+        assert_control_inside_window(&project, key, width);
+    }
+    drop(project);
+
+    let mut settings = smallest_harness(&dir.join("ltr-settings"), None, |app| {
+        demo::fill_projects(app);
+        app.state.settings_open = true;
+    });
+    settings.run_steps(3);
+    let ltr_min_left = settings.get_all_by_label("Settings").map(|n| n.rect().left()).fold(f32::INFINITY, f32::min).min(0.0) - 2.0;
+    for key in ["Settings", "General", "Plugins", "Language"] {
+        assert_control_inside_range(&settings, key, ltr_min_left, width + 2.0);
+    }
+    let settings_before = text_shapes(&settings);
+    drop(settings);
+
+    // Round-trip through RTL, then verify LTR shapes are identical.
+    craft_anything_ui_egui::testing::set_custom_catalog("he", MINI_HE_CATALOG);
+    assert!(i18n::is_rtl());
+    let mut home_after_rtl = smallest_harness(&dir.join("ltr-home"), None, |_| {});
+    home_after_rtl.run_steps(3);
+    assert_eq!(text_shapes(&home_after_rtl), home_before, "LTR Home shapes changed after RTL");
+    drop(home_after_rtl);
+
+    let mut settings_after_rtl = smallest_harness(&dir.join("ltr-settings"), None, |app| {
+        demo::fill_projects(app);
+        app.state.settings_open = true;
+    });
+    settings_after_rtl.run_steps(3);
+    assert_eq!(text_shapes(&settings_after_rtl), settings_before, "LTR Settings shapes changed after RTL");
+    drop(settings_after_rtl);
+
+    // Direct LTR geometry equivalence check against plain `egui::Label::new(...).wrap()`.
+    let ctx = egui::Context::default();
+    craft_anything_ui_egui::theme::apply(&ctx, craft_anything_ui_egui::theme::ThemeKind::Studio);
+    let sample = "Plugins add tools Craft Anything offers as its own: MCP servers or WebAssembly components.";
+    let font = egui::FontId::proportional(craft_anything_ui_egui::theme::CAPTION);
+    let mut wrapped_rect = egui::Rect::NOTHING;
+    let mut plain_rect = egui::Rect::NOTHING;
+    ctx.run_ui(egui::RawInput::default(), |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
+            ui.allocate_ui(egui::vec2(260.0, 200.0), |ui| {
+                wrapped_rect = i18n::wrapped_label_for(ui, false, sample, font.clone(), |r| r).rect;
+            });
+            ui.allocate_ui(egui::vec2(260.0, 200.0), |ui| {
+                plain_rect = ui.add(egui::Label::new(egui::RichText::new(sample).font(font.clone())).wrap()).rect;
+            });
+        });
+    })
+    .textures_delta
+    .clear();
+    assert!(
+        (wrapped_rect.width() - plain_rect.width()).abs() < 0.01 && (wrapped_rect.height() - plain_rect.height()).abs() < 0.01,
+        "LTR wrapped_label_for geometry drifted: wrapped={wrapped_rect:?} plain={plain_rect:?}"
+    );
 }

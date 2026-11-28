@@ -46,6 +46,14 @@ pub mod usage;
 pub mod widgets;
 pub mod workbench;
 
+#[doc(hidden)]
+pub mod testing {
+    /// Activate an inline TSV catalog and language code without registering it in `i18n::LANGUAGES`.
+    pub fn set_custom_catalog(code: &str, source: &str) {
+        crate::i18n::set_custom_catalog(code, source);
+    }
+}
+
 use craft_anything_ai::{AgentEvent, AiHub, BackendConfig, BackendEntry, BackendOptions, Conversation, Detected};
 use craft_anything_engine::evidence::{ErrorCode, Evidence, ToolError, Unknown};
 use craft_anything_engine::tools::site_sign_in::{self, SIGN_IN_TOOL, SIGN_OUT_TOOL};
@@ -240,6 +248,8 @@ pub enum Done {
     },
     /// Which asset providers have a key set up (provider id → stored).
     AssetKeys(std::collections::BTreeMap<String, bool>),
+    /// A system Hebrew fallback font was read off the UI thread.
+    HebrewFont(Option<Vec<u8>>),
     /// Which API backends have a key saved in the app (backend name → stored; #1358), and the
     /// check that asked: a result from before a save or another check is stale.
     BackendKeys {
@@ -632,6 +642,9 @@ pub struct CraftApp {
     view_dirty: bool,
     last_view: Option<Instant>,
     applied_theme: Option<ThemeKind>,
+    applied_rtl_fonts: bool,
+    hebrew_font: Option<Option<Vec<u8>>>,
+    hebrew_font_loading: bool,
     /// The system's light or dark appearance, read each frame: the System theme follows it.
     system_theme: Option<egui::Theme>,
     started: bool,
@@ -742,6 +755,9 @@ impl CraftApp {
             view_dirty: true,
             last_view: None,
             applied_theme: None,
+            applied_rtl_fonts: false,
+            hebrew_font: None,
+            hebrew_font_loading: false,
             system_theme: None,
             started: false,
         };
@@ -1268,7 +1284,7 @@ impl CraftApp {
         egui::Panel::top("stuck-banner").frame(egui::Frame::new().fill(t.card).inner_margin(theme::pad::BAR)).show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
                 icons::show(ui, "triangle-alert", crate::theme::icon::MD, t.danger);
-                ui.label(egui::RichText::new(i18n::tr(text)).color(t.text)).on_hover_text(problem.summary.clone());
+                crate::i18n::rich_label(ui, &i18n::tr(text), |r| r.color(t.text)).on_hover_text(problem.summary.clone());
                 if let Some(path) = &problem.log
                     && widgets::secondary(ui, None, "Open log").on_hover_text(path.display().to_string()).clicked()
                 {
@@ -2000,6 +2016,10 @@ impl CraftApp {
             Done::EngineGot { builder, installer } => self.engine_got(builder, installer),
             Done::GhidraGot => self.ghidra_got(),
             Done::AssetKeys(keys) => self.asset_keys = Some(keys),
+            Done::HebrewFont(bytes) => {
+                self.hebrew_font_loading = false;
+                self.hebrew_font = Some(bytes);
+            }
             Done::Wrote { what, path } => {
                 if let Some(p) = path {
                     self.toast(format!("{} {}", tr("Saved"), p.display()), false);
@@ -2092,6 +2112,25 @@ impl CraftApp {
         if self.applied_theme != Some(want) {
             theme::apply(ctx, want);
             self.applied_theme = Some(want);
+        }
+        let want_rtl = i18n::is_rtl();
+        if self.applied_rtl_fonts != want_rtl {
+            if !want_rtl || theme::has_bundled_hebrew_font() {
+                theme::install_fonts_with(ctx, None);
+                self.applied_rtl_fonts = want_rtl;
+            } else if let Some(cached) = &self.hebrew_font {
+                theme::install_fonts_with(ctx, cached.clone());
+                self.applied_rtl_fonts = true;
+            } else if !self.hebrew_font_loading {
+                self.hebrew_font_loading = true;
+                #[cfg(not(target_arch = "wasm32"))]
+                self.jobs.spawn("Load Hebrew fonts", false, move |_| Ok(Done::HebrewFont(theme::desktop_hebrew_fallback())));
+                #[cfg(target_arch = "wasm32")]
+                {
+                    self.hebrew_font_loading = false;
+                    self.hebrew_font = Some(None);
+                }
+            }
         }
         self.take_finished_jobs();
         if let Some(url) = self.open_url.take() {
@@ -2283,7 +2322,7 @@ impl CraftApp {
                                     ui.spacing_mut().item_spacing.y = 0.0;
                                     ui.set_width(inner - 2.0 * (side + theme::space::SM));
                                     ui.add_space(nudge);
-                                    ui.add(egui::Label::new(egui::RichText::new(text).size(theme::SMALL).line_height(Some(line)).color(t.text)).wrap());
+                                    i18n::wrapped_label(ui, text, egui::FontId::proportional(theme::SMALL), |r| r.line_height(Some(line)).color(t.text));
                                     ui.add_space(nudge);
                                 });
                                 let (slot, _) = ui.allocate_exact_size(egui::Vec2::splat(side), egui::Sense::hover());

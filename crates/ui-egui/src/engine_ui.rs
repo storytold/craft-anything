@@ -225,15 +225,16 @@ pub fn ghidra_modal(app: &mut CraftApp, ui: &mut Ui, close: &mut bool) {
             } else {
                 "Get Ghidra for Deep mode"
             };
-            ui.label(theme::heading(tr(title), theme::SECTION));
-            ui.label(
-                RichText::new(tr("Ghidra, a free reverse-engineering tool from the NSA, gives Deep mode richer decompiled code and types.")).color(t.text_dim),
-            );
+            crate::i18n::heading(ui, &tr(title), theme::SECTION);
+            crate::i18n::rich_label(ui, &tr("Ghidra, a free reverse-engineering tool from the NSA, gives Deep mode richer decompiled code and types."), |r| {
+                r.color(t.text_dim)
+            });
         });
     });
     ui.add_space(theme::space::MD);
-    let body =
-        |ui: &mut Ui, text: String| ui.add(egui::Label::new(RichText::new(text).size(theme::BODY).line_height(Some(theme::leading(theme::BODY)))).wrap());
+    let body = |ui: &mut Ui, text: String| {
+        crate::i18n::wrapped_label(ui, &text, egui::FontId::proportional(theme::BODY), |r| r.line_height(Some(theme::leading(theme::BODY))))
+    };
     let then = if app.ghidra.start_after.is_some() { tr("Your project starts as soon as it's done.") } else { String::new() };
     if ready {
         body(ui, tr("Deep mode now decompiles with Ghidra. The first look at a large program can take several minutes."));
@@ -272,14 +273,18 @@ pub fn ghidra_modal(app: &mut CraftApp, ui: &mut Ui, close: &mut bool) {
                 }
             }
         } else if downloading.is_some() {
-            if widgets::secondary(ui, None, "Close").on_hover_text(tr("The download keeps going in the background.")).clicked() {
+            if widgets::secondary(ui, None, "Close").on_hover_text(crate::i18n::display(&tr("The download keeps going in the background.")).as_ref()).clicked()
+            {
                 *close = true;
             }
         } else {
             if get::can_install() && widgets::primary_icon(ui, Some("download"), "Download and use Ghidra", true).clicked() {
                 app.get_ghidra();
             }
-            if widgets::secondary(ui, Some("folder-open"), "I have Ghidra").on_hover_text(tr("Choose the folder Ghidra is installed in.")).clicked() {
+            if widgets::secondary(ui, Some("folder-open"), "I have Ghidra")
+                .on_hover_text(crate::i18n::display(&tr("Choose the folder Ghidra is installed in.")).as_ref())
+                .clicked()
+            {
                 app.pick(crate::Pick::GhidraDir);
             }
             let without = if app.ghidra.start_after.is_some() { "Build without it" } else { "Not now" };
@@ -360,7 +365,7 @@ pub fn ghidra_memory_setting(app: &mut CraftApp, ui: &mut Ui) {
                 if r.drag_stopped() || (r.changed() && !r.dragged()) {
                     app.settings_changed();
                 }
-                ui.label(RichText::new(tr("Leave a few GB for the rest of your computer.")).color(t.text_faint).size(theme::CAPTION));
+                crate::i18n::rich_label(ui, &tr("Leave a few GB for the rest of your computer."), |r| r.color(t.text_faint).size(theme::CAPTION));
             }
         }
     });
@@ -510,24 +515,19 @@ pub fn assets_modal(app: &mut CraftApp, ui: &mut Ui, close: &mut bool) {
         ui.painter().rect_filled(rect, t.radius, t.accent_soft);
         icons::paint(ui, rect, "boxes", theme::icon::XL, t.accent_ink);
         ui.vertical(|ui| {
-            ui.label(theme::heading(tr("Your fal.ai key"), theme::SECTION));
-            ui.label(RichText::new(tr("Generated pictures and 3D models are made with fal.ai.")).color(t.text_dim));
+            crate::i18n::heading(ui, &tr("Your fal.ai key"), theme::SECTION);
+            crate::i18n::rich_label(ui, &tr("Generated pictures and 3D models are made with fal.ai."), |r| r.color(t.text_dim));
         });
     });
     ui.add_space(theme::space::MD);
-    ui.add(
-        egui::Label::new(
-            RichText::new({
-                let p = AssetPrices::of(app);
-                trf(
-                    "The builder makes the game's 3D models and textures from descriptions of original designs, paid from your fal.ai account. Models are low-poly so the game runs fast. A textured model costs {model} and a picture {picture}. Each project has a {budget} budget, and you're asked before it goes over. The key is kept in your system keychain.",
-                    &[("model", &p.model), ("picture", &p.picture), ("budget", &p.budget)],
-                )
-            })
-            .size(theme::BODY),
+    let assets_note = {
+        let p = AssetPrices::of(app);
+        trf(
+            "The builder makes the game's 3D models and textures from descriptions of original designs, paid from your fal.ai account. Models are low-poly so the game runs fast. A textured model costs {model} and a picture {picture}. Each project has a {budget} budget, and you're asked before it goes over. The key is kept in your system keychain.",
+            &[("model", &p.model), ("picture", &p.picture), ("budget", &p.budget)],
         )
-        .wrap(),
-    );
+    };
+    crate::i18n::wrapped_label(ui, &assets_note, egui::FontId::proportional(theme::BODY), |r| r);
     ui.add_space(theme::space::MD);
     let fal = fal::Fal::default();
     keys_link(ui, &fal);
@@ -577,21 +577,15 @@ fn keys_link(ui: &mut Ui, provider: &dyn AssetProvider) {
 /// Settings → AI: each asset provider's key for game assets.
 pub fn assets_settings(app: &mut CraftApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
-    ui.label(RichText::new(tr("Game assets")).font(theme::medium(theme::SMALL)));
-    ui.add(
-        egui::Label::new(
-            RichText::new({
-                let p = AssetPrices::of(app);
-                trf(
-                    "Lets the builder make realistic 3D models and textures for games, {model} a model, with a {budget} budget per project.",
-                    &[("model", &p.model), ("budget", &p.budget)],
-                )
-            })
-            .color(t.text_faint)
-            .size(theme::CAPTION),
+    crate::i18n::rich_label(ui, &tr("Game assets"), |r| r.font(theme::medium(theme::SMALL)));
+    let settings_note = {
+        let p = AssetPrices::of(app);
+        trf(
+            "Lets the builder make realistic 3D models and textures for games, {model} a model, with a {budget} budget per project.",
+            &[("model", &p.model), ("budget", &p.budget)],
         )
-        .wrap(),
-    );
+    };
+    crate::i18n::wrapped_label(ui, &settings_note, egui::FontId::proportional(theme::CAPTION), |r| r.color(t.text_faint));
     let all = AssetProviders::built_in();
     for provider in all.ids().into_iter().filter_map(|id| all.get(id)) {
         ui.add_space(theme::space::SM);
@@ -638,19 +632,19 @@ pub fn build_with(app: &mut CraftApp, ui: &mut Ui) {
     if let Some(f) = app.state.make.found.clone() {
         ui.horizontal_wrapped(|ui| {
             icons::show(ui, "puzzle", theme::icon::MD, t.accent_ink);
-            ui.label(RichText::new(trf("Made with {engine}", &[("engine", &f.label())])).font(theme::semibold(theme::BODY)));
+            crate::i18n::rich_label(ui, &trf("Made with {engine}", &[("engine", &f.label())]), |r| r.font(theme::semibold(theme::BODY)));
         });
         if !matches!(f.engine, game::Made::Unity | game::Made::Unreal | game::Made::Godot) {
-            ui.label(
-                RichText::new(trf("Craft Anything can't build with {engine}, so Unity is the closest match.", &[("engine", f.engine.name())]))
-                    .color(t.text_dim)
-                    .size(theme::SMALL),
+            crate::i18n::rich_label(
+                ui,
+                &trf("Craft Anything can't build with {engine}, so Unity is the closest match.", &[("engine", f.engine.name())]),
+                |r| r.color(t.text_dim).size(theme::SMALL),
             );
         }
         ui.add_space(theme::space::SM);
     }
     ui.horizontal(|ui| {
-        ui.label(RichText::new(tr("Build with")).size(theme::BODY).color(t.text_dim));
+        crate::i18n::rich_label(ui, &tr("Build with"), |r| r.size(theme::BODY).color(t.text_dim));
         let names: Vec<&str> = Builder::ALL.iter().map(|b| b.name()).collect();
         // Nothing is selected while the request names another way to build.
         let sel = b.and_then(|b| Builder::ALL.iter().position(|x| *x == b)).unwrap_or(usize::MAX);
@@ -665,11 +659,9 @@ pub fn build_with(app: &mut CraftApp, ui: &mut Ui) {
             let named = app.kinds.named(&app.state.make.request, &crate::make::resolve_target(&app.state.make)).unwrap_or_default();
             ui.horizontal_wrapped(|ui| {
                 icons::show(ui, "check", theme::icon::MD, t.success);
-                ui.label(
-                    RichText::new(trf("Built with {stack}, as you asked, so no game engine is needed.", &[("stack", named)]))
-                        .color(t.text_dim)
-                        .size(theme::SMALL),
-                );
+                crate::i18n::rich_label(ui, &trf("Built with {stack}, as you asked, so no game engine is needed.", &[("stack", named)]), |r| {
+                    r.color(t.text_dim).size(theme::SMALL)
+                });
             });
         }
     }
@@ -708,13 +700,13 @@ fn status_line(app: &mut CraftApp, ui: &mut Ui, b: Builder, offer: bool) {
     ui.horizontal_wrapped(|ui| match &inv {
         None => {
             ui.add(crate::widgets::Spinner::new().size(theme::icon::SM).color(t.accent));
-            ui.label(RichText::new(tr("Looking for game engines on this computer…")).color(t.text_dim).size(theme::SMALL));
+            crate::i18n::rich_label(ui, &tr("Looking for game engines on this computer…"), |r| r.color(t.text_dim).size(theme::SMALL));
         }
         Some(inv) if inv.ready(b) => {
             icons::show(ui, "check", theme::icon::MD, t.success);
             let v = inv.best(b).map(|i| i.version.clone()).unwrap_or_default();
             let what = if v.is_empty() { b.name().to_string() } else { format!("{} {v}", b.name()) };
-            ui.label(RichText::new(trf("Ready: {what} is on this computer.", &[("what", &what)])).color(t.text_dim).size(theme::SMALL));
+            crate::i18n::rich_label(ui, &trf("Ready: {what} is on this computer.", &[("what", &what)]), |r| r.color(t.text_dim).size(theme::SMALL));
         }
         Some(inv) => {
             icons::show(ui, "download", theme::icon::MD, t.warning);
@@ -822,7 +814,7 @@ pub fn modal(app: &mut CraftApp, ui: &mut Ui, b: Builder, close: &mut bool) {
     let Some(inv) = app.game_engines.clone() else {
         ui.horizontal(|ui| {
             ui.add(crate::widgets::Spinner::new().size(theme::icon::MD).color(t.accent));
-            ui.label(tr("Looking for game engines on this computer…"));
+            crate::i18n::label(ui, &tr("Looking for game engines on this computer…"));
         });
         app.refresh_game_engines();
         return;
@@ -841,7 +833,7 @@ pub fn modal(app: &mut CraftApp, ui: &mut Ui, b: Builder, close: &mut bool) {
         ui.vertical(|ui| {
             let title = if ready { trf("{name} is ready", &[("name", b.name())]) } else { trf("Get {name}", &[("name", b.name())]) };
             ui.label(theme::heading(title, theme::SECTION));
-            ui.label(RichText::new(tr(b.needs())).color(t.text_dim));
+            crate::i18n::rich_label(ui, &tr(b.needs()), |r| r.color(t.text_dim));
         });
     });
     ui.add_space(theme::space::LG);
@@ -895,7 +887,7 @@ pub fn modal(app: &mut CraftApp, ui: &mut Ui, b: Builder, close: &mut bool) {
                         ui.add_space(theme::space::XS);
                     }
                     if !s.done && current.is_some() && i > 0 {
-                        ui.label(RichText::new(tr("This updates by itself when it's done.")).color(t.text_faint).size(theme::SMALL));
+                        crate::i18n::rich_label(ui, &tr("This updates by itself when it's done."), |r| r.color(t.text_faint).size(theme::SMALL));
                     }
                 }
             });
@@ -932,7 +924,7 @@ pub fn modal(app: &mut CraftApp, ui: &mut Ui, b: Builder, close: &mut bool) {
                     app.start_make();
                 }
             }
-            if widgets::secondary(ui, None, "Close").on_hover_text(tr("Downloads keep going in the background.")).clicked() {
+            if widgets::secondary(ui, None, "Close").on_hover_text(crate::i18n::display(&tr("Downloads keep going in the background.")).as_ref()).clicked() {
                 *close = true;
                 app.engine_flow.start_after = false;
             }
@@ -966,16 +958,12 @@ pub fn settings_section(app: &mut CraftApp, ui: &mut Ui) {
     if app.game_engines.is_none() {
         app.refresh_game_engines();
     }
-    ui.label(RichText::new(tr("Game engines")).font(theme::medium(theme::SMALL)));
-    ui.add(
-        egui::Label::new(
-            RichText::new(tr(
-                "Recreated games are built with the original's own engine when it's here (Unity, Unreal or Godot), else Unity, and Rust as the last resort.",
-            ))
-            .color(t.text_faint)
-            .size(theme::CAPTION),
-        )
-        .wrap(),
+    crate::i18n::rich_label(ui, &tr("Game engines"), |r| r.font(theme::medium(theme::SMALL)));
+    crate::i18n::wrapped_label(
+        ui,
+        &tr("Recreated games are built with the original's own engine when it's here (Unity, Unreal or Godot), else Unity, and Rust as the last resort."),
+        egui::FontId::proportional(theme::CAPTION),
+        |r| r.color(t.text_faint),
     );
     ui.add_space(theme::space::SM);
     for b in Builder::ALL {

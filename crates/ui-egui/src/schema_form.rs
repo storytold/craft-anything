@@ -127,7 +127,7 @@ pub fn build(fields: &[Field], values: &BTreeMap<String, String>) -> Result<Valu
 pub fn show(ui: &mut Ui, fields: &[Field], values: &mut BTreeMap<String, String>) {
     let t = Tokens::get(ui.ctx());
     if fields.is_empty() {
-        ui.label(RichText::new(tr("This tool takes no settings.")).color(t.text_dim));
+        crate::i18n::rich_label(ui, &tr("This tool takes no settings."), |r| r.color(t.text_dim));
         return;
     }
     egui::Grid::new("schema-form").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {

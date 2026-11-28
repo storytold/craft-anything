@@ -719,11 +719,9 @@ fn checklist(ui: &mut Ui, steps: &[PlanStep], t: &Tokens, began: Option<std::tim
                     ui.add(crate::widgets::Spinner::new().size(theme::icon::XS).color(t.accent));
                     ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
                 }
-                ui.label(
-                    RichText::new(trf("{done} of {all} done", &[("done", &done.to_string()), ("all", &steps.len().to_string())]))
-                        .font(theme::mono(theme::CODE))
-                        .color(t.text_faint),
-                );
+                crate::i18n::rich_label(ui, &trf("{done} of {all} done", &[("done", &done.to_string()), ("all", &steps.len().to_string())]), |r| {
+                    r.font(theme::mono(theme::CODE)).color(t.text_faint)
+                });
             });
         });
         ui.add_space(theme::space::SM);
@@ -763,7 +761,7 @@ fn checklist(ui: &mut Ui, steps: &[PlanStep], t: &Tokens, began: Option<std::tim
                             // get the status through the accessible label and the text.
                             let name = format!("{}: {}", s.text, tr("Stopped here"));
                             resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &name));
-                            ui.label(RichText::new(tr("Stopped here")).size(theme::SMALL).color(t.warning));
+                            crate::i18n::rich_label(ui, &tr("Stopped here"), |r| r.size(theme::SMALL).color(t.warning));
                         }
                     });
                 }
@@ -984,10 +982,12 @@ pub fn show(app: &mut CraftApp, ui: &mut Ui) {
                     ui.vertical(|ui| {
                         ui.set_width(max_w);
                         if !beside {
-                            egui::CollapsingHeader::new(RichText::new(tr("Project details")).font(theme::semibold(theme::BODY)))
+                            let details_logical = tr("Project details");
+                            let header = egui::CollapsingHeader::new(crate::i18n::rich_text(&details_logical).font(theme::semibold(theme::BODY)))
                                 .id_salt("project-details")
                                 .icon(widgets::disclosure_icon)
                                 .show(ui, |ui| side(app, ui, &ws));
+                            crate::i18n::keep_logical_a11y(&header.header_response, &details_logical);
                             ui.add_space(chat::MESSAGE_GAP);
                         }
                         feed(app, ui, &ws, &waiting);
@@ -1071,7 +1071,7 @@ fn side(app: &mut CraftApp, ui: &mut Ui, ws: &Workspace) {
             let n = app.facts.references;
             let note = if n == 0 { tr("None yet. Screenshots help it look right.") } else { trf("{n} picture(s) to match.", &[("n", &n.to_string())]) };
             if widgets::action_row(ui, "paperclip", "Add pictures of the original", false)
-                .on_hover_text(tr("Screenshots of how it should look. The builder opens each one and matches it."))
+                .on_hover_text(crate::i18n::display(&tr("Screenshots of how it should look. The builder opens each one and matches it.")).as_ref())
                 .clicked()
             {
                 app.pick(crate::Pick::Pictures);
@@ -1090,13 +1090,16 @@ fn side(app: &mut CraftApp, ui: &mut Ui, ws: &Workspace) {
         // (a preview still being served isn't one).
         if !app.running()
             && (app.facts.site || app.facts.program)
-            && widgets::action_row(ui, "pin", "Pin this build", false).on_hover_text(tr("Keep this version in the sidebar to open any time.")).clicked()
+            && crate::i18n::hover_text(widgets::action_row(ui, "pin", "Pin this build", false), &tr("Keep this version in the sidebar to open any time."))
+                .clicked()
         {
             app.ask_pin(&ws.root);
         }
         crate::manage::rows(app, ui, ws);
         if !app.beginner()
-            && widgets::action_row(ui, "microscope", "Open in the workbench", false).on_hover_text(tr("The full toolset, evidence and logs.")).clicked()
+            && widgets::action_row(ui, "microscope", "Open in the workbench", false)
+                .on_hover_text(crate::i18n::display(&tr("The full toolset, evidence and logs.")).as_ref())
+                .clicked()
         {
             app.state.screen = Screen::Workbench;
         }
@@ -1167,7 +1170,7 @@ fn open_questions(app: &CraftApp, ui: &mut Ui) {
             ui.label(RichText::new(more).size(theme::SMALL).color(t.text_dim));
         }
         ui.add_space(theme::space::XS);
-        ui.label(RichText::new(tr("Answer any of them in a message below.")).size(theme::SMALL).color(t.text_dim));
+        crate::i18n::rich_label(ui, &tr("Answer any of them in a message below."), |r| r.size(theme::SMALL).color(t.text_dim));
     });
     ui.add_space(theme::space::LG);
 }
@@ -1267,15 +1270,10 @@ fn steps(app: &CraftApp, ui: &mut Ui, ws: &Workspace) -> bool {
                 widgets::stat_row(ui, cost.label, &cost.value).on_hover_text(tip());
                 // Said outright, not only on hover: on a subscription this isn't what they pay.
                 if let Some(note) = cost.note {
-                    ui.add(
-                        egui::Label::new(
-                            RichText::new(tr(note))
-                                .color(Tokens::get(ui.ctx()).text_faint)
-                                .size(theme::CAPTION)
-                                .line_height(Some(theme::leading(theme::CAPTION))),
-                        )
-                        .wrap(),
-                    );
+                    let faint = Tokens::get(ui.ctx()).text_faint;
+                    crate::i18n::wrapped_label(ui, &tr(note), egui::FontId::proportional(theme::CAPTION), |r| {
+                        r.color(faint).line_height(Some(theme::leading(theme::CAPTION)))
+                    });
                 }
             }
             if let Some(usage) = u.tokens() {
@@ -1283,18 +1281,14 @@ fn steps(app: &CraftApp, ui: &mut Ui, ws: &Workspace) -> bool {
             }
             // Said where it can be fixed: until then no run adds to the record.
             if u.unreadable {
-                ui.add(
-                    egui::Label::new(
-                        RichText::new(tr("Builds aren't counted while this record can't be read."))
-                            .color(t.text_faint)
-                            .size(theme::CAPTION)
-                            .line_height(Some(theme::leading(theme::CAPTION))),
-                    )
-                    .wrap(),
-                );
-                reset_usage = widgets::link(ui, &tr("Set it aside and count again")).on_hover_text(tr(
-                    "Moves usage.json aside as usage.unreadable.json in the project folder and starts a new record. Builds from now on are counted; earlier ones aren't included.",
-                )).clicked();
+                crate::i18n::wrapped_rich_label(ui, &tr("Builds aren't counted while this record can't be read."), |r| {
+                    r.color(t.text_faint).size(theme::CAPTION).line_height(Some(theme::leading(theme::CAPTION)))
+                });
+                reset_usage = crate::i18n::hover_text(
+                    widgets::link(ui, "Set it aside and count again"),
+                    &tr("Moves usage.json aside as usage.unreadable.json in the project folder and starts a new record. Builds from now on are counted; earlier ones aren't included."),
+                )
+                .clicked();
             }
             if u.working() {
                 ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
@@ -1338,8 +1332,8 @@ fn feed(app: &mut CraftApp, ui: &mut Ui, ws: &Workspace, waiting: &[Note]) {
                 ui.painter().rect_filled(rect, t.radius, t.accent_soft);
                 icons::paint(ui, rect, w.icon, theme::icon::XL, t.accent_ink);
                 ui.vertical(|ui| {
-                    ui.label(theme::heading(tr(w.ready), theme::CARD));
-                    ui.label(RichText::new(tr("Try it out, then ask below for any changes.")).color(t.text_dim));
+                    crate::i18n::heading(ui, &tr(w.ready), theme::CARD);
+                    crate::i18n::rich_label(ui, &tr("Try it out, then ask below for any changes."), |r| r.color(t.text_dim));
                 });
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| outcome_button(app, ui, ws, theme::ControlSize::Large, false));
             });
@@ -1445,7 +1439,7 @@ fn run_details(app: &mut CraftApp, ui: &mut Ui, status_row: bool) {
             // Each project's box keeps its own height and wrapping.
             pop_out = crate::activity_box::inline(ui, run, egui::Id::new(("run_details", &root)));
             ui.horizontal(|ui| {
-                ui.label(RichText::new(tr("A command's output shows here when it finishes.")).color(t.text_faint).size(theme::CAPTION));
+                crate::i18n::rich_label(ui, &tr("A command's output shows here when it finishes."), |r| r.color(t.text_faint).size(theme::CAPTION));
                 open_log = widgets::open_log_button(ui, &log);
             });
         },
@@ -1553,7 +1547,7 @@ fn draw_items(
         let drawn = ui.push_id(i, |ui| match item {
             FeedItem::User(text) => chat::user_bubble(ui, text.text(), false),
             FeedItem::Step { text, .. } => chat::activity_row(ui, RichText::new(text).color(t.text_dim).size(theme::SMALL)),
-            FeedItem::Paused => chat::activity_row(ui, RichText::new(tr("Paused.")).color(t.text_dim).size(theme::SMALL)),
+            FeedItem::Paused => chat::activity_row(ui, crate::i18n::rich_text(&tr("Paused.")).color(t.text_dim).size(theme::SMALL)),
             FeedItem::Agent { text, streaming } => {
                 chat::answer_bubble(ui, false, text.trim(), |ui| {
                     chat::rich_text(ui, text.trim(), !advanced);
@@ -1653,11 +1647,9 @@ fn work(ui: &mut Ui, tools: &[(String, Option<bool>)], notes: &[String], advance
                 ui.label(RichText::new(n).italics().color(t.text_faint).size(theme::CAPTION));
             }
             if failed > 0 {
-                ui.label(
-                    RichText::new(trf("{n} step(s) didn't work and were retried or skipped.", &[("n", &failed.to_string())]))
-                        .color(t.text_faint)
-                        .size(theme::CAPTION),
-                );
+                crate::i18n::rich_label(ui, &trf("{n} step(s) didn't work and were retried or skipped.", &[("n", &failed.to_string())]), |r| {
+                    r.color(t.text_faint).size(theme::CAPTION)
+                });
             }
         },
     );
@@ -1704,9 +1696,9 @@ fn continue_card(app: &mut CraftApp, ui: &mut Ui, ws: &Workspace) {
         ui.set_width(ui.available_width());
         ui.horizontal(|ui| {
             icons::show(ui, "history", theme::icon::LG, t.accent);
-            ui.add(egui::Label::new(RichText::new(tr(title)).font(theme::semibold(theme::BODY))).wrap());
+            crate::i18n::wrapped_label(ui, &tr(title), theme::semibold(theme::BODY), |r| r);
         });
-        ui.add(egui::Label::new(RichText::new(tr(body)).color(t.text_dim)).wrap());
+        crate::i18n::wrapped_label(ui, &tr(body), egui::TextStyle::Body.resolve(ui.style()), |r| r.color(t.text_dim));
         ui.add_space(theme::space::SM);
         ui.horizontal(|ui| {
             go = widgets::primary_icon(ui, Some("play"), "Continue", true).clicked();
@@ -1722,7 +1714,10 @@ fn continue_card(app: &mut CraftApp, ui: &mut Ui, ws: &Workspace) {
 /// "It's done": the person is happy with the build as it is, so it stops offering to carry on
 /// (#210). Shown only when nothing is running.
 fn done_button(app: &mut CraftApp, ui: &mut Ui, ws: &Workspace) {
-    if widgets::secondary(ui, Some("check"), "It's done").on_hover_text(tr("Keep the build as it is and stop offering to carry on.")).clicked() {
+    if widgets::secondary(ui, Some("check"), "It's done")
+        .on_hover_text(crate::i18n::display(&tr("Keep the build as it is and stop offering to carry on.")).as_ref())
+        .clicked()
+    {
         app.act("project_build_finish", serde_json::json!({"project": ws.root}), tr("Call the build done"));
     }
 }
@@ -1741,27 +1736,27 @@ fn ask_card(app: &mut CraftApp, ui: &mut Ui, r: &Request, answered: Option<&str>
         });
         if !r.detail.is_empty() {
             if approval {
-                egui::CollapsingHeader::new(RichText::new(tr("Details")).color(t.text_faint).size(theme::CAPTION))
+                let details_logical = tr("Details");
+                let header = egui::CollapsingHeader::new(crate::i18n::rich_text(&details_logical).color(t.text_faint).size(theme::CAPTION))
                     .id_salt(("detail", &r.id))
                     .icon(widgets::disclosure_icon)
                     .show(ui, |ui| {
                         ui.label(RichText::new(&r.detail).font(theme::mono(theme::CODE)).color(t.text_dim));
                     });
+                crate::i18n::keep_logical_a11y(&header.header_response, &details_logical);
             } else {
                 ui.add(egui::Label::new(RichText::new(&r.detail).color(t.text_dim)).wrap());
             }
         }
         ui.add_space(theme::space::SM);
         if let Some(a) = answered {
-            ui.label(RichText::new(trf("You answered: {a}", &[("a", a)])).color(t.text_faint));
+            crate::i18n::rich_label(ui, &trf("You answered: {a}", &[("a", a)]), |r| r.color(t.text_faint));
             return;
         }
         if approval {
-            ui.label(
-                RichText::new(tr("This is outside what the builder may do on its own. Nothing happens until you say so."))
-                    .color(t.text_faint)
-                    .size(theme::CAPTION),
-            );
+            crate::i18n::rich_label(ui, &tr("This is outside what the builder may do on its own. Nothing happens until you say so."), |r| {
+                r.color(t.text_faint).size(theme::CAPTION)
+            });
             ui.add_space(theme::space::XS);
             ui.horizontal(|ui| {
                 if widgets::primary(ui, "Allow once").clicked() {
@@ -1846,11 +1841,13 @@ fn claims_list(ui: &mut Ui, c: &CheckResult, t: &Tokens) {
         row(ui, "info", t.text_dim, trf("Not compared yet: {what}", &[("what", u)]));
     }
     if c.claims.iter().any(|x| x.passed) {
-        egui::CollapsingHeader::new(RichText::new(tr("Show the ones that are met")).size(theme::SMALL)).id_salt(("claims", c.round)).show(ui, |ui| {
+        let met_logical = tr("Show the ones that are met");
+        let header = egui::CollapsingHeader::new(crate::i18n::rich_text(&met_logical).size(theme::SMALL)).id_salt(("claims", c.round)).show(ui, |ui| {
             for claim in c.claims.iter().filter(|x| x.passed) {
                 row(ui, "check", t.text_dim, claim.title.clone());
             }
         });
+        crate::i18n::keep_logical_a11y(&header.header_response, &met_logical);
     }
 }
 
@@ -1929,7 +1926,10 @@ fn waiting_notes(app: &mut CraftApp, ui: &mut Ui, waiting: &[Note], t: &Tokens) 
                 }
                 // Said once, under the last note.
                 if i + 1 == waiting.len() {
-                    if widgets::link(ui, "Send now").on_hover_text(tr("Stops the current step and sends your notes straight away.")).clicked() {
+                    if widgets::link(ui, "Send now")
+                        .on_hover_text(crate::i18n::display(&tr("Stops the current step and sends your notes straight away.")).as_ref())
+                        .clicked()
+                    {
                         app.pause();
                     }
                     let line = if waiting.len() == 1 {
@@ -1982,9 +1982,9 @@ fn composer(app: &mut CraftApp, ui: &mut Ui, width: f32, t: &Tokens, last_waitin
     if let Some(root) = app.workspace.as_ref().map(|w| w.root.clone()).filter(|r| craft_anything_engine::tools::deep::analysing_for(r)) {
         ui.horizontal_wrapped(|ui| {
             icons::show(ui, "activity", theme::icon::MD, t.accent_ink);
-            ui.label(RichText::new(tr("Ghidra is analysing the original. Pausing doesn't stop it, so nothing is lost.")).color(t.text_dim).size(theme::SMALL));
+            crate::i18n::rich_label(ui, &tr("Ghidra is analysing the original. Pausing doesn't stop it, so nothing is lost."), |r| r.color(t.text_dim).size(theme::SMALL));
             if widgets::link(ui, "Stop the analysis")
-                .on_hover_text(tr("Ghidra stays off for this project until your next request, which starts it again from the beginning. Until then, decompiling uses the built-in engine."))
+                .on_hover_text(crate::i18n::display(&tr("Ghidra stays off for this project until your next request, which starts it again from the beginning. Until then, decompiling uses the built-in engine.")).as_ref())
                 .clicked()
             {
                 app.act("engines_analysis_stop", serde_json::json!({"project": root}), tr("Stop the analysis"));
@@ -2126,7 +2126,7 @@ fn questions_switch(app: &mut CraftApp, ui: &mut Ui) {
         widgets::segmented_width(ui, &sending, theme::ControlSize::Small) + widgets::segmented_width(ui, &asking, theme::ControlSize::Small) + title + gaps
             <= ui.available_width();
     let hint = |ui: &mut Ui| {
-        ui.add(egui::Label::new(RichText::new(tr("or start with /btw to just ask")).color(t.text_faint).size(theme::SMALL)).truncate());
+        crate::i18n::truncated_label(ui, &tr("or start with /btw to just ask"), |r| r.color(t.text_faint).size(theme::SMALL));
     };
     let right = egui::Layout::right_to_left(egui::Align::Center);
     ui.horizontal(|ui| {
@@ -2168,7 +2168,7 @@ fn questions_controls(app: &mut CraftApp, ui: &mut Ui, now: craft_anything_engin
         } else {
             tr("The builder answers its own questions and says what it chose (\"I decided: …\"), so you can change it.")
         };
-        ui.label(RichText::new(tr(QUESTIONS_TITLE)).color(t.text_dim).size(theme::SMALL)).on_hover_text(tip);
+        crate::i18n::rich_label(ui, &tr(QUESTIONS_TITLE), |r| r.color(t.text_dim).size(theme::SMALL)).on_hover_text(tip);
     }
 }
 
