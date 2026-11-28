@@ -1,0 +1,1509 @@
+# he: Hebrew UI translations (עברית). Licensed MIT OR Apache-2.0.
+# UTF-8: English source<TAB>translation. Keep placeholders and escapes intact.
+Default (its own settings)	ברירת מחדל (ההגדרות שלו)
+OpenCode default	ברירת המחדל של OpenCode
+Model default	ברירת המחדל של המודל
+Thinking depth	עומק חשיבה
+OpenCode model	מודל OpenCode
+Remote program	תוכנית מרוחקת
+Reload models	טעינת מודלים מחדש
+Apply	החלה
+No chat models are visible in {agent}. Check its setup, then reload.	לא מוצגים מודלי צ'אט ב־{agent}. בדקו את ההגדרות שלו וטענו מחדש.
+The saved model is no longer visible. Choose another model or the {agent} default.	המודל השמור אינו גלוי עוד. יש לבחור מודל אחר או את ברירת המחדל של {agent}.
+OpenCode has no visible chat models. Connect a provider in OpenCode, then reload.	ל-OpenCode אין מודלי צ'אט גלויים. יש לחבר ספק ב-OpenCode ולטעון מחדש.
+The saved model is no longer visible. Choose another model or the OpenCode default.	המודל השמור אינו גלוי עוד. יש לבחור מודל אחר או את ברירת המחדל של OpenCode.
+The saved thinking depth is unavailable for this model. Choose its default or an offered depth.	עומק החשיבה השמור אינו זמין עבור מודל זה. יש לבחור את ברירת המחדל שלו או עומק מוצע.
+List an agent's models	הצגת המודלים של סוכן
+Choose an agent's model and thinking	בחירת המודל והחשיבה של סוכן
+ GB	 GB
+ and {n} more	 ועוד {n}
+ {ascii}	 {ascii}
+ · ${c:.2}	 · ${c:.2}
+ · ssh {h}	 · ssh {h}
+(1 picture attached)	(תמונה 1 מצורפת)
+({n} pictures attached)	({n} תמונות מצורפות)
+, ${c:.4}	, ${c:.4}
+.NET application graph	גרף אפליקציית .NET
+.NET apps	אפליקציות .NET
+.NET assembly overview	סקירת Assembly של .NET
+.NET native calls	קריאות Native של .NET
+.NET types and methods	טיפוסים ומתודות ב-.NET
+/btw {}	/btw {}
+0x… or number	0x… או מספר
+A .NET program (C#, F# or VB)	תוכנית .NET (C#, F# או VB)
+A DOS program	תוכנית DOS
+A Java program	תוכנית Java
+A Linux (or Unix) program	תוכנית Linux (או Unix)
+A Mac or iPhone program	תוכנית Mac או iPhone
+A SQLite database (how an app stores its data)	מסד נתונים SQLite (הדרך שבה אפליקציה שומרת את הנתונים שלה)
+A WebAssembly module (code that runs in a browser)	מודול WebAssembly (קוד שרץ בדפדפן)
+A Windows program	תוכנית Windows
+A ZIP archive	ארכיון ZIP
+A bundle of ready-made code that many programs share.	חבילה של קוד מוכן שתוכניות רבות חולקות ביניהן.
+A coding agent such as Claude Code builds it, and an AI answers your questions in plain words. Change this any time in Settings → AI.	סוכן תכנות כמו Claude Code בונה את זה, ו-AI עונה על השאלות שלך במילים פשוטות. ניתן לשנות זאת בכל עת תחת הגדרות › AI.
+A command's output shows here when it finishes.	הפלט של הפקודה יופיע כאן כשהיא תסתיים.
+A copy to try something else from here.	עותק שממנו אפשר לנסות משהו אחר מכאן.
+A file of machine code that a computer can run directly, like an .exe or an app.	קובץ של קוד מכונה שמחשב יכול להריץ ישירות, כמו קובץ .exe או אפליקציה.
+A file that a computer can run as a program.	קובץ שמחשב יכול להריץ כתוכנית.
+A file that links packed web code back to the original, readable source files.	קובץ שמקשר קוד אינטרנט ארוז בחזרה לקובצי המקור המקוריים והקריאים.
+A file we don't recognise yet	קובץ שעדיין איננו מזהים
+A first look at a file you're unsure about, without running it.	מבט ראשון על קובץ שאינך בטוח לגביו, מבלי להריץ אותו.
+A folder	תיקייה
+A folder has no bytes of its own	לתיקייה אין בייטים משלה
+A free reverse-engineering tool from the NSA. Deep mode uses it for extra detail; Clean room mode never does.	כלי חינמי להנדסה לאחור מבית ה-NSA. מצב עמוק משתמש בו לפרטים נוספים; מצב חדר נקי לעולם לא.
+A frozen copy (recommended)	עותק מוקפא (מומלץ)
+A frozen copy takes {size}. That's a lot of space: a light copy takes {light}.	עותק מוקפא תופס {size}. זה הרבה מקום: עותק קל תופס {light}.
+A frozen copy takes {size}; a light copy takes {light}.	עותק מוקפא תופס {size}; עותק קל תופס {light}.
+A game	משחק
+A game's files	קבצים של משחק
+A light copy	עותק קל
+A locked room for running a program so it can't touch the rest of your computer.	חדר נעול להרצת תוכנית כך שלא תוכל לגעת בשאר המחשב שלך.
+A map of which functions call which other functions.	מפה שמראה אילו פונקציות קוראות לאילו פונקציות אחרות.
+A name the program's author gave to a function or variable that survived in the file.	שם שמחבר התוכנית נתן לפונקציה או למשתנה, ושנשמר בקובץ.
+A named piece of a program that does one job, like "add two numbers" or "save the file".	חלק בעל שם מתוך תוכנית שמבצע פעולה אחת, כמו "הוספת שני מספרים" או "שמירת הקובץ".
+A number that says where something is in a program's memory, like a house number.	מספר שמציין היכן דבר מה נמצא בזיכרון של תוכנית, כמו מספר בית.
+A piece of text stored inside a program, like a message, a web address or a file name.	פיסת טקסט השמורה בתוך תוכנית, כמו הודעה, כתובת אתר או שם קובץ.
+A program, an app bundle, an APK, a JavaScript bundle, a folder… or drop it on the window.	תוכנית, חבילת אפליקציה, APK, חבילת JavaScript, תיקייה… או שניתן לגרור לכאן לתוך החלון.
+A recording of network traffic	הקלטה של תעבורת רשת
+A region of a program as it sits in memory while running.	אזור של תוכנית כפי שהוא מונח בזיכרון בזמן ריצה.
+A region of a program file with one purpose: code, text, pictures, settings.	אזור בקובץ תוכנית בעל מטרה אחת: קוד, טקסט, תמונות, הגדרות.
+A rule of thumb. Usually right, sometimes wrong, so we label the result as a best guess.	כלל אצבע. בדרך כלל נכון, לעיתים שגוי, לכן אנו מסמנים את התוצאה כניחוש מושכל.
+A saved, checkable record of something we found, with how sure we are and where we found it.	רשומה שמורה וניתנת לבדיקה של דבר מה שמצאנו, בצירוף מידת הוודאות שלנו והמקום שבו מצאנו אותו.
+A script or web page	סקריפט או דף אינטרנט
+A set of commands a program offers to other programs.	אוסף פקודות שתוכנית מציעה לתוכניות אחרות.
+A simple snake game	משחק Snake פשוט
+A small download (under 200 MB). Free, no account needed.	הורדה קטנה (פחות מ-200 MB). חינם, ללא צורך בחשבון.
+A small file that lists what an app is called, what it needs and what it's allowed to do.	קובץ קטן שמפרט איך האפליקציה נקראת, מה היא צריכה ומה מותר לה לעשות.
+A smart contract (EVM bytecode)	חוזה חכם (EVM bytecode)
+A way of writing bytes as two-character codes (00 to FF). The rawest view of a file.	דרך לכתוב בייטים כקודים בני שני תווים (00 עד FF). התצוגה הגולמית ביותר של קובץ.
+A way to build desktop apps out of web pages. The app is basically a website with its own browser.	דרך לבנות אפליקציות שולחן עבודה מתוך דפי אינטרנט. האפליקציה היא בעצם אתר עם דפדפן משלו.
+A website	אתר אינטרנט
+A website for my bakery	אתר אינטרנט למאפייה שלי
+AI	AI
+AI cost	עלות AI
+AI cost (estimate)	עלות AI (הערכה)
+AI cost (part estimate)	עלות AI (הערכה חלקית)
+AI model file	קובץ מודל AI
+AI name	שם ה-AI
+AI use this session	שימוש ב-AI בהפעלה זו
+API boundary	גבול API
+API key	מפתח API
+API key (stored in your system keychain)	מפתח API (נשמר בצרור המפתחות של המערכת)
+API key, if it needs one	מפתח API, אם נדרש
+About 10 GB. Free for personal use with a Unity account.	כ-10 GB. חינם לשימוש אישי עם חשבון Unity.
+About 60 GB, an Epic Games account, and Visual Studio's C++ tools.	כ-60 GB, חשבון Epic Games וכלי ה-C++ של Visual Studio.
+Add	הוספה
+Add Visual Studio's C++ tools	הוספת כלי ה-C++ של Visual Studio
+Add a brain	הוספת AI
+Add a fal.ai key	הוספת מפתח fal.ai
+Add a folder…	הוספת תיקייה…
+Add a plugin	הוספת תוסף
+Add an AI brain and I'll read this evidence for you, answer follow-up questions and point at the proof.	הוסיפו מודל AI כדי שאוכל לנתח עבורכם את הראיות, לענות על שאלות המשך ולהציג את הראיות התומכות.
+Add an AI by its address	הוספת AI לפי כתובת
+Add another	הוספת נוסף
+Add it again, to choose another account's folder for it.	ניתן להוסיף אותו שוב, כדי לבחור עבורו תיקייה של חשבון אחר.
+Add more info. The builder reads it at its next step.	ניתן להוסיף מידע נוסף. הבונה יקרא אותו בצעד הבא שלו.
+Add pictures	הוספת תמונות
+Add pictures of the original	הוספת תמונות של המקור
+Add pictures of the original (optional: screenshots help it look right)	הוספת תמונות של המקור (אופציונלי: צילומי מסך עוזרים למראה מדויק)
+Add to a running build	הוספה לבנייה פעילה
+Added	נוסף
+Added {n} picture(s). The builder uses them from your next change.	נוספו {n} תמונות. הבונה ישתמש בהן החל מהשינוי הבא שלך.
+Address to file offset	המרת כתובת להיסט בקובץ
+Adds its decompiler to Deep mode. Craft Anything can download and set it up for you.	מוסיף את הדיקומפיילר שלו למצב עמוק. Craft Anything יכולה להוריד ולהגדיר אותו עבורך.
+Advanced	מתקדם
+After installing one, look for it again.	לאחר התקנת אחד מהם, יש לחפש אותו שוב.
+Agent	סוכן
+Allow generated assets	התרת נכסים מחוללים
+Allow once	אפשור הפעם בלבד
+Allowed for this project	אושר לשימוש בפרויקט הזה
+Allowed for this project.	אושר לשימוש בפרויקט הזה.
+Allowed in	מותר ב
+Allowed once	אושר להפעלה אחת
+Allowed once.	אושר להפעלה אחת.
+Also list projects from	הצגת פרויקטים גם מתוך
+Always for this project	תמיד לפרויקט זה
+An Android app	אפליקציית Android
+An Android app package: the file you install on a phone.	חבילת אפליקציית Android: הקובץ שמתקינים בטלפון.
+An Apple settings file (plist)	קובץ הגדרות של Apple (plist)
+An app	אפליקציה
+An app or a file	אפליקציה או קובץ
+Analyse a JavaScript app	ניתוח אפליקציית JavaScript
+Analyse a page's JavaScript	ניתוח ה-JavaScript של דף
+Android app code (DEX)	קוד אפליקציית Android (DEX)
+Android app components	רכיבי אפליקציית Android
+Android app package	חבילת אפליקציית Android
+Android apps	אפליקציות Android
+Android class	מחלקת Android
+Android method bytecode	Bytecode של מתודת Android
+Android resources	משאבי Android
+Annotate function	הוספת הערות לפונקציה
+Another build is working, so this one waits its turn.	תהליך בנייה אחר פועל כעת, ולכן התהליך הזה ממתין לתורו.
+Answer a project's question	מענה לשאלה של פרויקט
+Answer any of them in a message below.	ניתן לענות על כל אחת מהן בהודעה למטה.
+Answered by {name}	נענה על ידי {name}
+Answers come from {brain}. To build, set up a coding agent in Settings → AI.	התשובות מגיעות מ-{brain}. כדי לבנות, יש להגדיר סוכן תכנות בהגדרות › AI.
+App	אפליקציה
+App details on device	פרטי האפליקציה במכשיר
+Apple apps	אפליקציות Apple
+Apply model options	החלת אפשרויות מודל
+Approve an agent action	אישור פעולת סוכן
+Apps and games: keep refining until they look this alike to your pictures. Off, the likeness is only reported.	אפליקציות ומשחקים: שיפור מתמשך עד שיראו דומים לתמונות שלך במידה זו. כשכבוי, הדמיון רק מדווח.
+Architectures	ארכיטקטורות
+Archive	ארכיון
+Archives	ארכיונים
+Ask a question	שאלו שאלה
+Ask about a build	שאלה על תהליך בנייה
+Ask about the build	שאלה על תהליך הבנייה
+Ask about the build, e.g. "where are the latest files?" Nothing changes and no build starts.	שאלו על תהליך הבנייה, למשל "איפה הקבצים העדכניים ביותר?" הפעולה אינה משנה דבר ואינה מתחילה בנייה.
+Ask about this game	שאלו על המשחק הזה
+Ask anything, e.g. "What does this program do?"	שאלו כל שאלה, למשל "מה התוכנית הזו עושה?"
+Ask before running anything	בקשת אישור לפני הפעלת כל פעולה
+Ask each time	בקשת אישור בכל פעם
+Ask first	בקשת אישור מראש
+Ask for a change	בקש שינוי
+Ask for a change, e.g. "bigger buttons" or "add a dark mode"	בקשו שינוי, למשל "לחצנים גדולים יותר" או "הוספת מצב כהה"
+Ask for a change, e.g. "make it faster" or "add a high-score table"	בקשו שינוי, למשל "האצה" או "הוספת טבלת שיאים"
+Ask for a change, e.g. "make the header blue" or "add a contact form"	בקשת שינוי, למשל "כותרת כחולה" או "הוספת טופס יצירת קשר"
+Ask in your own words. Every answer shows how sure we are, and the proof.	נסחו שאלה במילים שלכם. כל תשובה מציגה את רמת הוודאות ואת הראיות התומכות בה.
+Ask me	לשאול אותי
+Ask the agent about this	שאלו את הסוכן על כך
+Ask the agent about this target. It cites evidence for every claim.	שאלו את הסוכן על היעד הזה. הוא מצרף ראיות לכל טענה.
+Ask the agent…	שאלו את הסוכן…
+Ask the person	לשאול את המשתמש
+Ask: "How does the % key work?"	שאלו: "איך פועל מקש ה-%?"
+Ask: "Is it safe to run?"	שאלו: "האם בטוח להפעיל את זה?"
+Ask: "What does it send over the internet?"	שאלו: "מה הוא שולח דרך האינטרנט?"
+Asking for its models…	מבקש את המודלים שלו…
+Asset catalog	קטלוג נכסים
+At most this many rounds of fixes after the first build.	לכל היותר מספר זה של סבבי תיקונים לאחר הבנייה הראשונה.
+Attach pictures	צירוף תמונות
+Attach pictures (or drop or paste them here)	צירוף תמונות (או גרירה או הדבקה כאן)
+Auto mode	מצב אוטומטי
+Automatic	אוטומטי
+Automatic ({name})	אוטומטי ({name})
+Back	חזרה
+Best guess	ניחוש מושכל
+Best guess: a reasonable reading, but not proven.	ניחוש מושכל: פרשנות סבירה, אך לא מוכחת.
+Binary layout	פריסה בינארית
+Blocked	חסום
+Bookmark	סימנייה
+Budget for a new project	תקציב לפרויקט חדש
+Bug report	דוח באג
+Build	בנייה
+Build a rebuild ledger	יצירת יומן בנייה מחדש
+Build a stand-in backend	בניית צד שרת חלופי
+Build with	בנייה עם
+Build with this	בנייה עם זה
+Build with {name}	בנייה עם {name}
+Build with {name} instead	בנייה עם {name} במקום
+Build without it	בנייה בלעדיו
+Builder's questions:	שאלות הבונה:
+Building	בתהליך בנייה
+Building needs a coding agent on this computer (Claude Code, Codex or Gemini CLI: install one and sign in to it once in its own window), or an AI with an API key. Craft Anything never sees your account.	הבנייה דורשת סוכן תכנות במחשב זה (Claude Code, Codex או Gemini CLI: יש להתקין אחד ולהתחבר אליו פעם אחת בחלון שלו), או AI עם מפתח API. Craft Anything לעולם אינה רואה את החשבון שלך.
+Building needs a coding agent such as Claude Code, or an AI with an API key.	הבנייה דורשת סוכן תכנות כמו Claude Code, או AI עם מפתח API.
+Builds	תהליכי בנייה
+Builds and answers may use it again.	אפשר להשתמש בו שוב בתהליכי בנייה ובתשובות.
+Builds at once	מתחיל בבנייה מיד
+Builds keep going without stopping to ask you before an action. The builder still never deletes outside its project, changes system settings or publishes anything, and stays within each project's asset budget.	בניות ממשיכות לרוץ מבלי לעצור ולשאול אותך לפני פעולה. הבונה עדיין לעולם אינו מוחק מחוץ לפרויקט שלו, אינו משנה הגדרות מערכת ואינו מפרסם דבר, ונשאר במסגרת תקציב הנכסים של כל פרויקט.
+Builds use this one. Click to choose automatically again.	תהליכי הבנייה משתמשים באפשרות זו. יש ללחוץ כדי לחזור לבחירה אוטומטית.
+Built by	נבנה על ידי
+Built with	נבנה באמצעות
+Built with {stack}, as you asked, so no game engine is needed.	נבנה באמצעות {stack}, כפי שביקשת, כך שאין צורך במנוע משחק.
+Call graph	גרף קריאות
+Call path	נתיב קריאות
+Call the build done	סימון הבנייה כמושלמת
+Called done. A new message carries on from here.	הוגדרה כמושלמת. הודעה חדשה ממשיכה מכאן.
+Cancel	ביטול
+Cancel: don't use this folder	ביטול: ללא שימוש בתיקייה זו
+Capture a website for rebuilding	לכידת אתר לצורך בנייה מחדש
+Capture inventories	לכידת מלאים
+Capture menus, dialogs and tabs	לכידת תפריטים, תיבות דו-שיח וכרטיסיות
+Change	שינוי
+Change a setting	שינוי הגדרה
+Change an AI's model	שינוי מודל של AI
+Change how hard an AI thinks	שינוי עומק החשיבה של AI
+Change it	שינוי
+Change…	שינוי…
+Check	בדיקה
+Check .NET native calls	בדיקת קריאות Native של .NET
+Check a rebuild claim	אימות טענה על בנייה מחדש
+Check a scripted web session	בדיקת הפעלה מתוסרטת בדפדפן
+Check an answer	בדיקת תשובה
+Check decompiled C#	בדיקת קוד C# לאחר דה-קומפילציה
+Check my build	בדיקת הבנייה שלי
+Check the JEB connection	בדיקת חיבור JEB
+Check the asset keys	בדיקת מפתחות הנכסים
+Check the setup	בדיקת ההגדרה
+Check {n}	בדיקה {n}
+Check {n}: about {s}% like the original	בדיקה {n}: כ-{s}% דמיון למקור
+Checked against Godot's official checksums before it's used.	נבדק מול סכומי הביקורת הרשמיים של Godot לפני השימוש.
+Checking	בבדיקה
+Choose a file	בחירת קובץ
+Choose a folder…	בחירת תיקייה…
+Choose a function, string or section to see it here.	יש לבחור פונקציה, מחרוזת או מקטע כדי לראות אותם כאן.
+Choose an AI's job	בחירת התפקיד של AI
+Choose the folder Ghidra is installed in.	יש לבחור את התיקייה שבה Ghidra מותקנת.
+Choose what the builder's questions get	בחירת אופן הטיפול בשאלות הבונה
+Choose what to recreate, say what you want, then press Start.	יש לבחור מה לבנות מחדש, לתאר את המבוקש, וללחוץ על התחלה.
+Choose…	בחירה…
+Classes	מחלקות
+Claude Code folder (CLAUDE_CONFIG_DIR)	תיקיית Claude Code (CLAUDE_CONFIG_DIR)
+Clean room	חדר נקי
+Clean room / Deep	חדר נקי / עמוק
+Clean room never reads the original's code, files or page source. Deep mode reads them with every tool Craft Anything has.	מצב חדר נקי לעולם אינו קורא את הקוד, הקבצים או מקור הדף של המקור. מצב עמוק קורא אותם באמצעות כל כלי שיש ל-Craft Anything.
+Clean room never reads the original's code, files or page source: it works from what you can see. Deep reads them with every tool, and with Ghidra when it's installed. Every finding records which was used.	מצב חדר נקי לעולם אינו קורא את הקוד, הקבצים או מקור הדף של המקור: הוא עובד ממה שניתן לראות. מצב עמוק קורא אותם עם כל הכלים, ועם Ghidra כשהיא מותקנת. כל ממצא מתעד באיזה מצב נעשה שימוש.
+Clean room on	חדר נקי פעיל
+Clean room or Deep	חדר נקי או עמוק
+Clean room: nothing inside the original is read. We work from what you can see: pictures, the page as a visitor sees it, and watching it run.	חדר נקי: דבר מתוך המקור אינו נקרא. אנו עובדים ממה שניתן לראות: תמונות, הדף כפי שמבקר רואה אותו, וצפייה בו בזמן ריצה.
+Clear finished	ניקוי משימות שהסתיימו
+Close	סגירה
+Close a Frida session	סגירת הפעלת Frida
+Close a GDB session	סגירת הפעלת GDB
+Close a Rizin debug session	סגירת הפעלת ניפוי שגיאות ב-Rizin
+Close a pinned build	סגירת בנייה מוצמדת
+Close it	סגירה
+Close it first.	יש לסגור זאת קודם.
+Close the website	סגירת האתר
+Code reconstructed from a program that looks like the C language. Close to what the program does, but not its original source.	קוד ששוחזר מתוכנית ונראה כמו שפת C. קרוב למה שהתוכנית עושה, אך אינו קוד המקור שלה.
+Code signature	חתימת קוד
+Coding agent app	אפליקציית סוכן תכנות
+Command palette (Ctrl/⌘ K)	לוח פקודות (Ctrl/⌘ K)
+Commands:	פקודות:
+Compare WebAssembly interfaces	השוואת ממשקי WebAssembly
+Compare module exports	השוואת ייצואי מודול
+Compare two .NET builds	השוואת שתי בניות .NET
+Compare two app versions	השוואת שתי גרסאות אפליקציה
+Compare two artifacts	השוואת שני ארטיפקטים
+Compare two evidence bundles	השוואת שתי חבילות ראיות
+Compare two functions	השוואת שתי פונקציות
+Compare two page captures	השוואת שתי לכידות דף
+Compare two runs	השוואת שתי הרצות
+Compare two screenshots	השוואת שני צילומי מסך
+Comparing and rebuilding	השוואה ובנייה מחדש
+Compiled Python file	קובץ Python מקומפל
+Connect	חיבור
+Connect agent apps	חיבור אפליקציות סוכן
+Connect to a browser	התחברות לדפדפן
+Connect {name}	חיבור {name}
+Connected devices	מכשירים מחוברים
+Connected phone	טלפון מחובר
+Context window	חלון הקשר
+Continue	המשך
+Contradicted	הופרך
+Control-flow graph: a map of every path a function can take, like a flowchart.	גרף זרימת בקרה: מפה של כל נתיב שפונקציה יכולה לקחת, כמו תרשים זרימה.
+Copies share the files it saves beside itself.	עותקים חולקים את הקבצים שהוא שומר לצדו.
+Copy a file off the phone	העתקת קובץ מהטלפון
+Copy a file to the phone	העתקת קובץ אל הטלפון
+Copy an app off the phone	העתקת אפליקציה מהטלפון
+Copy the command	העתקת הפקודה
+Copy the evidence id	העתקת מזהה הראיה
+Couldn't add the pictures:	לא ניתן היה להוסיף את התמונות:
+Couldn't answer:	לא ניתן היה לענות:
+Couldn't attach the pictures:	לא ניתן היה לצרף את התמונות:
+Couldn't look through that folder.	לא ניתן היה לעיין בתיקייה הזו.
+Couldn't open it.	לא ניתן היה לפתוח את זה.
+Couldn't open the folder.	לא ניתן היה לפתוח את התיקייה.
+Couldn't open {}: {}	לא ניתן היה לפתוח את {}: {}
+Couldn't save your settings.	לא ניתן היה לשמור את ההגדרות שלך.
+Couldn't start a worker thread: {e}	לא ניתן היה להפעיל תהליכון עבודה: {e}
+Couldn't start it.	לא ניתן היה להפעיל את זה.
+Coverage unknown	כיסוי לא ידוע
+Craft Anything	Craft Anything
+Craft Anything can't build with {engine}, so Unity is the closest match.	Craft Anything לא יכול לבנות עם {engine}, ולכן Unity היא ההתאמה הקרובה ביותר.
+Craft Anything or the computer closed while it was working. Everything so far is kept; Continue picks up where it stopped.	Craft Anything או המחשב נסגרו בזמן העבודה. כל מה שבוצע עד כה נשמר; לחיצה על "המשך" תמשיך מהנקודה שבה זה נעצר.
+Craft Anything reads its code and files with every tool it has. For your private use.	Craft Anything קורא את הקוד והקבצים שלו באמצעות כל הכלים שברשותו. לשימושך הפרטי.
+Craft Anything reads the original's code, files and page source with every tool it has, and with Ghidra when it's installed.	Craft Anything קורא את הקוד, הקבצים וקוד המקור של הדף של המקור באמצעות כל הכלים שברשותו, ועם Ghidra כשהיא מותקנת.
+Craft Anything report.md	דוח Craft Anything.md
+Craft Anything's records, checks and anything it built in app/ are deleted. Your own files in the folder stay as they are.	הרישומים, הבדיקות וכל מה ש-Craft Anything בנה בתיקיית app/ נמחקים. הקבצים שלך בתיקייה נשארים כפי שהם.
+Crash dump	קובץ קריסה (Crash dump)
+Create the project	יצירת הפרויקט
+Critical	קריטי
+Cross-reference: a place in the program that uses or calls the thing you're looking at.	הפניה צולבת: מקום בתוכנית שמשתמש בדבר הנצפה כעת או קורא לו.
+Cross-references	הפניות צולבות
+Cross-references: the places in the program that use or call the thing you're looking at.	הפניות צולבות: המקומות בתוכנית שמשתמשים בדבר הנצפה כעת או קוראים לו.
+Current document	המסמך הנוכחי
+Cursor address	כתובת הסמן
+Cursor function	הפונקציה שבסמן
+Custom	מותאם אישית
+Cutter command	פקודת Cutter
+DOS load image	תמונת טעינה של DOS
+Databases	מסדי נתונים
+Decide yourself	החלטה עצמאית
+Decode a radio recording	פענוח הקלטת רדיו
+Decompile	דה-קומפילציה
+Decompile Java with Vineflower	דה-קומפילציה של Java עם Vineflower
+Decompile many	דה-קומפילציה מרובה
+Decompile with JEB	דה-קומפילציה עם JEB
+Deep	עמוק
+Deep mode now decompiles with Ghidra. The first look at a large program can take several minutes.	מצב עמוק מבצע כעת דה-קומפילציה באמצעות Ghidra. הסריקה הראשונה של תוכנית גדולה עשויה להימשך מספר דקות.
+Deep mode on	מצב עמוק פעיל
+Deep: we read its code, files and page source with every tool we have, and with Ghidra when it's installed. Click to switch.	עמוק: קריאת הקוד, הקבצים וקוד המקור של הדף עם כל הכלים הזמינים, ועם Ghidra כשהיא מותקנת. לחיצה להחלפה.
+Default	ברירת מחדל
+Delete a project	מחיקת פרויקט
+Delete it	מחיקה
+Delete the project	מחיקת הפרויקט
+Delete {name}?	למחוק את {name}?
+Deleted.	נמחק.
+Deleted. Your own files are still in the folder.	נמחק. הקבצים שלך עדיין נמצאים בתיקייה.
+Delete…	מחיקה…
+Deliberately scrambled to make it hard to read, without changing what it does.	עורפל במכוון כדי להקשות על הקריאה, בלי לשנות את אופן הפעולה.
+Demangle Swift symbols	פענוח שמות סמלי Swift
+Details	פרטים
+Details about the selected item appear here.	פרטים על הפריט שנבחר יופיעו כאן.
+Detect	זיהוי
+Device details	פרטי המכשיר
+Device features	תכונות המכשיר
+Device folder	תיקיית המכשיר
+Device log	יומן המכשיר
+Disassemble sBPF code	פירוק קוד sBPF לאסמבלי
+Disassembly	דיסאסמבלי
+Disconnect agent apps	ניתוק אפליקציות סוכן
+Dismiss	סגירה
+Dispatch metadata	מטא-נתוני Dispatch
+Display info	פרטי תצוגה
+Do you have permission?	האם יש לך רשות?
+Does it talk to the internet?	האם זה מתקשר עם האינטרנט?
+Does it track me?	האם זה עוקב אחריי?
+Don't allow	לא לאפשר
+Don't ask again (you can change this in Settings)	לא לשאול שוב (אפשר לשנות זאת בהגדרות)
+Done	סיום
+Download	הורדה
+Download Godot {v}	הורדת Godot {v}
+Download Unity Hub	הורדת Unity Hub
+Download and use Ghidra	הורדה ושימוש ב-Ghidra
+Download it from unity.com and install it.	יש להוריד מ-unity.com ולהתקין.
+Download it from unrealengine.com and install it.	יש להוריד מ-unrealengine.com ולהתקין.
+Download the Epic Games Launcher	הורדת Epic Games Launcher
+Downloads keep going in the background.	ההורדות ממשיכות לרוץ ברקע.
+Drive an app's screen	שליטה במסך של אפליקציה
+Drop a calculator app (or any small program) on the window.	ניתן לגרור אפליקציית מחשבון (או כל תוכנית קטנה אחרת) אל החלון.
+Drop a file or app anywhere in this window.	ניתן לגרור קובץ או אפליקציה לכל מקום בחלון הזה.
+Drop the file on the window. We only read it; nothing runs.	יש לגרור את הקובץ אל החלון. הקובץ רק נקרא; שום דבר לא מופעל.
+Drop to attach	שחרור לצירוף
+Drop to open it	שחרור לפתיחה
+Duplicate	שכפול
+Duplicate a project	שכפול פרויקט
+Duplicate the project	שכפול הפרויקט
+Each answer says how sure we are: Seen it, Worked it out or Best guess.	כל תשובה מציינת עד כמה אנחנו בטוחים: ראינו את זה, הסקנו את זה או ניחוש מיטבי.
+Edit a project file	עריכת קובץ פרויקט
+Edit them in place	עריכה במקום
+Effort:	מאמץ:
+Electron and JavaScript	Electron ו-JavaScript
+Electron fuses	נתיכי Electron (Fuses)
+Engines	מנועים
+Engines and settings	מנועים והגדרות
+Enter a full web address, like example.com or https://example.com/page.	יש להזין כתובת אינטרנט מלאה, כמו example.com או https://example.com/page.
+Enter to send · Shift+Enter for a new line	Enter לשליחה · Shift+Enter לשורה חדשה
+Epic's own installer. It only opens if Epic's signature checks out.	תוכנית ההתקנה הרשמית של Epic. היא תיפתח רק אם החתימה של Epic תימצא תקינה.
+Essentials	עיקריים
+Every build of this project.	כל בנייה של הפרויקט הזה.
+Every finding is saved here with how sure we are.	כל ממצא נשמר כאן יחד עם רמת הוודאות שלנו.
+Every tool as well: a workbench with functions, bytes, references and evidence.	וגם כל הכלים: סביבת עבודה עם פונקציות, בתים, הפניות וראיות.
+Everything found so far, as a Markdown file.	כל מה שנמצא עד כה, כקובץ Markdown.
+Everything so far is kept. Continue picks up where it stopped.	כל מה שבוצע עד כה נשמר. לחיצה על "המשך" תמשיך מהנקודה שבה זה נעצר.
+Evidence	ראיות
+Evidence ledger	יומן ראיות
+Evidence so far	הראיות עד כה
+Explain a function	הסבר פונקציה
+Explain like I'm new	הסבר כאילו אני מתחיל
+Export a report	ייצוא דוח
+Export a report (Markdown)	ייצוא דוח (Markdown)
+Export captured scripts	ייצוא סקריפטים שנלכדו
+Export evidence	ייצוא ראיות
+Export report	ייצוא דוח
+Extended	מורחב
+Extract an archive	חילוץ ארכיון
+Extract firmware	חילוץ קושחה
+Extract with this	חלץ באמצעות זה
+Extracts	תוצרי חילוץ
+File formats	פורמטים של קבצים
+Files packed inside a file	קבצים ארוזים בתוך קובץ
+Filter	סינון
+Filter by name	סינון לפי שם
+Filter the files	סינון הקבצים
+Filter…	סינון…
+Find Android classes	איתור מחלקות Android
+Find Java classes	איתור מחלקות Java
+Find a call path	איתור נתיב קריאות
+Find a game's files	איתור קובצי משחק
+Find an app	איתור אפליקציה
+Find in-page MCP tools	איתור כלי MCP בדף
+Find it automatically	אתר אוטומטית
+Find out how any software works, then craft your own.	לגלות איך כל תוכנה עובדת, ואז ליצור אחת חדשה.
+Find the original source line	איתור שורת המקור המקורית
+Firmware regions	אזורי קושחה
+Fold the sidebar	קיפול סרגל הצד
+Folders of projects, and projects started in a folder you picked. Removing one only takes it off the list.	תיקיות של פרויקטים, ופרויקטים שהתחלת בתיקייה שבחרת. הסרת פריט רק מורידה אותו מהרשימה.
+Follow the installer that opened. Come back here when it's done.	פעל לפי הוראות תוכנית ההתקנה שנפתחה. חזור לכאן כשהיא תסתיים.
+Follow the steps on rustup.rs, then come back here.	פעל לפי השלבים באתר rustup.rs, ואז חזור לכאן.
+For everything you make, like the switch in the title bar.	לכל מה שנוצר, כמו המתג שבשורת הכותרת.
+For example: a website for my bakery	לדוגמה: אתר אינטרנט למאפייה שלי
+For example: recreate this website	לדוגמה: בנייה מחדש של האתר הזה
+For example: the same app, but simpler	לדוגמה: אותה אפליקציה, אבל פשוטה יותר
+For example: the same game, with a high-score table	לדוגמה: אותו משחק, עם טבלת שיאים
+Force-stop an app	עצירה מאולצת של אפליקציה
+Forget the key	שכיחת המפתח
+Found on this computer	נמצא במחשב זה
+Found {} AI option(s) on this computer	נמצאו {} אפשרויות AI במחשב זה
+Frida devices	מכשירי Frida
+Frida instrumentation	אינסטרומנטציית Frida
+Frida processes	תהליכי Frida
+Frida session status	מצב הפעלת Frida
+From	מתוך
+Frozen copy	עותק קפוא
+Function address	כתובת הפונקציה
+Function assembly	אסמבלי של הפונקציה
+Function dossier	תיק פונקציה
+Function info	פרטי פונקציה
+Function instructions	הוראות הפונקציה
+Function references	הפניות לפונקציה
+Functions	פונקציות
+GDB command	פקודת GDB
+GDB session status	מצב הפעלת GDB
+Game assets	נכסי משחק
+Game engines	מנועי משחק
+Game files	קובצי משחק
+General	כללי
+Generate a 3D model	יצירת מודל 3D
+Generate a picture	יצירת תמונה
+Generate custom pictures and models	יצירת תמונות ומודלים מותאמים אישית
+Generated art (games)	גרפיקה שנוצרה (משחקים)
+Generated assets	נכסים שנוצרו
+Generated pictures and 3D models are made with fal.ai.	תמונות ומודלי 3D שנוצרים מופקים באמצעות fal.ai.
+Get Ghidra	השג את Ghidra
+Get Ghidra for Deep mode	השג את Ghidra למצב עמוק
+Get Unity Hub	השג את Unity Hub
+Get a key at {name}	השג מפתח ב-{name}
+Get the Epic Games Launcher	השג את Epic Games Launcher
+Get {name}	השג את {name}
+Getting Ghidra	מוריד את Ghidra
+Getting Godot	מוריד את Godot
+Getting Unity Hub	מוריד את Unity Hub
+Getting the Epic Games Launcher	מוריד את Epic Games Launcher
+Ghidra	Ghidra
+Ghidra folder	תיקיית Ghidra
+Ghidra is ready	Ghidra מוכנה
+Ghidra is ready. Deep mode uses it from now on.	Ghidra מוכנה. מצב עמוק ישתמש בה מעתה ואילך.
+Ghidra isn't installed, so the built-in decompiler stands in. Get it in Settings → Engines.	Ghidra לא מותקנת, ולכן הדה-קומפיילר המובנה משמש במקומה. ניתן להתקין אותה תחת הגדרות → מנועים.
+Ghidra isn't on this computer yet, so the built-in decompiler stands in.	Ghidra עדיין לא נמצאת במחשב זה, ולכן הדה-קומפיילר המובנה משמש במקומה.
+Ghidra will use half of this computer's memory (up to {gb} GB).	Ghidra תשתמש במחצית מזיכרון המחשב הזה (עד {gb} GB).
+Ghidra will use up to {gb} GB of memory.	Ghidra תשתמש בעד {gb} GB של זיכרון.
+Ghidra, a free reverse-engineering tool from the NSA, gives Deep mode richer decompiled code and types.	Ghidra (כלי חינמי להנדסה לאחור מבית ה-NSA) מספקת למצב עמוק קוד שעבר דה-קומפילציה וטיפוסים עשירים יותר.
+Go home	חזרה לדף הבית
+Go program details	פרטי תוכנית Go
+Go to address	מעבר לכתובת
+Go to offset (0x…)	מעבר להיסט (0x…)
+Go to the project	מעבר לפרויקט
+Good enough	טוב מספיק
+Got it	הבנתי
+Graph	גרף
+Half of this computer's memory, up to {gb} GB.	מחצית מזיכרון המחשב הזה, עד {gb} GB.
+Here's a first look:	הנה מבט ראשון:
+Here's what I found on that page:	הנה מה שמצאתי בדף הזה:
+Hex	Hex
+Hide pinned builds	הסתרת בניות מוצמדות
+Hide the answer	הסתרת התשובה
+Hide the console	הסתרת הקונסולה
+High	גבוה
+Home	דף הבית
+How alike a rebuild must look to the original before refining stops.	עד כמה בנייה מחדש צריכה להידמות למקור לפני שהליטוש נעצר.
+How closely may Craft Anything look at it?	כמה לעומק מותר ל-Craft Anything לבחון את זה?
+How complete is the rebuild	עד כמה הבנייה מחדש שלמה
+How do I open an app?	איך פותחים אפליקציה?
+How do the window and the page talk to each other?	איך החלון והדף מדברים זה עם זה?
+How does the % key work?	איך עובד מקש ה-%?
+How is this app built?	איך האפליקציה הזו בנויה?
+How is this app put together?	איך האפליקציה הזו מורכבת?
+How many projects may build at the same time. More wait their turn.	כמה פרויקטים יכולים להיבנות בו-זמנית. פרויקטים נוספים ממתינים לתורם.
+How should the builder use them?	איך מנוע הבנייה צריך להשתמש בהם?
+I have Ghidra	יש לי Ghidra
+I have permission	יש לי רשות
+I want to make things work together	אני רוצה לגרום לדברים לעבוד יחד
+I'm checking whether it's safe	אני בודק אם זה בטוח
+I'm keeping old software alive	אני שומר על תוכנה ישנה פעילה
+I'm learning how things work	אני לומד איך דברים עובדים
+I'm new to this	זה חדש לי
+ILSpy decompile	דה-קומפילציה עם ILSpy
+Ideas:	רעיונות:
+Identify a Flutter build	זיהוי בניית Flutter
+Import a source folder	ייבוא תיקיית מקור
+Import evidence	ייבוא ראיות
+Imports / Exports	ייבוא / ייצוא
+In Deep mode this one takes a game's own files out after the study. Click to stop.	במצב עמוק, אפשרות זו מחלצת את הקבצים של המשחק עצמו לאחר הסריקה. לחיצה לעצירה.
+In Unity Hub: sign in (or make a free account) and accept the free Personal licence. Then open Installs, press Install Editor and choose the recommended version. About 10 GB.	ב-Unity Hub: יש להתחבר (או ליצור חשבון חינמי) ולאשר את רישיון ה-Personal החינמי. לאחר מכן יש לפתוח את Installs, ללחוץ על Install Editor ולבחור את הגרסה המומלצת. כ-10 GB.
+In the launcher: sign in, open Unreal Engine, then Library, and press + next to Engine Versions to install one. About 60 GB.	במפעיל: יש להתחבר, לפתוח את Unreal Engine, לעבור אל Library וללחוץ על + ליד Engine Versions כדי להתקין גרסה. כ-60 GB.
+In use	בשימוש
+Inside	בפנים
+Inspect a Dart AOT snapshot	בדיקת Snapshot של Dart AOT
+Inspect a network recording	בדיקת הקלטת רשת
+Inspect a web page	בדיקת דף אינטרנט
+Inspect an Electron page	בדיקת דף Electron
+Inspect data	בדיקת נתונים
+Inspect instruction	בדיקת הוראה
+Inspector	בוחן
+Install Rust	התקנת Rust
+Install Unity Hub	התקנת Unity Hub
+Install Visual Studio Community (free) and tick "Game development with C++".	יש להתקין את Visual Studio Community (חינמי) ולסמן את "Game development with C++".
+Install Xcode	התקנת Xcode
+Install an app	התקנת אפליקציה
+Install an engine	התקנת מנוע
+Install the launcher	התקנת המפעיל
+Installed	מותקן
+Installed apps	אפליקציות מותקנות
+Inter-process communication: how two parts of an app (or two apps) send messages to each other.	תקשורת בין-תהליכית (IPC): האופן שבו שני חלקים של אפליקציה (או שתי אפליקציות) שולחים הודעות זה לזה.
+Interface Builder documents	מסמכי Interface Builder
+Interrupted	נקטע
+Inventory an archive or app bundle	מיפוי תוכן של ארכיון או חבילת אפליקציה
+Investigating	בחקירה
+Investigation so far	החקירה עד כה
+Is Apktool available?	האם Apktool זמין?
+Is adb available?	האם adb זמין?
+Is an asset key set up?	האם מוגדר מפתח נכסים?
+Is anything in here a program?	האם יש כאן משהו שהוא תוכנית?
+Is anything sensitive saved in plain text?	האם מידע רגיש כלשהו שמור כטקסט גלוי?
+Is it safe to look inside programs?	האם בטוח להסתכל לתוך תוכניות?
+Is it safe to run?	האם בטוח להפעיל את זה?
+Is there any readable text inside?	האם יש בפנים טקסט קריא?
+Is this file safe to open?	האם בטוח לפתוח את הקובץ הזה?
+It closed straight away.	זה נסגר מיד.
+It closed straight away. It said:	זה נסגר מיד. ההודעה הייתה:
+It isn't on this computer yet. Craft Anything can download Ghidra {version} and the Java runtime it needs (about {mb} MB), check both against their publishers' checksums, and set them up in its own folder. Nothing else on your computer changes.	היא עדיין לא נמצאת במחשב זה. Craft Anything יכול להוריד את Ghidra {version} ואת סביבת הריצה של Java שהיא צריכה (כ-{mb} MB), לאמת את שניהם מול סכומי הביקורת של המפיצים, ולהגדיר אותם בתיקייה משלו. שום דבר אחר במחשב שלך לא משתנה.
+It isn't on this computer yet. Install Ghidra {version} from its release page, then choose its folder.	היא עדיין לא נמצאת במחשב זה. יש להתקין את Ghidra {version} מדף השחרור שלה, ולאחר מכן לבחור את התיקייה שלה.
+It's already open.	זה כבר פתוח.
+It's already open. Right-click it to open another copy.	כבר פתוח. לחיצה ימנית תפתח עותק נוסף.
+It's done	זה מוכן
+It's mine, or I'm allowed to look	זה שלי, או שמותר לי לבדוק
+Its copy is deleted, with anything it saved there. The project itself stays as it is.	העותק שלו נמחק, יחד עם כל מה שנשמר שם. הפרויקט עצמו נשאר כפי שהוא.
+Its folder is deleted with everything in it: what was built, the checks and the conversation.	התיקייה שלו נמחקת על כל תכולתה: מה שנבנה, הבדיקות והשיחה.
+Its own code	הקוד שלו עצמו
+Its own sign-in, settings and conversations: another folder is another account. Empty: its usual folder.	התחברות, הגדרות ושיחות משלו: תיקייה אחרת היא חשבון אחר. ריק: התיקייה הרגילה שלו.
+Java archive overview	סקירת ארכיון Java
+Java class	מחלקת Java
+Java method bytecode and pseudo-Java	בייט-קוד של מתודת Java ופסאודו-Java
+Java program code (one class)	קוד תוכנית Java (מחלקה אחת)
+Java programs	תוכניות Java
+Java runtime	סביבת ריצה של Java
+Jobs	משימות
+Jobs ({n_jobs})	משימות ({n_jobs})
+Jobs ({n})	משימות ({n})
+Just a question: nothing was changed. Answered by	רק שאלה: שום דבר לא שונה. נענה על ידי
+Just ask	פשוט לשאול
+Just look inside	פשוט להציץ פנימה
+Work on my project	עבודה על הפרויקט שלי
+Work on a project you already have	עבודה על פרויקט שכבר יש לך
+Pick its folder, say what you want, then press Start.	יש לבחור את התיקייה, לתאר את המבוקש, וללחוץ על התחלה.
+Where is your project?	איפה הפרויקט שלך נמצא?
+Choose your project's folder…	בחירת תיקיית הפרויקט…
+For example: add a dark mode	לדוגמה: הוספת מצב כהה
+Pick your project's folder first.	יש לבחור תחילה את תיקיית הפרויקט.
+Pick your project's folder	בחירת תיקיית הפרויקט
+That folder is empty. Pick the folder your project's files are in.	תיקייה זו ריקה. יש לבחור את התיקייה שבה נמצאים קובצי הפרויקט.
+Keep going without asking	המשך ללא בקשת אישור
+Keep it	להשאיר
+Keep it in the sidebar to open any time, whatever later builds change.	שמירה בסרגל הצד לפתיחה בכל עת, ללא קשר למה שבניות מאוחרות יותר ישנו.
+Keep the build as it is and stop offering to carry on.	השארת הבנייה כפי שהיא והפסקת ההצעה להמשיך.
+Keep this version in the sidebar to open any time.	שמירת גרסה זו בסרגל הצד לפתיחה בכל עת.
+Keeps this version exactly as it is now. Later builds can't change or break it, and anything it saves stays with the copy.	שומר על הגרסה הזו בדיוק כפי שהיא. תהליכי בנייה עתידיים לא יוכלו לשנות או לפגוע בה, וכל מה שהיא שומרת יישאר בעותק.
+Key saved	המפתח נשמר
+Keyed archive	ארכיון מפתחות (Keyed archive)
+Kind	סוג
+Language	שפה
+Last: {what}	אחרון: {what}
+Launch an app	להפעיל אפליקציה
+Leave a few GB for the rest of your computer.	יש להשאיר כמה GB עבור שאר המחשב.
+Leave a path empty to use the managed install. We never need environment variables.	יש להשאיר נתיב ריק כדי להשתמש בהתקנה המנוהלת. לעולם איננו זקוקים למשתני סביבה.
+Leave empty to use the one Craft Anything sets up.	יש להשאיר ריק כדי להשתמש בזו ש-Craft Anything מגדירה.
+Let a project generate assets	לאפשר לפרויקט ליצור נכסים
+Let's go	קדימה
+Lets the builder make realistic 3D models and textures for games, {model} a model, with a {budget} budget per project.	מאפשר לבנאי ליצור מודלים תלת-ממדיים וטקסטורות ריאליסטיות למשחקים, בעלות של {model} למודל, עם תקציב של {budget} לפרויקט.
+Library resolution	פענוח ספריות
+Light copy: shares big files with the project	עותק קל: משתף קבצים גדולים עם הפרויקט
+Likeness	דמיון
+Line up code and behaviour	להתאים בין הקוד להתנהגות
+Line up source with the bundle	להתאים את המקור ל-bundle
+List Electron pages	להציג רשימת דפי Electron
+List JEB units	להציג רשימת יחידות JEB
+List JS runtime targets	להציג רשימת יעדי זמן ריצה של JS
+List a Unity assets file	לפרט את תוכן קובץ ה-assets של Unity
+List a Unity bundle	לפרט את תוכן ה-bundle של Unity
+List a game's archives	להציג רשימת ארכיונים של משחק
+List a node's event listeners	להציג רשימת מאזיני אירועים של צומת
+List an AI's models	להציג רשימת מודלים של AI
+List an Unreal IoStore container	לפרט את תוכן קונטיינר ה-IoStore של Unreal
+List an Unreal pak	לפרט את תוכן קובץ ה-pak של Unreal
+List bookmarks	להציג רשימת סימניות
+List browser pages	להציג רשימת דפי דפדפן
+List documents	להציג רשימת מסמכים
+List engines	להציג רשימת מנועים
+List functions	להציג רשימת פונקציות
+List names	להציג רשימת שמות
+List open targets	להציג רשימת יעדים פתוחים
+List pinned builds	להציג רשימת בניות מוצמדות
+List plugins	להציג רשימת תוספים
+List project files	להציג רשימת קובצי פרויקט
+List projects	להציג רשימת פרויקטים
+List questions about a build	להציג רשימת שאלות על בנייה
+List radio decoders	להציג רשימת מפענחי רדיו
+List segments	להציג רשימת מקטעים
+List shared Cutter sessions	להציג רשימת הפעלות Cutter משותפות
+List strings	להציג רשימת מחרוזות
+Live: the project's latest build	פעיל: הבנייה העדכנית של הפרויקט
+Load a picture	לטעון תמונה
+Load a screenshot	טעינת צילום מסך
+Load model options	לטעון אפשרויות מודל
+Loading…	טוען…
+Log	יומן
+Look again	לבדוק שוב
+Look at a game	לבחון משחק
+Look at a website	לבחון אתר
+Look at the game	בחינת המשחק
+Look for AI on this computer	לחפש AI במחשב זה
+Look for game engines	לחפש מנועי משחק
+Look for projects again	לחפש פרויקטים שוב
+Looked at everything	הכול נבדק
+Looked at part of it	חלק נבדק
+Looked at {a} of {b}	נבדקו {a} מתוך {b}
+Looking for AI on this computer…	מחפש AI במחשב זה…
+Looking for game engines on this computer…	מחפש מנועי משחק במחשב זה…
+Looking for the game's files…	מחפש את קובצי המשחק…
+Looking inside needs Deep mode	הצצה פנימה מצריכה מצב Deep
+Looking inside software you own or are allowed to examine is normal and often protected (learning, compatibility, security). Saying why helps you keep to it; it stays on this computer.	הצצה לתוך תוכנה שבבעלותך או שמותר לך לבחון היא שגרתית ולעיתים קרובות מוגנת (למידה, תאימות, אבטחה). ציון הסיבה עוזר לך לעמוד בכך; המידע נשאר במחשב זה.
+Looking on this computer…	מחפש במחשב זה…
+Low	נמוך
+Mach-O structure	מבנה Mach-O
+Made a copy: {name}	נוצר עותק: {name}
+Made with fal.ai and paid from your account: {model} a 3D model, {picture} a picture. Off, the game is built without them.	נוצרים באמצעות fal.ai ומחויבים מחשבונך: {model} למודל תלת-ממד, {picture} לתמונה. כשכבוי, המשחק נבנה בלעדיהם.
+Made with {engine}	נוצר באמצעות {engine}
+Made without looking inside the original.	נוצר בלי להציץ לתוך המקור.
+Make a game that plays like this	ליצור משחק שמשוחק כמו זה
+Make a simpler version of this game	ליצור גרסה פשוטה יותר של המשחק הזה
+Make my own version	ליצור גרסה משלי
+Make my own version of this app	ליצור גרסה משלי של האפליקציה הזו
+Making my own thing talk to something else.	לגרום ליצירה שלי לתקשר עם משהו אחר.
+Many source files packed into one big file so an app or web page loads faster.	קובצי מקור רבים הארוזים יחד בקובץ גדול אחד כדי שאפליקציה או דף אינטרנט ייטענו מהר יותר.
+Map a HarmonyOS app	למפות אפליקציית HarmonyOS
+Map a page's module graph	למפות את גרף המודולים של דף
+Map an Android app	למפות אפליקציית Android
+Map an Apple app	למפות אפליקציית Apple
+Markdown	Markdown
+Match functions between two builds	להתאים פונקציות בין שתי בניות
+Match my pictures	להתאים לתמונות שלי
+Match static code to what ran	להתאים קוד סטטי למה שרץ
+Maximise	הגדלה
+May I run "{title}"?	אפשר להריץ את "{title}"?
+May I {action}?	אפשר {action}?
+Measure which code ran	למדוד איזה קוד רץ
+Medium	בינוני
+Memory for Ghidra	זיכרון עבור Ghidra
+Minimise	מזעור
+Mode	מצב
+Text bigger or smaller: Ctrl/⌘ + and Ctrl/⌘ −. Ctrl/⌘ 0 resets it.	טקסט גדול או קטן יותר: Ctrl/⌘ + ו-Ctrl/⌘ −. Ctrl/⌘ 0 מאפס את הגודל.
+Model	מודל
+Model options	אפשרויות מודל
+Model: {model}	מודל: {model}
+Modules	מודולים
+More detail	יותר פרטים
+More makes a big program's first look faster.	יותר זיכרון הופך את הבדיקה הראשונה של תוכנית גדולה למהירה יותר.
+More memory makes Ghidra's first look at a big program faster; leave some for the rest of the computer. Used from the next time Ghidra starts.	יותר זיכרון הופך את הבדיקה הראשונה של Ghidra בתוכנית גדולה למהירה יותר; חשוב להשאיר קצת לשאר המחשב. נכנס לתוקף בהפעלה הבאה של Ghidra.
+Name (optional)	שם (אופציונלי)
+Name an address	לתת שם לכתובת
+Name at address	שם בכתובת
+Name many addresses	לתת שמות לכתובות רבות
+Names the program's author gave to functions or variables that survived in the file.	שמות שיוצר התוכנית נתן לפונקציות או למשתנים ושנשמרו בקובץ.
+Needs a fal.ai key. Until then the game is built without them.	דורש מפתח fal.ai. עד אז המשחק נבנה בלעדיהם.
+Needs you	צריך אותך
+Network	רשת
+New	חדש
+New project	פרויקט חדש
+New projects go in	פרויקטים חדשים נשמרים ב
+Next address	הכתובת הבאה
+No AI (built-in engines only)	ללא AI (מנועים מובנים בלבד)
+No AI brain is set up, so answers come straight from the built-in engines. Add one any time for plain-words explanations.	לא הוגדר מודל AI, לכן התשובות מגיעות ישירות מהמנועים המובנים. אפשר להוסיף מודל בכל עת לקבלת הסברים בשפה פשוטה.
+No AI for now	ללא AI בינתיים
+No AI is set up yet. The built-in engines still work; an AI adds plain-words answers.	עדיין לא הוגדר מודל AI. המנועים המובנים ממשיכים לפעול; הוספת מודל AI תאפשר לקבל תשובות בשפה פשוטה.
+No Unreal or Unity archives were found. Pick the folder the game is installed in.	לא נמצאו ארכיונים של Unreal או Unity. יש לבחור את התיקייה שבה המשחק מותקן.
+No coding agent was found on this computer yet.	עדיין לא נמצא סוכן תכנות במחשב הזה.
+No evidence yet	עדיין אין ראיות
+No game files here	אין כאן קובצי משחק
+No jobs yet. Long tasks show their progress here, and you can cancel them.	עדיין אין משימות. משימות ארוכות מציגות כאן את התקדמותן, ואפשר לבטל אותן.
+No matches	אין התאמות
+No open questions	אין שאלות פתוחות
+No plugins yet.	עדיין אין תוספים.
+No result yet	עדיין אין תוצאה
+No targets	אין יעדים
+No tool named {tool}	אין כלי בשם {tool}
+None	ללא
+None yet. Screenshots help it look right.	עדיין אין. צילומי מסך עוזרים לזה להיראות נכון.
+Not allowed	לא מותר
+Not allowed.	לא מותר.
+Not available yet	עדיין לא זמין
+Not compared yet: {what}	עדיין לא הושווה: {what}
+Not installed	לא מותקן
+Not now	לא עכשיו
+Nothing allowed yet.	עדיין לא אושרה אף פעולה.
+Nothing can build yet: install Claude Code (and sign in to it once), or add an AI with an API key below.	עדיין אי אפשר לבנות דבר: יש להתקין את Claude Code (ולהתחבר אליו פעם אחת), או להוסיף AI עם מפתח API למטה.
+Nothing found	לא נמצא דבר
+Nothing found yet. We look for API keys, local model servers (Ollama, LM Studio) and agent apps you already have. One on another port or computer can be added by its address below.	עדיין לא נמצא דבר. אנחנו מחפשים מפתחות API, שרתי מודלים מקומיים (Ollama, LM Studio) ואפליקציות סוכנים שכבר קיימות אצלך. שרת בפורט אחר או במחשב אחר אפשר להוסיף לפי הכתובת שלו למטה.
+Nothing inside it is read.	שום דבר מתוכו אינו נקרא.
+Nothing inside it is read; Craft Anything works from what you can see. Your version gets its own art.	שום דבר מתוכו אינו נקרא; Craft Anything עובדת מתוך מה שאפשר לראות. הגרסה שלך מקבלת גרפיקה משלה.
+Nothing inside the original is read: not its code, files or page source. Craft Anything works from what you can see: pictures, the page as a visitor sees it, and watching it run.	שום דבר מתוך המקור אינו נקרא: לא הקוד שלו, לא הקבצים ולא קוד המקור של הדף. Craft Anything עובדת מתוך מה שאפשר לראות: תמונות, הדף כפי שמבקר רואה אותו, וצפייה בו בזמן ריצה.
+Nothing made yet. What you make shows up here.	עדיין לא נוצר דבר. מה שתיצור יופיע כאן.
+Nothing matches the filter.	שום דבר לא תואם למסנן.
+Nothing matches.	שום דבר לא תואם.
+Nothing new for {time}. Long steps can be quiet; if it stays like this, press Pause.	שום דבר חדש במשך {time}. שלבים ארוכים עשויים להיות שקטים; אם המצב נמשך כך, יש ללחוץ על השהיה.
+Nothing open	שום דבר לא פתוח
+Nothing open yet	עדיין שום דבר לא פתוח
+Nothing selected	לא נבחר דבר
+Nothing to show	אין מה להציג
+Nothing uses it until it's on again; it keeps its key.	שום דבר לא משתמש בו עד שיופעל מחדש; המפתח שלו נשמר.
+Nothing — start fresh	כלום — להתחיל מחדש
+Now	עכשיו
+Now: {what} ({time})	עכשיו: {what} ({time})
+Objective-C classes	מחלקות Objective-C
+Objective-C protocols	פרוטוקולים של Objective-C
+Observe a JS runtime	לעקוב אחר זמן ריצה של JS
+Of this, {cost} was charged to an API key.	מתוך זה, {cost} חויב במפתח API.
+Off	כבוי
+Ollama or LM Studio on another computer, or any service that speaks the OpenAI API.	Ollama או LM Studio במחשב אחר, או כל שירות שמדבר ב-OpenAI API.
+On	פועל
+One line, in plain words. It stays on this computer and is never sent anywhere.	שורה אחת, במילים פשוטות. היא נשארת במחשב זה ולעולם אינה נשלחת לשום מקום.
+One-shot instrumentation	אינסטרומנטציה חד-פעמית
+Only for Ghidra. Empty = managed.	רק ל-Ghidra. ריק = מנוהל.
+Only its name changes; its folder stays where it is.	רק השם שלו משתנה; התיקייה שלו נשארת במקומה.
+Only take pictures out of games you made, or whose owner allows it. A game's art is usually protected by copyright and by the game's licence.	יש להוציא תמונות רק ממשחקים שנוצרו על ידך, או שהבעלים שלהם מתיר זאת. הגרפיקה של משחק מוגנת בדרך כלל בזכויות יוצרים וברישיון המשחק.
+Only the pin goes; the project and its app stay as they are.	רק ההצמדה מוסרת; הפרויקט והאפליקציה שלו נשארים כפי שהם.
+Open	פתיחה
+Open "Show me the proof" to see the exact code we found, and how sure we are.	פתחו את "הצגת הראיות" כדי לראות את הקוד המדויק שנמצא ואת רמת הוודאות של הממצאים.
+Open Ghidra's release page	פתיחת דף הגרסאות של Ghidra
+Open Unity Hub	פתיחת Unity Hub
+Open a calculator app and find the code behind one button.	פתיחת אפליקציית מחשבון ומציאת הקוד שמאחורי כפתור אחד.
+Open a file in JEB	לפתוח קובץ ב-JEB
+Open a file or drop one here.	יש לפתוח קובץ או לגרור אחד לכאן.
+Open a file…	פתיחת קובץ…
+Open a folder or app bundle	לפתוח תיקייה או חבילת אפליקציה
+Open a folder or app bundle…	פתיחת תיקייה או חבילת אפליקציה…
+Open a folder…	פתיחת תיקייה…
+Open a pinned build	לפתוח בנייה מוצמדת
+Open a project's folder	לפתוח את תיקיית הפרויקט
+Open a website	לפתוח אתר אינטרנט
+Open an app or file	לפתוח אפליקציה או קובץ
+Open an engine's app	לפתוח אפליקציה של מנוע
+Open another copy	פתיחת עותק נוסף
+Open another target	פתיחת יעד אחר
+Open files, folders or apps; you can have several open at once.	פתיחת קבצים, תיקיות או אפליקציות; אפשר להחזיק כמה פתוחים בו-זמנית.
+Open folder	פתיחת תיקייה
+Open in the workbench	פתיחה בסביבת העבודה
+Open it	לפתוח
+Open log	פתיחת יומן
+Open one of the files inside it to see its bytes.	פתיחת אחד הקבצים שבתוכו כדי לראות את הבתים שלו.
+Open questions	שאלות פתוחות
+Open something	פתיחת פריט
+Open something first: drop a file or app here, or choose "Just look inside" on New project. Then I can look inside it.	כדי להתחיל, ניתן לגרור לכאן קובץ או יישום, או לבחור "רק להציץ פנימה" בעת יצירת פרויקט חדש. כך אוכל לבדוק את התוכן.
+Open something to start	כדי להתחיל, פתחו פריט
+Open the Epic Games Launcher	פתיחת Epic Games Launcher
+Open the app	פתיחת האפליקציה
+Open the app you're curious about.	פתיחת האפליקציה המבוקשת.
+Open the download page	פתיחת דף ההורדות
+Open the folder	פתיחת התיקייה
+Open the installer app	פתיחת תוכנית ההתקנה
+Open the website	פתיחת האתר
+Open {name}	פתיחת {name}
+Opened {name}	{name} נפתח
+Opened {name}. Taking a first look…	{name} נפתח. מבצע בדיקה ראשונית…
+Opened {}	{} נפתח
+Opening {name}…	פותח את {name}…
+Open…	פתיחה…
+Or type your answer…	או להקליד תשובה…
+Original	מקור
+Other pages of a website studied and compared besides the one you gave.	דפים נוספים באתר שנלמדו והושוו מלבד הדף שמסרת.
+Overview	סקירה כללית
+Packet capture overview	סקירת לכידת מנות
+Packet fields	שדות מנה
+Page through evidence	לדפדף בין הראיות
+Part of the app got stuck, so it was stopped and the rest carried on. Your work is kept.	חלק מהאפליקציה נתקע, ולכן הוא נעצר והשאר המשיך. העבודה שלך נשמרה.
+Part of the app is stuck. Restarting clears it, and your work is kept.	חלק מהאפליקציה תקוע. הפעלה מחדש תפתור זאת, והעבודה שלך נשמרת.
+Part of this screen hit a bug and was skipped. Your work is safe.	חלק ממסך זה נתקל בבאג ודולג עליו. העבודה שלך בטוחה.
+Paste pictures	הדבקת תמונות
+Paste your API key (kept in your system keychain)	הדבקת מפתח ה-API (נשמר בצרור המפתחות של המערכת)
+Paste your {name} key	הדבקת מפתח ה-{name}
+Path	נתיב
+Pause	השהיה
+Pausing…	משהה…
+Pause the build first, then delete the project.	יש להשהות תחילה את הבנייה, ולאחר מכן למחוק את הפרויקט.
+Pause the build first.	יש להשהות תחילה את הבנייה.
+Paused	מושהה
+Paused.	מושהה.
+Pick a folder with projects in it	בחירת תיקייה שבה יש פרויקטים
+Pick a game's folder	בחירת תיקייה של משחק
+Pick another folder…	בחירת תיקייה אחרת…
+Pick another game	בחירת משחק אחר
+Pick something on the left	יש לבחור פריט מהרשימה
+Pick the app or game folder	בחירת תיקיית האפליקציה או המשחק
+Pick the app, game or file to rebuild	בחירת האפליקציה, המשחק או הקובץ לבנייה מחדש
+Pick the folder for this project	בחירת התיקייה עבור פרויקט זה
+Pick the game's folder	בחירת תיקיית המשחק
+Picture a program's window	לצלם את חלון התוכנית
+Picture model	מודל תמונות
+Pictures	תמונות
+Pictures can't be saved from IoStore containers yet; you can see what's inside.	עדיין אי אפשר לשמור תמונות מתוך קונטיינרים של IoStore; אפשר לראות מה יש בפנים.
+Pictures of the original	תמונות של המקור
+Pieces of text stored inside a program, like messages, web addresses or file names.	קטעי טקסט השמורים בתוך תוכנית, כמו הודעות, כתובות אינטרנט או שמות קבצים.
+Pin a build	להצמיד בנייה
+Pin a project's build	להצמיד בנייה של פרויקט
+Pin it	הצמדה
+Pin name	שם ההצמדה
+Pin removed.	ההצמדה הוסרה.
+Pin this build	הצמדת בנייה זו
+Pinned	מוצמד
+Pinned builds	בניות מוצמדות
+Pinned: {name}. Open it from the sidebar any time.	הוצמד: {name}. אפשר לפתוח אותו מסרגל הצד בכל עת.
+Plain words, big buttons, and I'll explain everything.	מילים פשוטות, כפתורים גדולים, ואני אסביר הכול.
+Plain words, short sentences, and every technical word explained.	מילים פשוטות, משפטים קצרים, וכל מונח טכני מוסבר.
+Plan	תוכנית
+Plan connecting agent apps	לתכנן חיבור אפליקציות סוכנים
+Play a project's result	להפעיל את תוצר הפרויקט
+Play the game	לשחק במשחק
+Plugin added. Read its tools to start using them.	התוסף נוסף. יש לקרוא את הכלים שלו כדי להתחיל להשתמש בהם.
+Plugin arguments	ארגומנטים של התוסף
+Plugin command or address	פקודה או כתובת של התוסף
+Plugin id	מזהה תוסף
+Plugin removed.	התוסף הוסר.
+Plugins	תוספים
+Plugins add tools Craft Anything offers as its own: MCP servers (a command or an address; read their tools after adding) or WebAssembly components (a .wasm file, which can't touch your files or the network).	תוספים מוסיפים כלים ש-Craft Anything מציעה כשלה: שרתי MCP (פקודה או כתובת; ניתן לקרוא את הכלים שלהם לאחר ההוספה) או רכיבי WebAssembly (קובץ .wasm, שאינו יכול לגעת בקבצים או ברשת).
+Plugins added here always ask before each call.	תוספים שנוספו כאן תמיד מבקשים אישור לפני כל קריאה.
+Plugins read. Their new tools are offered from the next start.	התוספים נקראו. הכלים החדשים שלהם יוצעו מההפעלה הבאה.
+Preserving software that's no longer supported.	שימור תוכנה שכבר אינה נתמכת.
+Preview a project's website	להציג תצוגה מקדימה של אתר הפרויקט
+Preview the website	תצוגה מקדימה של האתר
+Previous address	הכתובת הקודמת
+Program: found automatically	תוכנית: נמצאה אוטומטית
+Program: {path}	תוכנית: {path}
+Programs (native code)	תוכניות (קוד native)
+Progress	התקדמות
+Project details	פרטי פרויקט
+Project name	שם הפרויקט
+Projects	פרויקטים
+Projects and builds	פרויקטים ותהליכי בנייה
+Property list	רשימת מאפיינים (Property list)
+Pseudo-C	פסאודו-C
+Purpose	מטרה
+Raise the asset budget	להגדיל את תקציב הנכסים
+Raise the budget by {amount}	הגדלת התקציב ב-{amount}
+Raw machine code	קוד מכונה גולמי
+Read AI settings	לקרוא הגדרות AI
+Read a Unity game's IL2CPP metadata	לקרוא מטא-נתוני IL2CPP של משחק Unity
+Read a game's files	לקרוא קובצי משחק
+Read a project file	לקרוא קובץ פרויקט
+Read a setting	לקרוא הגדרה
+Read a text file	לקרוא קובץ טקסט
+Read an app's screen	לקרוא מסך של אפליקציה
+Read bytes	לקרוא בתים
+Read comment	לקרוא הערה
+Read inline comment	לקרוא הערה בשורה
+Read its tools	קריאת הכלים שלו
+Read pinned builds	קריאת בניות מוצמדות
+Read projects	קריאת פרויקטים
+Read the journal	קריאת היומן
+Read the plugin's tools	קריאת הכלים של התוסף
+Read the project	קריאת הפרויקט
+Reading what's inside…	קורא מה יש בפנים…
+Ready	מוכן
+Ready: {what} is on this computer.	מוכן: {what} נמצא במחשב זה.
+Reasoning	חשיבה
+Rebuild status	מצב בנייה מחדש
+Record a finding	תעד ממצא
+Record a hypothesis	תעד השערה
+Record an open question	תיעוד שאלה פתוחה
+Recover readable sources	שחזור קובצי מקור קריאים
+Recreate it with darker colours	בנייה מחדש בצבעים כהים יותר
+Recreate just its main feature	בנייה מחדש של התכונה העיקרית שלו בלבד
+Recreate this website	בנייה מחדש של האתר הזה
+Recreated games are built with the original's own engine when it's here (Unity, Unreal or Godot), else Unity, and Rust as the last resort.	משחקים שנבנים מחדש נבנים באמצעות המנוע של המשחק המקורי כשהוא נמצא כאן (Unity, Unreal או Godot), אחרת באמצעות Unity, וב-Rust כמוצא אחרון.
+References to a name	הפניות לשם
+Refining rounds	סבבי ליטוש
+Refresh plugins	רענון תוספים
+Regions of a program file, each with one purpose: code, text, pictures, settings.	אזורים בקובץ תוכנית, שלכל אחד מהם מטרה אחת: קוד, טקסט, תמונות, הגדרות.
+Reload	טעינה מחדש
+Remember permission	זכור הרשאה
+Remove	הסרה
+Remove a pin	הסרת הצמדה
+Remove a pinned build	הסרת בנייה מוצמדת
+Remove a plugin	הסרת תוסף
+Remove an AI	הסרת AI
+Remove an app	הסרת אפליקציה
+Remove an asset key	הסרת מפתח נכסים
+Remove bookmark	הסרת סימנייה
+Remove it	הסרה
+Remove it and its key	הסרה יחד עם המפתח
+Remove {name}	הסרת {name}
+Remove {name}?	להסיר את {name}?
+Remove…	הסרה…
+Rename	שינוי שם
+Rename a pinned build	שינוי שם בנייה מוצמדת
+Rename a project	שינוי שם פרויקט
+Rename the pin	שינוי שם ההצמדה
+Rename the project	שינוי שם הפרויקט
+Rename…	שינוי שם…
+Reset	איפוס
+Resolve a call	פתור קריאה
+Resolved	נפתר
+Resources	משאבים
+Restart	הפעלה מחדש
+Restore	שחזור
+Result	תוצאה
+Resume a Frida session	חידוש הפעלת Frida
+Rizin command	פקודת Rizin
+Rizin debug command	פקודת ניפוי שגיאות ב-Rizin
+Rizin debug session status	מצב הפעלת ניפוי השגיאות ב־Rizin
+Rough guide:	מדריך כללי:
+Run	הפעלה
+Run a Frida script	הפעלת סקריפט Frida
+Run a build command	הפעלת פקודת בנייה
+Run a scripted Electron session	הרצת הפעלה מתוסרטת ב־Electron
+Run a scripted web session	הרצת הפעלה מתוסרטת בדפדפן
+Run a tool from the command palette (Ctrl/⌘ K), or pick a finding in the Evidence panel.	הפעלת כלי מלוח הפקודות (Ctrl/⌘ K), או בחירת ממצא בחלונית הראיות.
+Run and watch a program	הפעלת תוכנית ומעקב אחריה
+Run to study	הפעלה לצורך חקירה
+Running	פועל
+Running processes	תהליכים פועלים
+Running programs	תוכניות פועלות
+Running {id}	{id} פועל
+Runs its tools without asking	מריץ את הכלים שלו ללא בקשת אישור
+Runs the first-run steps next time.	מריץ את שלבי ההפעלה הראשונה בפעם הבאה.
+Rust program details	פרטי תוכנית Rust
+SHA-256	SHA-256
+SQLite database contents	תוכן מסד נתונים SQLite
+Safety	בטיחות
+Save	שמירה
+Save a picture	שמירת תמונה
+Save a report	שמירת דוח
+Save an asset key	שמירת מפתח נכסים
+Save picture	שמירת תמונה
+Save settings	שמירת הגדרות
+Save the key	שמירת המפתח
+Save the picture	שמירת התמונה
+Save the report	שמירת הדוח
+Saved	נשמר
+Saved in	נשמר במיקום
+Saves space: copies the program and code, and shares dependencies and media with the project. A shared file rewritten in place changes here too.	חוסך מקום: מעתיק את התוכנית ואת הקוד, ומשתף תלויות ומדיה עם הפרויקט. קובץ משותף שנכתב מחדש במקומו משתנה גם כאן.
+Say what you want	תיאור המבוקש
+Say what you want first.	יש לציין קודם מה מבוקש.
+This applies once you choose something to recreate above.	הגדרה זו חלה מרגע שתבחר למעלה משהו לבנייה מחדש.
+Say what you want to make, or drop an app or file on the window to look inside it. Everything runs in Clean room mode unless you switch on Deep.	ניתן לתאר מה רוצים ליצור, או לגרור אפליקציה או קובץ אל החלון כדי להציץ פנימה. הכול רץ במצב חדר נקי, אלא אם מופעל מצב מעמיק.
+Screenshot	צילום מסך
+Screenshot a page	צלם מסך של דף
+Screenshots of how it should look. The builder opens each one and matches it.	צילומי מסך של איך שזה אמור להיראות. הבונה פותח כל אחד מהם ומתאים את התוצאה אליו.
+Search for bytes	חיפוש בתים
+Search functions	חיפוש פונקציות
+Search strings	חיפוש מחרוזות
+Sections	מקטעים
+Security research on software I'm allowed to examine.	מחקר אבטחה בתוכנה שמותר לי לבדוק.
+See how a page is built: its layout, styles, scripts and the requests it makes.	ראה כיצד דף בנוי: הפריסה שלו, הסגנונות, הסקריפטים והבקשות שהוא שולח.
+See how a program works: what it does, what it talks to, what's inside.	ראה כיצד תוכנית פועלת: מה היא עושה, עם מה היא מתקשרת ומה יש בתוכה.
+See what a game packs and save its pictures as PNG files. Only for games you made, or whose owner lets you.	ראה מה ארוז במשחק ושמור את התמונות שלו כקובצי PNG. רק עבור משחקים שיצרת, או שבעליהם הרשה לך.
+See what a game packs, and save its pictures as PNG files.	ראה מה ארוז במשחק, ושמור את התמונות שלו כקובצי PNG.
+See what a stand-in was asked	ראה מה נשאל רכיב חלופי
+See which servers an app talks to, and what it says.	ראה עם אילו שרתים אפליקציה מדברת, ומה היא אומרת.
+Seen it	נצפה
+Seen it: read directly from the file, page or capture.	נצפה: נקרא ישירות מהקובץ, מהדף או מהלכידה.
+Selected	נבחר
+Selection	בחירה
+Send	שליחה
+Send (Enter)	שליחה (Enter)
+Send now	שליחה עכשיו
+Server address	כתובת שרת
+Session status	מצב ההפעלה
+Set a project's asset budget	הגדרת תקציב נכסים לפרויקט
+Set an AI's folder	הגדרת תיקייה עבור AI
+Set an AI's program	הגדרת תוכנית עבור AI
+Set model options	הגדרת אפשרויות מודל
+Set one up	הגדרת אחד
+Set up a brain…	הגדרת מודל AI…
+Set up a builder	הגדרת בונה
+Settings	הגדרות
+Show a build's activity	הצגת פעילות של בנייה
+Show a project	הצגת פרויקט
+Show folder	הצגת תיקייה
+Show me everything	הראה לי הכול
+Show me the proof	הצגת הראיות
+Show model options	הצגת אפשרויות מודל
+Show pinned builds	הצגת בניות מוצמדות
+Show settings	הצגת הגדרות
+Show the answer	הצגת התשובה
+Show the console	הצגת המסוף
+Show the folder	הצגת התיקייה
+Show the ones that are met	הצגת הדרישות שמתקיימות
+Show the sidebar	הצגת סרגל הצד
+Show the welcome again	הצגת מסך הפתיחה שוב
+Showing	מוצג
+Sign in and add the Unity Editor	התחברות והוספת Unity Editor
+Sign in and install Unreal Engine	התחברות והתקנת Unreal Engine
+Simple	פשוט
+Simple: say what you want and it's handled for you. Advanced: every tool, the evidence and the logs.	פשוט: יש לתאר מה רוצים והכול מטופל אוטומטית. מתקדם: כל הכלים, הראיות והיומנים.
+Since Craft Anything opened.	מאז ש-Craft Anything נפתח.
+Size	גודל
+Skip setup	דילוג על ההגדרה
+Smart contract interface	ממשק חוזה חכם
+Software I made, bought, or have permission to examine.	תוכנה שיצרתי, קניתי או שיש לי רשות לבדוק.
+Solana program (sBPF)	תוכנית Solana (sBPF)
+Some plugins couldn't be read:	לא ניתן היה לקרוא חלק מהתוספים:
+Something a program borrows from the operating system or a library, like "open a file".	דבר שתוכנית שואלת ממערכת ההפעלה או מספרייה, כמו "לפתוח קובץ".
+Something a program or library offers for other programs to use.	דבר שתוכנית או ספרייה מציעה לתוכניות אחרות לשימוש.
+Source	מקור
+Standard	סטנדרטי
+Start	התחלה
+Start a Frida session	התחלת הפעלת Frida
+Start a GDB session	התחלת הפעלת GDB
+Start a Rizin debug session	התחלת הפעלת ניפוי שגיאות ב־Rizin
+Start a rebuild	התחלת בנייה מחדש
+Start a stand-in backend	הפעלת צד-שרת חלופי
+Start an activity	הפעלת Activity
+Start building	התחלת בנייה
+Start from them	התחלה מהם
+Start it	התחלה
+Start with Simple mode; you can set up AI later in Settings.	התחלה במצב פשוט; ניתן להגדיר AI מאוחר יותר בהגדרות.
+Starting…	מתחיל…
+Starting… it opens in its own window.	מתחיל… נפתח בחלון משלו.
+Still working. Bigger jobs can take a few minutes.	עדיין עובד. משימות גדולות יותר עשויות להימשך כמה דקות.
+Stop	עצירה
+Stop a pinned build	עצירת בנייה מוצמדת
+Stop a rebuild	עצירת בנייה מחדש
+Stop a stand-in backend	עצירת צד-שרת חלופי
+Stop generated assets	עצירת נכסים מיוצרים
+Stop listing {folder}	הפסקת הצגת {folder} ברשימה
+Stopped here	נעצר כאן
+Stops the current step and sends your notes straight away.	עוצר את השלב הנוכחי ושולח את ההערות שלך מיד.
+Strings	מחרוזות
+Studio	סטודיו
+Studio (dark)	סטודיו (כהה)
+Studio Light	סטודיו בהיר
+Study	חקור
+Study apps by running them	חקור אפליקציות באמצעות הרצתן
+Studying	חוקר
+Studying software to understand it.	חוקר תוכנה כדי להבין אותה.
+Summarise what changed	סכם מה השתנה
+Swift types	טיפוסי Swift
+Switch Beginner / Experienced	החלפה בין מתחיל למנוסה
+Switch Clean room / Deep	החלפה בין חדר נקי למעמיק
+Switch light / dark theme	החלפה בין ערכת נושא בהירה לכהה
+Switch target	החלפת יעד
+System	מערכת
+System services	שירותי מערכת
+Take a texture out of an Unreal game	חלץ טקסטורה ממשחק Unreal
+Take an asset out of a Unity game	חלץ נכס ממשחק Unity
+Take back a note	משוך הערה חזרה
+Take back: puts it in the box again	משיכה חזרה: מחזירה אותה שוב לתיבה
+Take files out of an Unreal pak	חלץ קבצים מקובץ pak של Unreal
+Take out packed files	חלץ קבצים ארוזים
+Target	יעד
+Targets	יעדים
+That folder already has {names}, where Craft Anything keeps its own files. Pick another folder, or move those out first.	בתיקייה זו כבר קיימים {names}, שבהם Craft Anything שומר את הקבצים שלו. יש לבחור תיקייה אחרת, או להעביר אותם החוצה קודם.
+That folder is already a project, so it's open now.	תיקייה זו היא כבר פרויקט, ולכן היא פתוחה כעת.
+The Rust toolchain (rustup.rs).	ערכת הכלים של Rust (rustup.rs).
+The builder answers its own questions and says what it chose ("I decided: …"), so you can change it.	הבונה משיב על השאלות שלו ומציג מה בחר ("החלטתי: …"), כדי שתוכלו לשנות את ההחלטה.
+The builder makes the game's 3D models and textures from descriptions of original designs, paid from your fal.ai account. Models are low-poly so the game runs fast. A textured model costs {model} and a picture {picture}. Each project has a {budget} budget, and you're asked before it goes over. The key is kept in your system keychain.	הבונה יוצר את מודלי התלת-ממד והטקסטורות של המשחק מתוך תיאורים של עיצובים מקוריים, בתשלום מחשבון ה-fal.ai המחובר. המודלים הם דלי פוליגונים כדי שהמשחק ירוץ מהר. מודל עם טקסטורה עולה {model} ותמונה עולה {picture}. לכל פרויקט יש תקציב של {budget}, ותתבקש הסכמה לפני חריגה ממנו. המפתח נשמר בצרור המפתחות של המערכת.
+The builder reads them (code, notes, pictures) and builds the app in a new app folder beside them. Your files stay as they are.	הבונה קורא אותם (קוד, הערות, תמונות) ובונה את האפליקציה בתיקיית אפליקציה חדשה לצדם. הקבצים שלך נשארים כפי שהם.
+The builder will decide its questions and tell you what it chose.	הבונה יענה בעצמו על השאלות ויציין מה בחר.
+The builder works on these files directly and keeps what works. Craft Anything adds a few records of its own beside them.	הבונה עובד ישירות על הקבצים האלה ושומר על מה שעובד. Craft Anything מוסיף כמה רשומות משלו לצדם.
+The builder's questions	השאלות של הבונה
+The builder's questions come to you as cards, and it waits for your answer.	שאלות הבונה יוצגו בכרטיסיות, והוא ימתין לתשובתכם.
+The builder's questions will come to you.	השאלות של הבונה יגיעו אליך.
+The built-in engines still show you everything they find.	המנועים המובנים עדיין מציגים לך כל מה שהם מוצאים.
+The clipboard can't be read:	לא ניתן לקרוא את לוח העריכה:
+The code	הקוד
+The code format Android apps use.	פורמט הקוד שאפליקציות Android משתמשות בו.
+The coding agent's estimate at API prices, not your bill. A subscription isn't charged this.	ההערכה של סוכן הקוד לפי מחירי API, לא החשבון שלך. מנוי אינו מחויב בסכום זה.
+The download keeps going in the background.	ההורדה ממשיכה לרוץ ברקע.
+The first instruction a program runs when it starts.	ההוראה הראשונה שתוכנית מריצה כשהיא מתחילה.
+The full toolset, evidence and logs.	מערך הכלים המלא, הראיות והיומנים.
+The installer is open. Follow its steps, then come back here.	תוכנית ההתקנה פתוחה. בצע את השלבים שלה, ולאחר מכן חזור לכאן.
+The lowest-level human-readable form of machine code: one small instruction per line.	הצורה הבסיסית ביותר של קוד מכונה שקריאה לבני אדם: הוראה קטנה אחת בכל שורה.
+The names were removed from the program before it was shipped, so we have to work them out.	השמות הוסרו מהתוכנית לפני הפצתה, ולכן עלינו לפענח אותם.
+The packed contents of an Electron app (a website inside a desktop app)	התוכן הארוז של אפליקציית Electron (אתר אינטרנט בתוך אפליקציית שולחן עבודה)
+The pasted picture wasn't attached: another screen was opened meanwhile.	התמונה שהודבקה לא צורפה: בינתיים נפתח מסך אחר.
+The picture on the clipboard is too large.	התמונה שבלוח העריכה גדולה מדי.
+The program's machine code written out as one tiny instruction per line.	קוד המכונה של התוכנית, כתוב כהוראה זעירה אחת בכל שורה.
+The project's name and round	שם הפרויקט והסבב
+The raw result	התוצאה הגולמית
+The smallest unit of data in a file: a number from 0 to 255.	יחידת הנתונים הקטנה ביותר בקובץ: מספר מ-0 עד 255.
+The smallest units of data in a file: numbers from 0 to 255.	יחידות הנתונים הקטנות ביותר בקובץ: מספרים מ-0 עד 255.
+The {name} view isn't available yet in this build.	התצוגה {name} עדיין אינה זמינה בגרסת בנייה זו.
+The {} view isn't available yet in this build.	התצוגה {} עדיין אינה זמינה בגרסת בנייה זו.
+Theme	ערכת נושא
+There's no /{name} command. You can use {commands}.	אין פקודה /{name}. ניתן להשתמש ב-{commands}.
+There's no AI brain set up yet, so here's what the built-in engines found:	עדיין לא הוגדר מודל AI. אלה הממצאים של המנועים המובנים:
+There's no picture on the clipboard to paste.	אין תמונה בלוח העריכה להדבקה.
+They're my app: edit them in place	זו האפליקציה שלי: עריכה במקום
+Things a program borrows from the operating system or libraries, like "open a file" or "draw a window".	דברים שתוכנית שואלת ממערכת ההפעלה או מספריות, כמו "לפתוח קובץ" או "לצייר חלון".
+Things a program or library offers for other programs to use.	דברים שתוכנית או ספרייה מציעה לתוכניות אחרות לשימוש.
+Things we couldn't establish yet are listed here, with what would settle them.	דברים שעדיין לא הצלחנו לקבוע מופיעים כאן, יחד עם מה שיכריע בהם.
+This answer won't be there after a restart:	תשובה זו לא תישמר לאחר הפעלה מחדש:
+This build stopped part-way	תהליך הבנייה הזה נעצר לפני שהושלם
+This can't be undone.	לא ניתן לבטל פעולה זו.
+This folder already has files	בתיקייה זו כבר יש קבצים
+This is a big one. You can leave this open and come back later.	זאת משימה גדולה. ניתן להשאיר זאת פתוח ולחזור מאוחר יותר.
+This is outside what the builder may do on its own. Nothing happens until you say so.	פעולה זו חורגת ממה שמותר לבונה לעשות בעצמו. שום דבר לא קורה עד שתאשר.
+This keeps going in the background, and each download is checked against its publisher's checksum before it's used.	התהליך ממשיך ברקע, וכל הורדה נבדקת מול סכום הביקורת של המפיץ שלה לפני השימוש בה.
+This project is waiting its turn. Send your message once it starts.	פרויקט זה ממתין לתורו. יש לשלוח את ההודעה מיד לאחר שיתחיל.
+This runs code from the target or changes a device. Clicking Run is your OK.	פעולה זו מריצה קוד מתוך היעד או משנה מכשיר. לחיצה על הפעלה מהווה אישור.
+This runs code from the target or changes a device. Nothing runs until you say so.	פעולה זו מריצה קוד מתוך היעד או משנה מכשיר. שום דבר לא ירוץ עד שתאשר.
+This tool takes no settings.	לכלי זה אין הגדרות.
+This updates by itself when it's done.	זה מתעדכן מעצמו בסיום.
+This view arrives with the next engines. The Hex and Result views work today.	תצוגה זו תגיע עם המנועים הבאים. תצוגות Hex ותוצאה פועלות כבר היום.
+Those aren't pictures we can use (PNG, JPEG, WebP or GIF, up to 20 MB).	אלו אינן תמונות שנוכל להשתמש בהן (PNG, JPEG, WebP או GIF, עד 20 MB).
+Time spent	זמן שהושקע
+Tip: press Ctrl/⌘ K to run any tool.	טיפ: יש להקיש Ctrl/⌘ K כדי להריץ כל כלי.
+Tokens	טוקנים
+Tools may now run code from what you open without asking. Turn this back on unless you're sure.	הכלים יכולים כעת להריץ קוד מתוך התכנים שתפתחו ללא בקשת אישור. הפעילו מחדש את דרישת האישור אלא אם אתם בטוחים בהחלטתכם.
+Tools that run code from a target or change a phone always ask first, unless you allowed them for a project.	כלים שמריצים קוד מיעד או משנים טלפון תמיד שואלים תחילה, אלא אם התרת אותם עבור פרויקט.
+Trace a UI action	עקוב אחר פעולת ממשק
+Trace a feature	עקוב אחר תכונה
+Try again	ניסיון חוזר
+Try asking	ניסיון שאלה
+Try it out, then ask below for any changes.	ניתן לנסות זאת, ולאחר מכן לבקש למטה כל שינוי רצוי.
+Turn a program's machine code back into something that reads like source code. It's a reconstruction, not the original.	המרת קוד המכונה של תוכנית בחזרה למשהו שנקרא כמו קוד מקור. מדובר בשחזור, לא במקור.
+Turn off	כיבוי
+Turn off an AI	כיבוי AI
+Turn on	הפעלה
+Turn on Deep mode	הפעלת מצב מעמיק
+Turn on an AI	הפעלת AI
+Turning a plugin on or off takes effect from the next start.	הפעלה או כיבוי של תוסף נכנסים לתוקף מההפעלה הבאה.
+Type a command or tool…	הקלדת פקודה או כלי…
+Type the website's address:	הזנת כתובת האתר:
+Type your question after /btw.	יש להקליד שאלה אחרי /btw.
+Unity assets	נכסי Unity
+Unity bundle	חבילת Unity
+Unity's own installer. It only opens if Unity's signature checks out.	תוכנית ההתקנה הרשמית של Unity. היא נפתחת רק אם החתימה של Unity תקינה.
+Unknown	לא ידוע
+Unknown: we couldn't establish this yet.	לא ידוע: טרם הצלחנו לקבוע זאת.
+Unknowns	לא ידועים
+Unload a Frida script	ביטול טעינת סקריפט Frida
+Unreal IoStore	Unreal IoStore
+Unreal builds games with Apple's Xcode, free in the App Store.	Unreal בונה משחקים באמצעות Xcode של Apple, הזמינה בחינם ב-App Store.
+Unreal is here, but it also needs Visual Studio's C++ tools.	Unreal נמצא כאן, אך נדרשים לו גם כלי ה-C++ של Visual Studio.
+Unreal pak	Unreal pak
+Update a finding	עדכון ממצא
+Update a hypothesis	עדכון השערה
+Update an open question	עדכון שאלה פתוחה
+Update the checklist	עדכון רשימת הבדיקה
+Update the plan	עדכון התוכנית
+Use	שימוש
+Use an API key…	שימוש במפתח API…
+Use as a goal	שימוש כמטרה
+Use the projects folder	שימוש בתיקיית הפרויקטים
+Use this	שימוש בזה
+Use {name}	שימוש ב-{name}
+Value flow	זרימת ערכים
+About	אודות
+Version	גרסה
+Waiting	ממתין
+Waiting for another build to finish: this one starts next.	ממתין לסיום בנייה אחרת: בנייה זו תתחיל מיד אחריה.
+Waiting for other builds to finish: {n} in line.	ממתין לסיום בניות אחרות: {n} בתור.
+Waiting: the builder reads it at its next step. Up arrow to edit.	ממתין: הבונה יקרא זאת בצעד הבא שלו. חץ למעלה לעריכה.
+Waiting: the builder reads these at its next step. Up arrow to edit the last.	ממתין: הבונה קורא את אלה בצעד הבא שלו. חץ למעלה לעריכת האחרונה.
+Want answers in plain words?	רוצה תשובות במילים פשוטות?
+Watch a Mac app's calls	עקוב אחר קריאות של אפליקציית Mac
+Watch a page over time	עקוב אחר דף לאורך זמן
+We didn't find an AI on this computer yet	עדיין לא מצאנו AI במחשב הזה
+We list the web addresses and messages we can see inside it. Watching it live needs your OK first.	אנחנו מציגים את כתובות האינטרנט וההודעות שאפשר לראות בתוכו. צפייה בזמן אמת דורשת קודם את אישורך.
+We only read it; nothing runs. Every answer shows how sure we are.	אנחנו רק קוראים את זה; שום דבר לא רץ. כל תשובה מראה עד כמה אנחנו בטוחים.
+WebAssembly module	מודול WebAssembly
+WebAssembly: fast compiled code that runs inside web browsers.	WebAssembly: קוד מהודר ומהיר שרץ בתוך דפדפני אינטרנט.
+Website address	כתובת אתר
+Website pages	דפי אתר
+Websites	אתרים
+Welcome	ברוכים הבאים
+What a new game may spend on generated pictures and 3D models before you're asked. Each project keeps its own.	כמה משחק חדש רשאי להוציא על יצירת תמונות ומודלי 3D לפני שישאלו אותך. לכל פרויקט יש הגדרה משלו.
+What a program exports	מה שתוכנית מייצאת
+What a program imports	מה שתוכנית מייבאת
+What are its main parts?	מהם החלקים העיקריים שלו?
+What brings you here?	מה מביא אותך לכאן?
+What can Craft Anything do?	מה Craft Anything יכול לעשות?
+What data was sent?	אילו נתונים נשלחו?
+What do you want to look inside?	לתוך מה להציץ?
+What do you want to make?	מה ליצור?
+What do you want to recreate?	מה ליצור מחדש?
+What does it need from the page?	מה הוא צריך מהדף?
+What does it send over the internet?	מה הוא שולח דרך האינטרנט?
+What does this app do?	מה האפליקציה הזו עושה?
+What does this app store?	מה האפליקציה הזו מאחסנת?
+What does this contract do?	מה החוזה הזה עושה?
+What does this module do?	מה המודול הזה עושה?
+What does this program do?	מה התוכנית הזו עושה?
+What does {what} do?	מה {what} עושה?
+What happened in this build	מה התרחש בתהליך הבנייה הזה
+What is it	מה זה
+What is this?	מה זה?
+What it calls	אל מה הוא קורא
+What kind of file is this?	איזה סוג קובץ זה?
+What permissions does it ask for?	אילו הרשאות הוא מבקש?
+What pictures and textures are made with.	בעזרת מה תמונות וטקסטורות נוצרות.
+What settings are in here?	אילו הגדרות יש כאן?
+What tables are in here?	אילו טבלאות יש כאן?
+What we couldn't check	מה שלא יכולנו לבדוק
+What would you like to find out?	מה נדרש לגלות?
+What would you like to know about {name}?	מה נדרש לברר על {name}?
+What's at this address	מה נמצא בכתובת הזו
+What's in this folder?	מה יש בתיקייה הזו?
+What's inside this archive?	מה יש בתוך הארכיון הזה?
+Whatever Settings → AI builds with.	כל מה שהגדרות → AI בונה איתו.
+When a folder you pick has files	כשבתיקייה שבחרת יש קבצים
+When the builder needs a choice made: show it to you and wait, or let it decide and say what it chose. Each project can choose for itself under its prompt box.	כשהבונה צריך לקבל החלטה: להציג לך אותה ולהמתין, או לתת לו להחליט ולציין מה בחר. כל פרויקט יכול לבחור לעצמו מתחת לתיבת ההנחיה שלו.
+When you rebuild an app or game, start it once to picture its window and compare the rebuild with it. It runs that program.	בעת בנייה מחדש של אפליקציה או משחק, יש להפעיל אותם פעם אחת כדי לצלם את החלון ולהשוות מולו את הבנייה מחדש. הפעולה מריצה את התוכנית הזו.
+Where am I	איפה אני
+Where is Ghidra installed?	איפה Ghidra מותקן?
+Where is the program?	איפה התוכנית?
+Where should new projects go?	לאן לשמור פרויקטים חדשים?
+Where we found it	איפה מצאנו את זה
+Whether they're the app to edit in place, or material the app starts from beside them.	האם הם האפליקציה לעריכה במקום, או חומר שממנו האפליקציה מתחילה לצדם.
+Which AI answers your questions	איזה AI עונה על השאלות שלך
+Which file is the main program?	איזה קובץ הוא התוכנית הראשית?
+Which files does it read or write?	אילו קבצים הוא קורא או כותב?
+Which function is this in	באיזו פונקציה זה נמצא
+Which servers does it talk to?	עם אילו שרתים הוא מתקשר?
+Which servers were contacted?	עם אילו שרתים נוצר קשר?
+Which websites does it load?	אילו אתרים הוא טוען?
+Who builds what you make	מי בונה את התוצרים
+Who calls it	מי קורא לו
+Who can move funds?	מי יכול להעביר כספים?
+Who signed this Windows program	מי חתם על תוכנית ה-Windows הזו
+Who uses this Android class?	מי משתמש במחלקת ה-Android הזו?
+Who uses this Java class?	מי משתמש במחלקת ה-Java הזו?
+Why we ask	למה אנחנו שואלים
+Window / focus info	מידע על חלון / מיקוד
+Windows resources	משאבי Windows
+Wireshark tools check	בדיקת כלי Wireshark
+Without it, Deep mode uses Craft Anything's own decompiler, which is rougher.	בלעדיו, מצב עמוק משתמש בדקומפילר של Craft Anything עצמו, שהוא גס יותר.
+Work out a copy's size	חשב גודל עותק
+Work out what an installed app is built on	גילוי על מה בנויה אפליקציה מותקנת
+Workbench	סביבת עבודה
+Worked it out	הוסק
+Worked it out: computed step by step from things we saw.	הוסק: חושב שלב אחר שלב מדברים שראינו.
+Worked through {n} steps	עבר על {n} שלבים
+Working on it	עובד על זה
+Working on your answer	עובד על התשובה שלך
+Working out how much space a copy takes…	מחשב כמה מקום תופס עותק…
+Working…	עובד…
+Working… ({n} steps so far)	עובד… ({n} שלבים עד כה)
+Write a project file	כתיבת קובץ פרויקט
+Write a readable report	כתיבת דוח קריא
+Write comment	כתיבת הערה
+Write inline comment	כתיבת הערה בשורה
+Write pseudo-C to a folder	כתיבת pseudo-C לתיקייה
+Write the brief	כתיבת התדריך
+Write the handoff	כתיבת המסירה
+Wrote {what} to {}	נכתב {what} אל {}
+You answered: {a}	ענית: {a}
+You can add a Claude, ChatGPT or OpenRouter key, a local model (Ollama, LM Studio) or an agent you already use, later in Settings → AI.	ניתן להוסיף בהמשך מפתח של Claude, ChatGPT או OpenRouter, מודל מקומי (Ollama, LM Studio) או סוכן קיים, תחת הגדרות → AI.
+You chose:	בחרת:
+You're all set	הכול מוכן
+Your app is ready	האפליקציה שלך מוכנה
+Your brains	מנועי ה-AI שלך
+Your fal.ai key	מפתח ה-fal.ai שלך
+Your game is ready	המשחק שלך מוכן
+Your message wasn't sent: another project was opened while its pictures were copied.	ההודעה שלך לא נשלחה: פרויקט אחר נפתח בזמן שהתמונות שלה הועתקו.
+Your own tool installs (optional)	התקנות כלים משלך (אופציונלי)
+Your project starts as soon as it's done.	הפרויקט שלך מתחיל מיד כשהתהליך מסתיים.
+Your version	הגרסה שלך
+Your website is ready	האתר שלך מוכן
+a new folder in {dir}	תיקייה חדשה בתוך {dir}
+a picture	תמונה
+about ${n}	בערך ${n}
+address, e.g. http://192.168.1.20:11434/v1	כתובת, למשל http://192.168.1.20:11434/v1
+and {n} more	ועוד {n}
+arguments (optional)	ארגומנטים (אופציונלי)
+call graph	גרף קריאות
+clean room	חדר נקי
+command, https:// address or .wasm file	פקודה, כתובת https:// או קובץ .wasm
+deep mode	מצב עמוק
+entry point	נקודת כניסה
+files	קבצים
+findings	ממצאים
+first run	הפעלה ראשונה
+found on this computer; set up when you start	נמצא במחשב הזה; יוגדר בהפעלה
+from the builder's own memory of the build	מהזיכרון של הבונה עצמו מהבנייה
+from the project's files	מקובצי הפרויקט
+id, e.g. docs	מזהה, למשל docs
+is required	נדרש
+isn't available yet	עדיין לא זמין
+job result	תוצאת משימה
+job {title} panicked: {what}	המשימה {title} קרסה: {what}
+just now	ממש עכשיו
+managed	מנוהל
+model (optional)	מודל (אופציונלי)
+must be a number	חייב להיות מספר
+must be a whole number	חייב להיות מספר שלם
+name, e.g. Studio box	שם, למשל Studio box
+number	מספר
+objdump output	פלט objdump
+or start with /btw to just ask	או להתחיל ב-/btw כדי רק לשאול
+pinned builds couldn't be read: {}	לא ניתן היה לקרוא בניות מוצמדות: {}
+say how to use the files there	יש לציין איך להשתמש בקבצים שם
+scene	סצנה
+scenes	סצנות
+source map	מפת מקור
+start page	דף פתיחה
+the app is built beside your files, starting from them	האפליקציה נבנית לצד הקבצים שלך, ומתחילה מהם
+the built-in engines	המנועים המובנים
+the prompt box changed height	תיבת ההנחיה שינתה גובה
+title bar	שורת כותרת
+under $0.01	פחות מ-$0.01
+yesterday	אתמול
+your files there are the app, edited in place	הקבצים שלך שם הם האפליקציה, ונערכים במקום
+{:.1} GB	{:.1} GB
+{:.1}M	{:.1}M
+{backend}: {input_tokens} in / {output_tokens} out{cost}	{backend}: {input_tokens} קלט / {output_tokens} פלט{cost}
+{cost} (estimate)	{cost} (הערכה)
+{c} · {size}	{c} · {size}
+{done} of {all} done	{done} מתוך {all} הושלמו
+{gb} GB for bigger ones	{gb} GB עבור גדולים יותר
+{gb} GB for programs up to {size}	{gb} GB עבור תוכניות עד {size}
+{gb} GB up to {size}	{gb} GB עד {size}
+{held} of {n} requirements met	{held} מתוך {n} דרישות מתקיימות
+{id} · {summary}	{id} · {summary}
+{in} in, {out} out.	{in} קלט, {out} פלט.
+{k}: {s}	{k}: {s}
+{lbl}  {}	{lbl}  {}
+{line}, and {n} more	{line}, ועוד {n}
+{mb} MB	{mb} MB
+{name} builds what you make.	{name} בונה את התוצרים.
+{name} builds what you make; answers come from {brain}.	{name} בונה את התוצרים; התשובות מגיעות מ-{brain}.
+{name} can't be attached: a message takes pictures up to 20 MB.	אי אפשר לצרף את {name}: הודעה מקבלת תמונות עד 20 MB.
+{name} can't be attached: it isn't a PNG, JPEG, GIF or WebP picture.	אי אפשר לצרף את {name}: זו אינה תמונת PNG, JPEG, GIF או WebP.
+{name} can't be kept to only reading, so it isn't asked questions. Ask with Claude Code, or with an AI that has an API key.	אי אפשר להגביל את {name} לקריאה בלבד, ולכן לא מופנות אליו שאלות. שאל עם Claude Code, או עם AI שיש לו מפתח API.
+{name} is ready	{name} מוכן
+{name} is ready.	{name} מוכן.
+{name} isn't available yet in this build.	{name} עדיין לא זמין בגרסת הבנייה הזו.
+{name} isn't on this computer yet.	{name} עדיין לא נמצא במחשב הזה.
+{name} key	מפתח {name}
+{n} actions done so far	{n} פעולות בוצעו עד כה
+{n} days ago	לפני {n} ימים
+{n} h ago	לפני {n} שע'
+{n} item(s)	{n} פריט(ים)
+{n} job(s) running	{n} משימה(ות) בפעולה
+{n} min ago	לפני {n} דק'
+{n} picture(s) to match.	{n} תמונה(ות) להתאמה.
+{n} step(s) didn't work and were retried or skipped.	{n} שלב(ים) לא עבדו ונוסו מחדש או שדולג עליהם.
+{n} tokens	{n} טוקנים
+{n} · ${spent:.2} of ${budget:.2}	{n} · ${spent:.2} מתוך ${budget:.2}
+{n} · ${spent} of ${budget}	{n} · ${spent} מתוך ${budget}
+{scenes} {}	{scenes} {}
+{text}, {}	{text}, {}
+{title} hit a bug and stopped safely. ({what})	{title} נתקל בבאג ועצר בבטחה. ({what})
+{title} {id}	{title} {id}
+{title} · {:.0}%	{title} · {:.0}%
+{tool} finished	{tool} סיים
+{tool}: {}	{tool}: {}
+{what} panicked: {msg}	{what} קרס: {msg}
+{} GB	{} GB
+{} isn't available yet in this build.	{} עדיין לא זמין בגרסת הבנייה הזו.
+{} item(s)	{} פריט(ים)
+{} key	מפתח {}
+{} report.md	דוח {}.md
+{} {name}	{} {name}
+{} {said}	{} {said}
+{} {then}	{} {then}
+{} {v}	{} {v}
+{} {why}	{} {why}
+{} {} · {}{cost}	{} {} · {}{cost}
+{} · {mode}	{} · {mode}
+{}: {e}	{}: {e}
+{}: {some}{more}.	{}: {some}{more}.
+{}: {state}	{}: {state}
+{}h {:02}m	{} שע' {:02} דק'
+{}m {:02}s	{} דק' {:02} שנ'
+— use the filter to find the rest.	— ניתן להשתמש במסנן כדי למצוא את השאר.
+… {n} more	… עוד {n}
+… {n} older	… {n} ישנים יותר
+… {} more	… עוד {}
+… {} older	… {} ישנים יותר
+← Back	← חזרה
+↑↓ to move · Enter to run · Esc to close	↑↓ לניווט · Enter להפעלה · Esc לסגירה
+Providers	ספקים
+Harnesses	סוכנים
+Nothing of this kind was found.	לא נמצא דבר מסוג זה.
+Another model	מודל אחר
+Fold a project's plan	קיפול תוכנית הפרויקט
+Fold the plan	קיפול התוכנית
+The Claude desktop app is installed, but building needs Claude Code, its separate command-line tool. Install Claude Code, sign in to it once in a terminal, then look again.	אפליקציית שולחן העבודה של Claude מותקנת, אבל הבנייה דורשת את Claude Code, כלי שורת הפקודה הנפרד שלה. יש להתקין את Claude Code, להתחבר אליו פעם אחת במסוף, ולאחר מכן לבדוק שוב.
+Unreal is here, but its bundled Clang C++ toolchain wasn't found.	Unreal קיים כאן, אך שרשרת הכלים Clang C++ המצורפת שלו לא נמצאה.
+Add Unreal's Linux C++ toolchain	הוספת שרשרת הכלים C++ ל-Linux של Unreal
+Run Engine/Build/BatchFiles/Linux/SetupToolchain.sh in the engine folder to install its bundled Clang toolchain. If you built Unreal from source, Setup.sh downloads the native toolchain instead. A system Clang may not match the engine's version.	יש להריץ את Engine/Build/BatchFiles/Linux/SetupToolchain.sh בתיקיית המנוע כדי להתקין את שרשרת הכלים Clang המצורפת שלו. אם Unreal נבנה מקוד המקור, Setup.sh מוריד במקומה את שרשרת הכלים המקומית. ייתכן ש-Clang של המערכת לא יתאים לגרסת המנוע.
+Unreal is here, but it also needs Xcode.	Unreal קיים כאן, אבל הוא דורש גם את Xcode.
+About 60 GB, an Epic Games account, and Xcode.	כ-60 GB, חשבון Epic Games ו-Xcode.
+File	קובץ
+View	תצוגה
+Window	חלון
+Help	עזרה
+Command palette	לוח פקודות
+Craft Anything on GitHub	Craft Anything ב-GitHub
+Report a problem…	דווח על בעיה…
+Quit Craft Anything	יציאה מ-Craft Anything
+About Craft Anything	אודות Craft Anything
+Services	שירותים
+Hide Craft Anything	הסתרת Craft Anything
+Hide others	הסתרת אחרים
+Show all	הצגת הכול
+Close window	סגירת חלון
+Full screen	מסך מלא
+Zoom	הגדל/הקטן
+Bring all to front	הבאת הכול לחזית
+Drag to give the plan more or less room; double-click to reset	גרירה נותנת לתוכנית יותר או פחות מקום; לחיצה כפולה מאפסת
+Copy the message	העתקת ההודעה
+Copy the version	העתקת הגרסה
+Choose what the builder's approvals get	בחירת אופן הטיפול באישורי הבונה
+Reading the web	קריאה מהאינטרנט
+Other commands	פקודות אחרות
+Files outside the project	קבצים מחוץ לפרויקט
+Pushing and publishing	דחיפה ופרסום
+Deleting outside the project	מחיקה מחוץ לפרויקט
+System changes	שינויים במערכת
+Other tools	כלים אחרים
+Allow	אישור
+Ask	בקשת אישור
+Refuse	דחייה
+After /approvals, type a kind and allow, ask, refuse or default, like /approvals publish ask. Kinds: {kinds}.	אחרי /approvals, יש להקליד סוג ואת allow, ask, refuse או default, לדוגמה /approvals publish ask. סוגים: {kinds}.
+There's no kind called {name}. Kinds: {kinds}.	אין סוג בשם {name}. סוגים: {kinds}.
+Approvals	אישורים
+In this project, {kind}: {choice}.	בפרויקט הזה, {kind}: {choice}.
+Couldn't change the approvals:	לא ניתן היה לשנות את האישורים:
+What the builder may do without asking you, in this project.	מה שמותר לבונה לעשות בלי לשאול אותך, בפרויקט הזה.
+Default follows Auto mode: with it on, what can be undone goes ahead and the rest is refused; with it off, the builder asks.	ברירת המחדל עוקבת אחרי מצב אוטומטי: כשהוא פועל, פעולות שניתן לבטל ממשיכות והשאר נדחות; כשהוא כבוי, הבונה שואל.
+Connecting to {name}… {seconds} s	מתחבר אל {name}… {seconds} שנ'
+Stopped adding {name}.	הוספת {name} הופסקה.
+It isn't there any more, so {program} runs in its place.	הוא כבר לא נמצא שם, ולכן {program} פועל במקומו.
+Use it	שימוש בזה
+
+# Native update checks and verified installation.
+ArtCraft Launcher manages this app's version. Change its version there.	ArtCraft Launcher מנהל את גרסת היישום הזה. ניתן לשנות את הגרסה דרכו.
+Check again	בדיקה חוזרת
+Check for Updates	בדיקת עדכונים
+Check for Updates…	בדיקת עדכונים…
+Checking for updates…	בודק עדכונים…
+Couldn't check for updates: {error}	לא ניתן היה לבדוק עדכונים: {error}
+Downloading and verifying the update…	מוריד ומאמת את העדכון…
+No installer is available for this platform.	אין תוכנית התקנה זמינה לפלטפורמה הזו.
+Releases	מהדורות
+Save your work and stop running tasks before installing an update.	יש לשמור את העבודה ולעצור משימות פעילות לפני התקנת עדכון.
+The update failed: {error}	העדכון נכשל: {error}
+The update worker stopped unexpectedly. Try checking again.	תהליך העדכון נעצר באופן בלתי צפוי. ניתן לנסות לבדוק שוב.
+This installation is managed externally. Update it with its package manager or open Releases.	התקנה זו מנוהלת חיצונית. יש לעדכן אותה באמצעות מנהל החבילות שלה או לפתוח את המהדורות.
+Update and restart	עדכון והפעלה מחדש
+Update ready. Restarting…	העדכון מוכן. מפעיל מחדש…
+Updated to {version}.	עודכן לגרסה {version}.
+Use Releases or your package manager to update this installation.	יש להשתמש במהדורות (Releases) או במנהל החבילות כדי לעדכן התקנה זו.
+You're up to date.	הגרסה שלך עדכנית.
+{version} is available.	גרסה {version} זמינה.
+Forget a website sign-in	שכיחת התחברות לאתר
+Sign in to a website	התחברות לאתר
+Some shared files could not be hard-linked and were copied instead ({size}).	לא ניתן היה ליצור קישור קשיח (hard link) לחלק מהקבצים המשותפים, והם הועתקו במקום זאת ({size}).
+This server lists several chat models. Choose one:	שרת זה מציג מספר מודלי צ'אט. יש לבחור אחד:
+Choose a model	בחירת מודל
+
+# Saved-builder notice: English until native-speaker review.
+The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.	ה-AI שנבחר עבור הפרויקט הזה ({saved}) כבוי או שכבר אינו מוגדר. {used} בונה במקומו.
+Ghidra is analysing the original. Pausing doesn't stop it, so nothing is lost.	Ghidra מנתחת את המקור. השהיה אינה עוצרת אותה, כך שדבר אינו אובד.
+Stop the analysis	עצירת הניתוח
+Ghidra stays off for this project until your next request, which starts it again from the beginning. Until then, decompiling uses the built-in engine.	Ghidra נשארת כבויה עבור פרויקט זה עד לבקשה הבאה, שמתחילה אותה מחדש מההתחלה. עד אז, הדקומפילציה משתמשת במנוע המובנה.
+Stop Ghidra's analysis	עצירת הניתוח של Ghidra

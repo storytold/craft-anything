@@ -8,7 +8,7 @@ use crate::theme::{self, Tokens};
 use crate::{CraftApp, widgets};
 use craft_anything_engine::evidence::ToolError;
 use craft_anything_engine::workspace::{ACTION_KINDS, ActionKind, Approval};
-use egui::{RichText, Ui};
+use egui::Ui;
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -129,14 +129,14 @@ pub(crate) fn menu(app: &mut CraftApp, ui: &mut Ui, root: &Path) {
     let chosen = ws.manifest.approvals.clone();
     let t = Tokens::get(ui.ctx());
     let names: Vec<&str> = CHOICES.iter().map(|(n, _)| *n).collect();
-    let button = widgets::link(ui, "Approvals").on_hover_text(tr("What the builder may do without asking you, in this project."));
+    let button = crate::i18n::hover_text(widgets::link(ui, "Approvals"), &tr("What the builder may do without asking you, in this project."));
     let mut picked = None;
     // A named id, so tests (and anything else) can tell whether it's open.
     let popup = egui::Popup::from_toggle_button_response(&button).id(egui::Id::new("project-approvals"));
     popup.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
         egui::Grid::new("approvals").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
             for row in ACTION_KINDS {
-                ui.label(RichText::new(tr(label(row.kind))).size(theme::SMALL));
+                crate::i18n::rich_label(ui, &tr(label(row.kind)), |r| r.size(theme::SMALL));
                 let now = chosen.get(&row.kind).copied();
                 let sel = CHOICES.iter().position(|(_, c)| *c == now).unwrap_or(0);
                 // Keep the row's controls keyed to its action.
@@ -150,7 +150,9 @@ pub(crate) fn menu(app: &mut CraftApp, ui: &mut Ui, root: &Path) {
         });
         ui.add_space(theme::space::XS);
         let note = tr("Default follows Auto mode: with it on, what can be undone goes ahead and the rest is refused; with it off, the builder asks.");
-        ui.add(egui::Label::new(RichText::new(note).size(theme::SMALL).line_height(Some(theme::leading(theme::SMALL))).color(t.text_faint)).wrap());
+        crate::i18n::wrapped_label(ui, &note, egui::FontId::proportional(theme::SMALL), |r| {
+            r.line_height(Some(theme::leading(theme::SMALL))).color(t.text_faint)
+        });
     });
     if let Some((kind, choice)) = picked {
         app.set_approval(root, kind, choice);

@@ -92,6 +92,7 @@ rustc-demangle = "0.1"
 wasmparser = { version = "0.261", default-features = false, features = ["std", "validate", "features", "component-model", "simd"] }
 wasmprinter = { version = "0.261", default-features = false, features = ["component-model"] }
 regex = "1"
+unicode-bidi = "0.3"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

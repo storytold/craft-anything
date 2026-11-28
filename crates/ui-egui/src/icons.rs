@@ -80,7 +80,7 @@ pub fn button_box(ui: &mut egui::Ui, name: &str, box_size: f32, selected: bool, 
     crate::widgets::focus_ring(ui, &resp, rect);
     let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, crate::i18n::tr(if tooltip.is_empty() { name } else { tooltip })));
-    if tooltip.is_empty() { resp } else { resp.on_hover_text(crate::i18n::tr(tooltip)) }
+    if tooltip.is_empty() { resp } else { crate::i18n::hover_text(resp, &crate::i18n::tr(tooltip)) }
 }
 
 #[cfg(test)]

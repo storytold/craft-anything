@@ -26,7 +26,8 @@ pub fn proof_card(ui: &mut Ui, e: &Evidence, dense: bool, open: bool) {
             ui.label(RichText::new(nice_operation(&e.operation)).font(theme::medium(theme::CAPTION)).color(t.text_dim));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if e.environment.clean_room {
-                    widgets::pill(ui, "Clean room", t.success, t.raised).on_hover_text(tr("Made without looking inside the original."));
+                    widgets::pill(ui, "Clean room", t.success, t.raised)
+                        .on_hover_text(crate::i18n::display(&tr("Made without looking inside the original.")).as_ref());
                 } else {
                     widgets::pill(ui, &e.environment.engine, t.accent_ink, t.accent_soft);
                 }
@@ -37,13 +38,15 @@ pub fn proof_card(ui: &mut Ui, e: &Evidence, dense: bool, open: bool) {
             ui.label(RichText::new(&e.summary).size(if dense { theme::SMALL } else { theme::BODY }));
         }
         let id = ui.id().with(("proof", &e.id));
-        egui::CollapsingHeader::new(RichText::new(tr("Show me the proof")).color(t.accent_ink).font(theme::medium(theme::SMALL)))
+        let proof_logical = tr("Show me the proof");
+        let header = egui::CollapsingHeader::new(crate::i18n::rich_text(&proof_logical).color(t.accent_ink).font(theme::medium(theme::SMALL)))
             .id_salt(id)
             .default_open(open)
             .icon(widgets::disclosure_icon)
             .show(ui, |ui| {
                 details(ui, e, &t);
             });
+        crate::i18n::keep_logical_a11y(&header.header_response, &proof_logical);
     });
 }
 
@@ -90,7 +93,7 @@ fn details(ui: &mut Ui, e: &Evidence, t: &Tokens) {
         let short = e.id.get(..18).unwrap_or(&e.id).to_string();
         if ui
             .add(egui::Button::new(RichText::new(format!("{short}…")).font(theme::mono(theme::CAPTION)).color(t.text_faint)).frame(false))
-            .on_hover_text(tr("Copy the evidence id"))
+            .on_hover_text(crate::i18n::display(&tr("Copy the evidence id")).as_ref())
             .clicked()
         {
             ui.ctx().copy_text(e.id.clone());
@@ -105,7 +108,8 @@ fn details(ui: &mut Ui, e: &Evidence, t: &Tokens) {
         });
         ui.add_space(theme::space::SM);
     }
-    egui::CollapsingHeader::new(RichText::new(tr("The raw result")).color(t.text_dim).size(theme::CAPTION))
+    let raw_logical = tr("The raw result");
+    let raw_header = egui::CollapsingHeader::new(crate::i18n::rich_text(&raw_logical).color(t.text_dim).size(theme::CAPTION))
         .id_salt(("raw", &e.id))
         .default_open(false)
         .icon(widgets::disclosure_icon)
@@ -115,6 +119,7 @@ fn details(ui: &mut Ui, e: &Evidence, t: &Tokens) {
                 json_tree(ui, "result", &e.result, 0);
             });
         });
+    crate::i18n::keep_logical_a11y(&raw_header.header_response, &raw_logical);
 }
 
 /// `native_strings_browse` → "Native strings browse".
@@ -149,7 +154,9 @@ pub fn json_tree(ui: &mut Ui, key: &str, v: &Value, depth: usize) {
                         json_tree(ui, k, v, depth + 1);
                     }
                     if m.len() > MAX_CHILDREN {
-                        ui.label(RichText::new(crate::i18n::trf("… {n} more", &[("n", &(m.len() - MAX_CHILDREN).to_string())])).color(t.text_faint));
+                        crate::i18n::rich_label(ui, &crate::i18n::trf("… {n} more", &[("n", &(m.len() - MAX_CHILDREN).to_string())]), |r| {
+                            r.color(t.text_faint)
+                        });
                     }
                 });
         }
@@ -163,7 +170,9 @@ pub fn json_tree(ui: &mut Ui, key: &str, v: &Value, depth: usize) {
                         json_tree(ui, &i.to_string(), v, depth + 1);
                     }
                     if a.len() > MAX_CHILDREN {
-                        ui.label(RichText::new(crate::i18n::trf("… {n} more", &[("n", &(a.len() - MAX_CHILDREN).to_string())])).color(t.text_faint));
+                        crate::i18n::rich_label(ui, &crate::i18n::trf("… {n} more", &[("n", &(a.len() - MAX_CHILDREN).to_string())]), |r| {
+                            r.color(t.text_faint)
+                        });
                     }
                 });
         }
@@ -215,7 +224,7 @@ pub fn ledger_row(ui: &mut Ui, e: &Evidence, selected: bool) -> bool {
                 ui.painter().circle_filled(r.center(), 3.5, col);
                 ui.label(RichText::new(nice_operation(&e.operation)).font(theme::medium(theme::CAPTION)));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(RichText::new(tr(crate::theme::confidence_label(Some(e.confidence)))).size(theme::TINY).color(col));
+                    crate::i18n::rich_label(ui, &tr(crate::theme::confidence_label(Some(e.confidence))), |r| r.size(theme::TINY).color(col));
                 });
             });
             ui.add(

@@ -60,7 +60,7 @@ pub fn buttons(ui: &mut egui::Ui, chosen: &mut Option<DetectTab>, detected: &[De
     let (providers, harnesses) = counts(detected);
     let showing = resolve(*chosen, providers, harnesses);
     for (tab, label, count) in [(DetectTab::Providers, "Providers", providers), (DetectTab::Harnesses, "Harnesses", harnesses)] {
-        let mut text = egui::RichText::new(format!("{} ({count})", crate::i18n::tr(label)));
+        let mut text = crate::i18n::rich_text(&format!("{} ({count})", crate::i18n::tr(label)));
         if count == 0 {
             text = text.weak();
         }

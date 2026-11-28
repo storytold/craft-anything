@@ -29,7 +29,7 @@ pub fn show(app: &mut CraftApp, ctx: &egui::Context) {
         ui.set_width(width);
         ui.set_max_height(available.y.max(0.0));
         ui.horizontal(|ui| {
-            ui.label(theme::heading(tr("Settings"), theme::SECTION));
+            crate::i18n::heading(ui, &tr("Settings"), theme::SECTION);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if icons::button(ui, "x", theme::ControlSize::Medium, false, "Close").clicked() {
                     open = false;
@@ -168,7 +168,7 @@ fn page_content(app: &mut CraftApp, ui: &mut Ui, h: f32) {
             let text = app.state.toasts[i].0.clone();
             controls(ui, |ui| {
                 icons::show(ui, "triangle-alert", theme::icon::MD, t.danger);
-                ui.add(egui::Label::new(RichText::new(text).color(t.danger)).wrap());
+                crate::i18n::wrapped_label(ui, &text, egui::TextStyle::Body.resolve(ui.style()), |r| r.color(t.danger));
                 if icons::button(ui, "x", theme::ControlSize::Small, false, "Dismiss").clicked() {
                     app.state.toasts.remove(i);
                 }
@@ -203,9 +203,11 @@ fn row(ui: &mut Ui, title: &str, sub: &str, add: impl FnOnce(&mut Ui)) {
     };
     let labels = |ui: &mut Ui| {
         ui.set_width(if narrow { ui.available_width() } else { 280.0 });
-        ui.label(RichText::new(tr(title)).font(theme::medium(theme::BODY)));
+        crate::i18n::rich_label(ui, &tr(title), |r| r.font(theme::medium(theme::BODY)));
         if !sub.is_empty() {
-            ui.add(egui::Label::new(RichText::new(tr(sub)).color(t.text_faint).size(theme::CAPTION).line_height(Some(theme::leading(theme::CAPTION)))).wrap());
+            crate::i18n::wrapped_label(ui, &tr(sub), egui::FontId::proportional(theme::CAPTION), |r| {
+                r.color(t.text_faint).line_height(Some(theme::leading(theme::CAPTION)))
+            });
         }
     };
     if narrow {
@@ -256,7 +258,12 @@ fn general(app: &mut CraftApp, ui: &mut Ui) {
             }
             // Both modes draw text at one size: zoom is the way to make it bigger.
             let t = Tokens::get(ui.ctx());
-            ui.label(RichText::new(tr("Text bigger or smaller: Ctrl/⌘ + and Ctrl/⌘ −. Ctrl/⌘ 0 resets it.")).color(t.text_faint).size(theme::CAPTION));
+            crate::i18n::wrapped_label(
+                ui,
+                &tr("Text bigger or smaller: Ctrl/⌘ + and Ctrl/⌘ −. Ctrl/⌘ 0 resets it."),
+                egui::FontId::proportional(theme::CAPTION),
+                |r| r.color(t.text_faint),
+            );
         });
     });
     let dir = app.settings.projects_dir();
@@ -287,7 +294,7 @@ fn general(app: &mut CraftApp, ui: &mut Ui) {
     }
     row(ui, "When a folder you pick has files", "Whether they're the app to edit in place, or material the app starts from beside them.", |ui| {
         let current = crate::folders::EXISTING_CHOICES.iter().find(|(_, v)| *v == app.settings.existing_files).map_or("Ask each time", |(l, _)| *l);
-        widgets::dropdown("existing-files").selected_text(tr(current)).show_ui(ui, |ui| {
+        widgets::dropdown("existing-files").selected_text(crate::i18n::display(&tr(current)).as_ref()).show_ui(ui, |ui| {
             for (label, value) in crate::folders::EXISTING_CHOICES {
                 if widgets::menu_item(ui, app.settings.existing_files == value, tr(label)).clicked() {
                     app.settings.existing_files = value;
@@ -326,7 +333,7 @@ fn language(app: &mut CraftApp, ui: &mut Ui) {
     row(ui, "Language", "", |ui| {
         let selected = (!app.settings.language.trim().is_empty()).then(|| crate::i18n::language_from_tag(&app.settings.language).unwrap_or("en"));
         let current = LANGUAGES.iter().find(|l| Some(l.code) == selected).map(|l| l.name).unwrap_or("System");
-        widgets::dropdown("lang").selected_text(tr(current)).show_ui(ui, |ui| {
+        widgets::dropdown("lang").selected_text(crate::i18n::display(&tr(current)).as_ref()).show_ui(ui, |ui| {
             if widgets::menu_item(ui, app.settings.language.trim().is_empty(), tr("System")).clicked() {
                 app.settings.language.clear();
                 crate::i18n::set_language("");
@@ -413,14 +420,16 @@ fn engines(app: &mut CraftApp, ui: &mut Ui) {
     crate::engine_ui::settings_section(app, ui);
     ui.add_space(theme::space::MD);
     widgets::caption(ui, "Your own tool installs (optional)");
-    ui.label(RichText::new(tr("Leave a path empty to use the managed install. We never need environment variables.")).color(t.text_faint).size(theme::CAPTION));
+    crate::i18n::rich_label(ui, &tr("Leave a path empty to use the managed install. We never need environment variables."), |r| {
+        r.color(t.text_faint).size(theme::CAPTION)
+    });
     ui.add_space(theme::space::SM);
     let mut changed = false;
     egui::Grid::new("tool-paths").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         // Names and purposes come from the engine table; the override list matches it (tested).
         for (id, v) in app.settings.engines.tools.entries_mut() {
             let (name, needed_for) = craft_anything_engines::engine(id).map(|e| (e.name, e.needed_for)).unwrap_or((id, ""));
-            ui.label(RichText::new(tr(name)).size(theme::CAPTION)).on_hover_text(format!("{}\n{id}", tr(needed_for)));
+            crate::i18n::rich_label(ui, &tr(name), |r| r.size(theme::CAPTION)).on_hover_text(format!("{}\n{id}", tr(needed_for)));
             changed |= path_field(ui, v, name, "managed");
             ui.end_row();
         }
@@ -435,8 +444,8 @@ fn engines(app: &mut CraftApp, ui: &mut Ui) {
 fn model_options_loading(ui: &mut Ui, backend: &str) {
     ui.add_enabled_ui(false, |ui| {
         controls(ui, |ui| {
-            ui.label(tr("Context window"));
-            widgets::dropdown(("model-context", backend)).selected_text(tr("Default")).show_ui(ui, |_| {});
+            crate::i18n::label(ui, &tr("Context window"));
+            widgets::dropdown(("model-context", backend)).selected_text(crate::i18n::display(&tr("Default")).as_ref()).show_ui(ui, |_| {});
         });
     });
 }
@@ -461,7 +470,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
         ui.add_space(theme::space::XS);
     }
     if app.backends.is_empty() {
-        ui.label(RichText::new(tr("No AI is set up yet. The built-in engines still work; an AI adds plain-words answers.")).color(t.text_dim));
+        crate::i18n::rich_label(ui, &tr("No AI is set up yet. The built-in engines still work; an AI adds plain-words answers."), |r| r.color(t.text_dim));
     }
     let (mut pick, mut builds, mut extracts, mut toggle, mut remove) = (None, None, None, None, None);
     let (mut choose_program, mut usual_program, mut use_program) = (None, None, None);
@@ -532,12 +541,9 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                             controls(ui, |ui| {
                                 ui.style_mut().override_font_id = Some(egui::FontId::proportional(theme::CAPTION));
                                 let text = trf("It isn't there any more, so {program} runs in its place.", &[("program", instead)]);
-                                ui.add(
-                                    egui::Label::new(
-                                        RichText::new(text).color(t.warning).size(theme::CAPTION).line_height(Some(theme::leading(theme::CAPTION))),
-                                    )
-                                    .wrap(),
-                                );
+                                crate::i18n::wrapped_label(ui, &text, egui::FontId::proportional(theme::CAPTION), |r| {
+                                    r.color(t.warning).line_height(Some(theme::leading(theme::CAPTION)))
+                                });
                                 let path = std::path::Path::new(instead);
                                 if path.parent().is_some_and(|p| !p.as_os_str().is_empty()) && widgets::link(ui, "Use it").clicked() {
                                     use_program = Some((b.name.clone(), instead.clone()));
@@ -557,11 +563,11 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                         }
                         let mut text = folder_drafts.get(&b.name).cloned().unwrap_or_else(|| saved.clone());
                         ui.add_space(theme::space::XS);
-                        let label = ui.label(RichText::new(tr("Claude Code folder (CLAUDE_CONFIG_DIR)")).size(theme::CAPTION).color(t.text_dim));
-                        ui.label(
-                            RichText::new(tr("Its own sign-in, settings and conversations: another folder is another account. Empty: its usual folder."))
-                                .color(t.text_faint)
-                                .size(theme::CAPTION),
+                        let label = crate::i18n::rich_label(ui, &tr("Claude Code folder (CLAUDE_CONFIG_DIR)"), |r| r.size(theme::CAPTION).color(t.text_dim));
+                        crate::i18n::rich_label(
+                            ui,
+                            &tr("Its own sign-in, settings and conversations: another folder is another account. Empty: its usual folder."),
+                            |r| r.color(t.text_faint).size(theme::CAPTION),
                         );
                         let r = ui
                             .add(
@@ -589,7 +595,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                             .data_mut(|d| d.get_temp::<String>(id))
                             .unwrap_or_else(|| app.backend_options.get(&b.name).and_then(|o| o.command.clone()).unwrap_or_default());
                         controls(ui, |ui| {
-                            ui.label(tr("Remote program"));
+                            crate::i18n::label(ui, &tr("Remote program"));
                             ui.add(
                                 egui::TextEdit::singleline(&mut program).hint_text(&b.model).desired_width(200.0).frame(widgets::text_field_frame_compact(&t)),
                             );
@@ -606,9 +612,9 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                             .and_then(|o| o.cli_model.as_deref())
                             .map(str::to_string)
                             .unwrap_or_else(|| if b.model == "opencode" { tr("OpenCode default") } else { tr("Model default") });
-                        ui.label(trf("Model: {model}", &[("model", &current)]));
+                        crate::i18n::label(ui, &trf("Model: {model}", &[("model", &current)]));
                         let thinking = options.and_then(|o| o.cli_thinking).map(|d| d.title().to_string()).unwrap_or_else(|| tr("Model default"));
-                        ui.label(format!("{}: {thinking}", tr("Thinking depth")));
+                        crate::i18n::label(ui, &format!("{}: {thinking}", tr("Thinking depth")));
                         if let Some(picker) = app.agent_model_picker.as_mut().filter(|p| p.context.backend.config.name == b.name) {
                             let previous = picker.model.clone();
                             let apply = crate::builders::agent_model_picker(ui, picker);
@@ -630,10 +636,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                         }
                     } else if let Some(current) = model_in_use {
                         controls(ui, |ui| {
-                            ui.add(
-                                egui::Label::new(RichText::new(trf("Model: {model}", &[("model", &current)])).color(t.text_faint).size(theme::CAPTION))
-                                    .truncate(),
-                            );
+                            crate::i18n::truncated_label(ui, &trf("Model: {model}", &[("model", &current)]), |r| r.color(t.text_faint).size(theme::CAPTION));
                             match app.model_picker.as_ref().filter(|(n, _)| *n == b.name) {
                                 None => {
                                     if widgets::caption_link(ui, "Change…").clicked() {
@@ -642,7 +645,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                                 }
                                 Some((_, None)) => {
                                     ui.add(crate::widgets::Spinner::new().size(theme::CAPTION).color(t.accent));
-                                    ui.label(RichText::new(tr("Asking for its models…")).color(t.text_faint).size(theme::CAPTION));
+                                    crate::i18n::rich_label(ui, &tr("Asking for its models…"), |r| r.color(t.text_faint).size(theme::CAPTION));
                                 }
                                 Some((_, Some(models))) => {
                                     // Claude Code or Codex with no choice saved passes no model, so it
@@ -678,7 +681,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                                 }
                             }
                             if !effort_levels.is_empty() {
-                                ui.label(RichText::new(tr("Effort:")).color(t.text_faint).size(theme::CAPTION));
+                                crate::i18n::rich_label(ui, &tr("Effort:"), |r| r.color(t.text_faint).size(theme::CAPTION));
                                 let shown = effort.map_or("default", craft_anything_ai::Effort::as_str);
                                 widgets::dropdown(("effort", &b.name)).selected_text(shown).show_ui(ui, |ui| {
                                     // Claude always has a level; an OpenAI-style API is sent none until one is chosen.
@@ -699,7 +702,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                                 let mut changed = false;
                                 ui.add_enabled_ui(!draft.saving, |ui| {
                                     controls(ui, |ui| {
-                                        ui.label(tr("Context window"));
+                                        crate::i18n::label(ui, &tr("Context window"));
                                         let label = draft
                                             .context
                                             .and_then(|value| choices.context.iter().find(|choice| choice.value == value))
@@ -752,7 +755,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                 }
                 ui.add_enabled_ui(!pending, |ui| {
                     controls(ui, |ui| {
-                        let label = ui.label(tr("Builder's tools"));
+                        let label = crate::i18n::label(ui, &tr("Builder's tools"));
                         widgets::dropdown(("tool-list", &b.name))
                             .selected_text(list.as_str())
                             .show_ui(ui, |ui| {
@@ -776,10 +779,10 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                 let pending = app.jobs.running().any(|job| Some(job.id) == pending_job);
                 ui.add_enabled_ui(!pending, |ui| {
                     controls(ui, |ui| {
-                        let label = ui.label(tr("Requests per minute"));
+                        let label = crate::i18n::label(ui, &tr("Requests per minute"));
                         ui.add(egui::TextEdit::singleline(&mut text).id(id.with("input")).hint_text("0").desired_width(90.0))
                             .labelled_by(label.id)
-                            .on_hover_text(tr("Set to 0 for no limit."));
+                            .on_hover_text(crate::i18n::display(&tr("Set to 0 for no limit.")).as_ref());
                         let rate = if text.trim().is_empty() { Some(0) } else { text.trim().parse::<u32>().ok() };
                         let changed_rate = rate.filter(|rate| *rate != saved);
                         let apply = widgets::primary_icon(ui, None, "Apply", changed_rate.is_some());
@@ -789,7 +792,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                             save_request_rate = Some((b.name.clone(), rate, id));
                         }
                         if rate.is_none() {
-                            ui.label(RichText::new(tr("Enter a whole number, or 0 for no limit.")).color(t.danger));
+                            crate::i18n::rich_label(ui, &tr("Enter a whole number, or 0 for no limit."), |r| r.color(t.danger));
                         }
                     });
                 });
@@ -841,7 +844,9 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                 }
                 // Who builds: the chosen one says so (click to go back to automatic).
                 if app.builder.as_ref() == Some(&b.name) {
-                    if widgets::secondary(ui, Some("hammer"), "Builds").on_hover_text(tr("Builds use this one. Click to choose automatically again.")).clicked()
+                    if widgets::secondary(ui, Some("hammer"), "Builds")
+                        .on_hover_text(crate::i18n::display(&tr("Builds use this one. Click to choose automatically again.")).as_ref())
+                        .clicked()
                     {
                         builds = Some(None);
                     }
@@ -852,7 +857,9 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                 if b.kind != BackendKind::AgentCli {
                     if app.extractor.as_ref() == Some(&b.name) {
                         if widgets::secondary(ui, Some("package"), "Extracts")
-                            .on_hover_text(tr("In Deep mode this one takes a game's own files out after the study. Click to stop."))
+                            .on_hover_text(
+                                crate::i18n::display(&tr("In Deep mode this one takes a game's own files out after the study. Click to stop.")).as_ref(),
+                            )
                             .clicked()
                         {
                             extracts = Some(None);
@@ -875,7 +882,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                 } else {
                     ("Turn on", "Builds and answers may use it again.")
                 };
-                if widgets::secondary(ui, None, label).on_hover_text(tr(tip)).clicked() {
+                if widgets::secondary(ui, None, label).on_hover_text(crate::i18n::display(&tr(tip)).as_ref()).clicked() {
                     toggle = Some((b.name.clone(), !b.enabled));
                 }
                 if confirming.as_ref() == Some(&b.name) {
@@ -892,7 +899,7 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                 }
             });
             if !b.enabled {
-                ui.label(RichText::new(tr("Off")).color(t.text_faint).size(theme::CAPTION));
+                crate::i18n::rich_label(ui, &tr("Off"), |r| r.color(t.text_faint).size(theme::CAPTION));
             }
             if let Some(Some(result)) = app.agent_connections.get(&b.name) {
                 let (message, color) = match result {
@@ -998,14 +1005,17 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
         .inner;
     ui.add_space(theme::space::XS);
     if detected.is_empty() && !app.detecting {
-        ui.label(
-            RichText::new(tr("Nothing found yet. We look for API keys, local model servers (Ollama, LM Studio) and agent apps you already have. One on another port or computer can be added by its address below."))
-                .color(t.text_faint),
+        crate::i18n::rich_label(
+            ui,
+            &tr(
+                "Nothing found yet. We look for API keys, local model servers (Ollama, LM Studio) and agent apps you already have. One on another port or computer can be added by its address below.",
+            ),
+            |r| r.color(t.text_faint),
         );
     }
     let shown = detected.iter().filter(|d| crate::detect_tabs::tab_of(d) == tab).count();
     if shown == 0 && !detected.is_empty() && !app.detecting {
-        ui.label(RichText::new(tr("Nothing of this kind was found.")).color(t.text_faint));
+        crate::i18n::rich_label(ui, &tr("Nothing of this kind was found."), |r| r.color(t.text_faint));
     }
     for d in detected.into_iter().filter(|d| crate::detect_tabs::tab_of(d) == tab) {
         let configured = app.backends.iter().any(|b| b.name == d.suggestion.name);
@@ -1024,7 +1034,9 @@ fn ai(app: &mut CraftApp, ui: &mut Ui) {
                 widgets::pill(&mut right_ui, "Added", t.success, t.raised);
                 // Claude Code once more, to give it another account's folder.
                 if craft_anything_ai::folder_var(&d.suggestion).is_some()
-                    && widgets::link(&mut right_ui, "Add another").on_hover_text(tr("Add it again, to choose another account's folder for it.")).clicked()
+                    && widgets::link(&mut right_ui, "Add another")
+                        .on_hover_text(crate::i18n::display(&tr("Add it again, to choose another account's folder for it.")).as_ref())
+                        .clicked()
                 {
                     let taken = |n: &String| app.backends.iter().any(|b| &b.name == n);
                     if let Some(name) = (2..100).map(|i| format!("{} {i}", d.suggestion.name)).find(|n| !taken(n)) {
@@ -1095,7 +1107,9 @@ pub(crate) fn server_form(app: &mut CraftApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
     ui.add_space(theme::space::LG);
     widgets::caption(ui, "Add an AI by its address");
-    ui.label(RichText::new(tr("Ollama or LM Studio on another computer, or any service that speaks the OpenAI API.")).color(t.text_faint).size(theme::CAPTION));
+    crate::i18n::rich_label(ui, &tr("Ollama or LM Studio on another computer, or any service that speaks the OpenAI API."), |r| {
+        r.color(t.text_faint).size(theme::CAPTION)
+    });
     ui.add_space(theme::space::XS);
     let form = &mut app.server_form;
     let field_width = (ui.available_width() - FRAME).max(0.0);
@@ -1138,7 +1152,7 @@ pub(crate) fn server_form(app: &mut CraftApp, ui: &mut Ui) {
     // (#1434). A list for another address is out of date and isn't offered.
     if let Some((address, models)) = form.choices.as_ref().filter(|(a, _)| *a == form.address.trim()) {
         controls(ui, |ui| {
-            ui.label(RichText::new(tr("This server lists several chat models. Choose one:")).color(t.text_faint).size(theme::CAPTION));
+            crate::i18n::rich_label(ui, &tr("This server lists several chat models. Choose one:"), |r| r.color(t.text_faint).size(theme::CAPTION));
             let shown = if form.model.trim().is_empty() { tr("Choose a model") } else { form.model.clone() };
             let r = widgets::dropdown("server-model-choice").width(ui.available_size_before_wrap().x).selected_text(shown).truncate().show_ui(ui, |ui| {
                 for m in models {
@@ -1159,9 +1173,9 @@ pub(crate) fn server_form(app: &mut CraftApp, ui: &mut Ui) {
         let seconds = started.elapsed().as_secs().to_string();
         ui.horizontal(|ui| {
             ui.add(widgets::Spinner::new().size(theme::CAPTION).color(t.accent));
-            ui.label(
-                RichText::new(trf("Connecting to {name}… {seconds} s", &[("name", name), ("seconds", &seconds)])).color(t.text_faint).size(theme::CAPTION),
-            );
+            crate::i18n::rich_label(ui, &trf("Connecting to {name}… {seconds} s", &[("name", name), ("seconds", &seconds)]), |r| {
+                r.color(t.text_faint).size(theme::CAPTION)
+            });
             // Waiting out the minute isn't the only way: what was typed stays to fix and add again.
             if widgets::secondary(ui, Some("x"), "Stop").clicked() {
                 stop = Some(*job);
@@ -1256,21 +1270,19 @@ fn builds(app: &mut CraftApp, ui: &mut Ui) {
 /// listed, turned on or off, added and removed.
 fn plugins(app: &mut CraftApp, ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
-    ui.add(
-        egui::Label::new(
-            RichText::new(tr(
-                "Plugins add tools Craft Anything offers as its own: MCP servers (a command or an address; read their tools after adding) or WebAssembly components (a .wasm file, which can't touch your files or the network).",
-            ))
-            .color(t.text_faint)
-            .size(theme::CAPTION),
-        )
-        .wrap(),
+    crate::i18n::wrapped_label(
+        ui,
+        &tr(
+            "Plugins add tools Craft Anything offers as its own: MCP servers (a command or an address; read their tools after adding) or WebAssembly components (a .wasm file, which can't touch your files or the network).",
+        ),
+        egui::FontId::proportional(theme::CAPTION),
+        |r| r.color(t.text_faint),
     );
     ui.add_space(theme::space::MD);
     let plugins = app.settings.plugins.mcp.clone();
     let wasm = app.settings.plugins.wasm.clone();
     if plugins.is_empty() && wasm.is_empty() {
-        ui.label(RichText::new(tr("No plugins yet.")).color(t.text_faint));
+        crate::i18n::rich_label(ui, &tr("No plugins yet."), |r| r.color(t.text_faint));
     }
     let mut changed = false;
     for (i, p) in plugins.iter().enumerate() {
@@ -1284,7 +1296,7 @@ fn plugins(app: &mut CraftApp, ui: &mut Ui) {
                         ui.label(RichText::new(problem).color(t.warning).size(theme::CAPTION));
                     }
                     if !p.consent {
-                        ui.label(RichText::new(tr("Runs its tools without asking")).color(t.warning).size(theme::CAPTION));
+                        crate::i18n::rich_label(ui, &tr("Runs its tools without asking"), |r| r.color(t.warning).size(theme::CAPTION));
                     }
                 });
                 if widgets::toggle(ui, &mut app.settings.plugins.mcp[i].enabled, "On").changed() {
@@ -1325,7 +1337,7 @@ fn plugins(app: &mut CraftApp, ui: &mut Ui) {
         app.settings_changed();
     }
     if !plugins.is_empty() || !wasm.is_empty() {
-        ui.label(RichText::new(tr("Turning a plugin on or off takes effect from the next start.")).color(t.text_faint).size(theme::CAPTION));
+        crate::i18n::rich_label(ui, &tr("Turning a plugin on or off takes effect from the next start."), |r| r.color(t.text_faint).size(theme::CAPTION));
     }
     ui.add_space(theme::space::LG);
     widgets::caption(ui, "Add a plugin");
@@ -1349,12 +1361,12 @@ fn plugins(app: &mut CraftApp, ui: &mut Ui) {
     });
     if app.state.plugin_form.args_refused() {
         ui.add_space(theme::space::XS);
-        ui.label(
-            RichText::new(tr(
+        crate::i18n::rich_label(
+            ui,
+            &tr(
                 r#"Arguments in square brackets must be a list of quoted words, like ["--port", "8080"]. Or leave out the brackets and separate them with spaces."#,
-            ))
-            .color(t.warning)
-            .size(theme::CAPTION),
+            ),
+            |r| r.color(t.warning).size(theme::CAPTION),
         );
     }
     ui.add_space(theme::space::SM);
@@ -1367,13 +1379,13 @@ fn plugins(app: &mut CraftApp, ui: &mut Ui) {
             app.act("plugins_add", params, tr("Add a plugin"));
         }
         let tested = ui.add(widgets::Button::new(widgets::ButtonKind::Secondary, "Test").icon(Some("cable")).enabled(test.is_some()));
-        if tested.on_hover_text(tr("Starts it and reads its tools, without adding it.")).clicked()
+        if tested.on_hover_text(crate::i18n::display(&tr("Starts it and reads its tools, without adding it.")).as_ref()).clicked()
             && let Some(test) = test
         {
             app.act("plugins_test", test, tr("Test a plugin"));
         }
     });
-    ui.label(RichText::new(tr("Plugins added here always ask before each call.")).color(t.text_faint).size(theme::CAPTION));
+    crate::i18n::rich_label(ui, &tr("Plugins added here always ask before each call."), |r| r.color(t.text_faint).size(theme::CAPTION));
 }
 
 fn safety(app: &mut CraftApp, ui: &mut Ui) {
@@ -1391,7 +1403,9 @@ fn safety(app: &mut CraftApp, ui: &mut Ui) {
     if !app.settings.ask_before_running {
         ui.horizontal(|ui| {
             icons::show(ui, "triangle-alert", theme::icon::MD, t.warning);
-            ui.label(RichText::new(tr("Tools may now run code from what you open without asking. Turn this back on unless you're sure.")).color(t.warning));
+            crate::i18n::rich_label(ui, &tr("Tools may now run code from what you open without asking. Turn this back on unless you're sure."), |r| {
+                r.color(t.warning)
+            });
         });
     }
     row(
@@ -1431,7 +1445,7 @@ fn safety(app: &mut CraftApp, ui: &mut Ui) {
         ui.add_space(theme::space::SM);
         widgets::caption(ui, &format!("{} {}", tr("Allowed in"), p));
         if app.view.project_allows.is_empty() {
-            ui.label(RichText::new(tr("Nothing allowed yet.")).color(t.text_faint));
+            crate::i18n::rich_label(ui, &tr("Nothing allowed yet."), |r| r.color(t.text_faint));
         }
         for tool in app.view.project_allows.clone() {
             ui.label(RichText::new(tool).font(theme::mono(theme::CODE)));

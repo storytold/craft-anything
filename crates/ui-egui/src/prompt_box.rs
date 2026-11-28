@@ -278,7 +278,7 @@ pub fn show(ui: &mut Ui, text: &mut String, attachments: &[PathBuf], b: PromptBo
             }
             // Hint: available slash commands when typing one.
             if text.trim_start().starts_with('/') && !text.trim().contains(' ') {
-                ui.label(RichText::new(format!("{} {}", tr("Commands:"), crate::slash::names())).size(theme::CAPTION).color(t.text_faint));
+                crate::i18n::rich_label(ui, &format!("{} {}", tr("Commands:"), crate::slash::names()), |r| r.size(theme::CAPTION).color(t.text_faint));
             }
             ui.add_space(theme::space::XS);
             ui.horizontal(|ui| {
@@ -287,7 +287,7 @@ pub fn show(ui: &mut Ui, text: &mut String, attachments: &[PathBuf], b: PromptBo
                 {
                     out.attach = true;
                 }
-                ui.label(RichText::new(tr("Enter to send · Shift+Enter for a new line")).size(theme::CAPTION).color(t.text_faint));
+                crate::i18n::rich_label(ui, &tr("Enter to send · Shift+Enter for a new line"), |r| r.size(theme::CAPTION).color(t.text_faint));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if b.send {
                         let ready = !text.trim().is_empty();
@@ -397,7 +397,7 @@ fn send_button(ui: &mut Ui, ready: bool) -> egui::Response {
     icons::paint(ui, rect, "send", theme::icon::MD, if ready { t.on_accent } else { t.text_faint });
     widgets::focus_ring(ui, &resp, rect);
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tr("Send (Enter)")));
-    resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tr("Send (Enter)"))
+    resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(crate::i18n::display(&tr("Send (Enter)")).as_ref())
 }
 
 /// "2 pictures attached" for the feed, or nothing.

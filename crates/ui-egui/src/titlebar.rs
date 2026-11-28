@@ -121,7 +121,7 @@ fn window_button(ui: &mut Ui, icon: &str, tip: &str, close: bool) -> egui::Respo
     icons::paint(ui, egui::Rect::from_center_size(rect.center(), Vec2::splat(14.0)), icon, theme::icon::SM, col);
     widgets::focus_ring(ui, &resp, rect.shrink(3.0));
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tr(tip)));
-    resp.on_hover_text(tr(tip))
+    resp.on_hover_text(crate::i18n::display(&tr(tip)).as_ref())
 }
 
 /// Draws the bar: the app mark and what's open on the left, the switches, settings and (off
@@ -152,7 +152,7 @@ pub fn show(app: &mut CraftApp, ui: &mut Ui) {
         // Room for macOS's buttons, kept in full screen too: they slide back in when the pointer
         // reaches the top of the screen, and land there instead of over the app mark.
         ui.add_space(if NATIVE_FRAME { NATIVE_BUTTONS_WIDTH } else { 12.0 } * s);
-        if ui.add(crate::app_icon(22.0 * s).sense(egui::Sense::click())).on_hover_text(tr("Home")).clicked() {
+        if ui.add(crate::app_icon(22.0 * s).sense(egui::Sense::click())).on_hover_text(crate::i18n::display(&tr("Home")).as_ref()).clicked() {
             app.state.screen = Screen::Home;
         }
         ui.label(theme::label_text("Craft Anything", theme::LABEL * s).color(t.text).strong());
@@ -173,7 +173,8 @@ pub fn show(app: &mut CraftApp, ui: &mut Ui) {
         }
         if let Some((name, kind)) = target {
             icons::show(ui, crate::kind_icon(kind), 14.0 * s, t.icon);
-            ui.add(egui::Label::new(RichText::new(name).font(theme::mono(theme::CAPTION * s)).color(t.text)).truncate()).on_hover_text(tr(kind.plain()));
+            ui.add(egui::Label::new(RichText::new(name).font(theme::mono(theme::CAPTION * s)).color(t.text)).truncate())
+                .on_hover_text(crate::i18n::display(&tr(kind.plain())).as_ref());
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
@@ -240,7 +241,7 @@ pub fn show(app: &mut CraftApp, ui: &mut Ui) {
             if app.jobs.busy() {
                 let n = app.jobs.running().filter(|j| j.visible).count();
                 ui.add(crate::widgets::Spinner::new().size(14.0 * s).color(t.accent))
-                    .on_hover_text(crate::i18n::trf("{n} job(s) running", &[("n", &n.to_string())]));
+                    .on_hover_text(crate::i18n::display(&crate::i18n::trf("{n} job(s) running", &[("n", &n.to_string())])).as_ref());
             }
         });
     });
@@ -258,7 +259,7 @@ fn usage_pill(app: &CraftApp, ui: &mut Ui) {
     let r = widgets::pill_sized(ui, &text, t.text_dim, t.raised, theme::CAPTION * scale(ui.ctx()));
     r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &text));
     r.on_hover_ui(|ui| {
-        ui.label(RichText::new(tr("AI use this session")).font(theme::semibold(theme::SMALL)));
+        crate::i18n::rich_label(ui, &tr("AI use this session"), |r| r.font(theme::semibold(theme::SMALL)));
         ui.label(crate::usage::explain(u, "Since Craft Anything opened."));
     });
 }
@@ -313,13 +314,21 @@ fn deep_toggle(app: &mut CraftApp, ui: &mut Ui) {
     widgets::focus_ring(ui, &resp, rect);
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, !deep, tr("Clean room")));
     let resp = resp.on_hover_ui(|ui| {
-        ui.label(RichText::new(tr("Clean room or Deep")).font(theme::semibold(theme::SMALL)));
-        ui.label(tr(
-            "Clean room: nothing inside the original is read. We work from what you can see: pictures, the page as a visitor sees it, and watching it run.",
-        ));
-        ui.label(tr("Deep: we read its code, files and page source with every tool we have, and with Ghidra when it's installed. Click to switch."));
+        crate::i18n::rich_label(ui, &tr("Clean room or Deep"), |r| r.font(theme::semibold(theme::SMALL)));
+        crate::i18n::label(
+            ui,
+            &tr(
+                "Clean room: nothing inside the original is read. We work from what you can see: pictures, the page as a visitor sees it, and watching it run.",
+            ),
+        );
+        crate::i18n::label(
+            ui,
+            &tr("Deep: we read its code, files and page source with every tool we have, and with Ghidra when it's installed. Click to switch."),
+        );
         if missing {
-            ui.label(RichText::new(tr("Ghidra isn't installed, so the built-in decompiler stands in. Get it in Settings → Engines.")).color(t.warning));
+            crate::i18n::rich_label(ui, &tr("Ghidra isn't installed, so the built-in decompiler stands in. Get it in Settings → Engines."), |r| {
+                r.color(t.warning)
+            });
         }
     });
     if resp.clicked() {
@@ -361,7 +370,7 @@ fn backend_picker(app: &mut CraftApp, ui: &mut Ui) {
                 }
             })
             .response
-            .on_hover_text(tr("Which AI answers your questions"));
+            .on_hover_text(crate::i18n::display(&tr("Which AI answers your questions")).as_ref());
     });
     if let Some(c) = choice {
         app.choose_backend(c);

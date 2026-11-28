@@ -96,7 +96,7 @@ pub fn check(root: &Path) -> bool {
         return false;
     };
     let mut catalogs = Vec::new();
-    for code in ["zh-hans", "zh-hant", "ru", "ko", "cs", "de", "ka", "es", "it", "vi", "pt-br", "tr", "th", "et"] {
+    for code in ["zh-hans", "zh-hant", "ru", "ko", "cs", "de", "ka", "es", "it", "vi", "pt-br", "tr", "th", "et", "he"] {
         let path = source.join("i18n").join(code);
         let Some(text) = catalog_text(&path) else {
             eprintln!("i18n: can't read {}", path.display());

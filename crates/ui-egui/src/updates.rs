@@ -149,7 +149,7 @@ impl Updates {
             let mut open = true;
             let mut install = false;
             let mut again = false;
-            egui::Window::new(tr("Check for Updates"))
+            egui::Window::new(crate::i18n::display(&tr("Check for Updates")).as_ref())
                 .open(&mut open)
                 .collapsible(false)
                 .resizable(false)
@@ -160,18 +160,18 @@ impl Updates {
                     ui.label(format!("Craft Anything {VERSION}"));
                     ui.label(&self.message);
                     if !safe_to_install && self.release.is_some() {
-                        ui.label(tr("Save your work and stop running tasks before installing an update."));
+                        crate::i18n::label(ui, &tr("Save your work and stop running tasks before installing an update."));
                     }
                     if self.release.is_some() && !self.installable {
-                        ui.label(tr("Use Releases or your package manager to update this installation."));
+                        crate::i18n::label(ui, &tr("Use Releases or your package manager to update this installation."));
                     }
                     ui.horizontal(|ui| {
                         if let Some(release) = &self.release {
-                            ui.hyperlink_to(tr("Releases"), &release.html_url);
+                            ui.hyperlink_to(crate::i18n::display(&tr("Releases")).as_ref(), &release.html_url);
                             let ready = safe_to_install && self.installable && self.worker.is_none() && self.restart.is_none();
                             install = ui.add(Button::new(ButtonKind::Primary, "Update and restart").enabled(ready)).clicked();
                         } else {
-                            ui.hyperlink_to(tr("Releases"), APP.releases_url());
+                            ui.hyperlink_to(crate::i18n::display(&tr("Releases")).as_ref(), APP.releases_url());
                         }
                         again = ui.add(Button::new(ButtonKind::Secondary, "Check again").enabled(self.worker.is_none() && !self.installing)).clicked();
                     });
