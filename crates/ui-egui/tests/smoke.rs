@@ -398,6 +398,61 @@ fn leaving_the_upgrade_dialog_before_downloading_drops_the_intent() {
     assert!(h.query_by_label("Download and use Ghidra").is_none());
 }
 
+/// A setup that fails drops the upgrade intent once the dialog that asked for it is closed: a
+/// Ghidra dialog opened later would otherwise say the older install still works, even after it has
+/// stopped working. With that dialog still open the intent stays, so a retry reads right.
+#[test]
+fn a_failed_setup_drops_the_upgrade_intent_of_a_closed_dialog() {
+    use craft_anything_ui_egui::state::Modal;
+    for closed in [true, false] {
+        let d = tempfile::tempdir().unwrap();
+        let store = d.path().join("engines");
+        let kept = d.path().join("ghidra").join("ghidra_12.1.4_PUBLIC");
+        let launcher = ghidra_folder(&kept);
+        let mut h = harness(move || {
+            let mut a = demo::app(demo::engine(Mode::Beginner, true));
+            a.settings.deep_mode = true;
+            a.settings.engines.store_dir = Some(store);
+            a.settings.engines.only_configured = true;
+            a.settings.engines.ghidra.install_dir = Some(kept);
+            // "Get Ghidra 12.2" in Settings → Engines, on a working older install.
+            a.ghidra.upgrade = true;
+            a.state.modal = Some(Modal::Ghidra);
+            a
+        });
+        // The download the dialog started. It fails once the test lets it.
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        let job = h.state_mut().jobs.spawn("Getting Ghidra", true, move |_| {
+            let _ = rx.recv();
+            Err("The download didn't finish.".to_string())
+        });
+        h.state_mut().ghidra.job = Some(job);
+        h.run_steps(2);
+        if closed {
+            h.query_all_by_label("Close").last().expect("the downloading dialog has a Close button").click();
+            h.run_steps(2);
+            assert!(h.state().state.modal.is_none());
+        }
+        assert!(h.state().ghidra.upgrade, "the intent is kept while the setup runs (dialog closed: {closed})");
+        drop(tx);
+        assert!(wait(&mut h, |a| a.ghidra.job.is_none()), "the failed setup is handled (dialog closed: {closed})");
+        if !closed {
+            // Still open: the dialog keeps saying what it would bring, so a retry reads right.
+            h.get_by_label_contains("An older Ghidra is installed");
+            continue;
+        }
+        assert!(!h.state().ghidra.upgrade, "the failed setup leaves no intent behind");
+        // The older install stops working, and Deep mode asks about Ghidra again (as Make does):
+        // the dialog says what is true, not what the cancelled upgrade asked for.
+        std::fs::remove_file(&launcher).unwrap();
+        h.state_mut().ghidra.status = None;
+        h.state_mut().state.modal = Some(Modal::Ghidra);
+        h.run_steps(2);
+        assert!(h.query_all_by_label_contains("An older Ghidra is installed").next().is_none());
+        h.get_by_label_contains("It isn't on this computer yet");
+    }
+}
+
 /// "Get Ghidra" offered for a Java too old ends on the store copy, pointed at the Java the setup
 /// brings. A Settings folder selecting an outside copy that Java can't run must stop selecting
 /// it, or the app keeps refusing Ghidra and hands that folder back to the engine later.

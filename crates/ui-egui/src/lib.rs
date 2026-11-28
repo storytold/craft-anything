@@ -1767,6 +1767,12 @@ impl CraftApp {
                 }
                 if self.ghidra.job == Some(job) {
                     self.ghidra.job = None;
+                    // The upgrade dialog was closed while this ran, and nothing is left to carry
+                    // its intent: a Ghidra dialog opened later says what is true. With that dialog
+                    // still open the intent stays, so a retry reads right.
+                    if self.state.modal != Some(state::Modal::Ghidra) {
+                        self.ghidra.upgrade = false;
+                    }
                 }
                 self.toast(e, true);
                 return;
