@@ -155,6 +155,8 @@ pub struct BackendSnapshot {
     extractor: Option<String>,
     options: std::collections::BTreeMap<String, craft_anything_ai::BackendOptions>,
     replaced: std::collections::BTreeMap<String, String>,
+    /// Backends that need an API key and have none stored or in the environment.
+    missing_key: std::collections::BTreeSet<String>,
 }
 
 /// What a worker hands back to the UI thread.
@@ -172,7 +174,8 @@ pub enum Done {
     /// What a scan found, and why an expected coding agent may be missing.
     Detected(Vec<Detected>, Vec<craft_anything_ai::detect::DetectHint>),
     AgentConnection(String, Result<String, String>),
-    /// The configured backends, selected roles, options, and replaced programs (see [`backends`]).
+    /// The configured backends, selected roles, options, replaced programs, and the ones that need
+    /// a key and have none (see [`backends`]).
     Backends(BackendSnapshot),
     /// The models an AI can be set to (Settings → AI's model picker).
     ModelChoices {
@@ -507,6 +510,9 @@ pub struct CraftApp {
     pub builder: Option<String>,
     /// The backend chosen to take a game's files out in Deep mode, if any.
     pub extractor: Option<String>,
+    /// Backends that need an API key and have none stored or in the environment (read with the
+    /// backends, off the UI thread).
+    pub missing_key: std::collections::BTreeSet<String>,
     pub detected: Option<Vec<Detected>>,
     /// Why an expected coding agent may be missing, from the last scan.
     pub detect_hints: Vec<craft_anything_ai::detect::DetectHint>,
@@ -612,6 +618,16 @@ pub struct CraftApp {
     saving: Option<u64>,
     /// A new project being made (Start waits for it).
     pub creating: Option<u64>,
+    /// Role choices (who builds, who extracts) not saved yet, the latest per role. They're saved
+    /// one job at a time, in order, so a quick second choice can't be overtaken by the first.
+    roles_wanted: Vec<(craft_anything_ai::Role, Option<String>)>,
+    /// The job saving role choices, while one runs.
+    roles_job: Option<u64>,
+    /// A Start that waits for role choices to be saved, so the build uses them.
+    start_after_roles: Option<state::MakeDraft>,
+    /// Jobs started before the last role save ended have this smaller id: their list of AIs may
+    /// predate the save, so it doesn't change the builder or extractor shown.
+    roles_floor: u64,
     /// A website sign-in window open from Make (one at a time; Start waits for it).
     pub signing_in: Option<u64>,
     /// The site Make last asked about (its sign-in key) and whether a sign-in is saved for it:
@@ -680,6 +696,11 @@ impl CraftApp {
             folder_inputs: Default::default(),
             builder: None,
             extractor: None,
+            roles_wanted: Vec::new(),
+            roles_job: None,
+            start_after_roles: None,
+            roles_floor: 0,
+            missing_key: Default::default(),
             detected: None,
             detect_hints: Vec::new(),
             detecting: false,
@@ -1453,13 +1474,44 @@ impl CraftApp {
         });
     }
 
-    /// Choose the backend that builds or extracts (`None`: its default).
+    /// Choose the backend that builds or extracts (`None`: its default). Choices are saved one
+    /// job at a time and the latest wins, whatever order threads would have run in.
     pub fn set_role(&mut self, role: craft_anything_ai::Role, name: Option<String>) {
-        let hub = self.hub.clone();
-        self.jobs.spawn(tr("Choose an AI's job"), true, move |_| {
-            hub.set_role(role, name.as_deref()).map_err(|e| e.message)?;
+        match self.roles_wanted.iter_mut().find(|(r, _)| *r == role) {
+            Some(wanted) => wanted.1 = name,
+            None => self.roles_wanted.push((role, name)),
+        }
+        self.save_roles();
+    }
+
+    /// Save the role choices made since the last save, unless a save is already running (its
+    /// end starts the next).
+    fn save_roles(&mut self) {
+        if self.roles_job.is_some() || self.roles_wanted.is_empty() {
+            return;
+        }
+        let (hub, wanted) = (self.hub.clone(), std::mem::take(&mut self.roles_wanted));
+        self.roles_job = Some(self.jobs.spawn(tr("Choose an AI's job"), true, move |_| {
+            for (role, name) in &wanted {
+                hub.set_role(*role, name.as_deref()).map_err(|e| e.message)?;
+            }
             Ok(backends(&hub))
-        });
+        }));
+    }
+
+    /// A role save ended well: the next choices go out, and a Start that waited for them builds now.
+    fn roles_saved_next(&mut self) {
+        self.save_roles();
+        if !self.roles_saving()
+            && let Some(draft) = self.start_after_roles.take()
+        {
+            self.start_draft(draft);
+        }
+    }
+
+    /// Role choices are still being saved: a build started now waits for them.
+    pub fn roles_saving(&self) -> bool {
+        self.roles_job.is_some() || !self.roles_wanted.is_empty()
     }
 
     pub fn detect_backends(&mut self) {
@@ -1676,10 +1728,20 @@ impl CraftApp {
 
     // ---- results ----------------------------------------------------------------------------
 
-    /// Apply a whole hub read, keeping edits whose worker has not answered yet.
-    fn apply_backends(&mut self, snapshot: BackendSnapshot) -> bool {
-        let BackendSnapshot { read, backends, builder, extractor, options, replaced } = snapshot;
+    /// Apply a whole hub read, keeping edits whose worker has not answered yet. `job` is the job
+    /// that read it, and `roles_saved` says it was a role save's own result.
+    fn apply_backends(&mut self, snapshot: BackendSnapshot, job: u64, roles_saved: bool) -> bool {
+        let BackendSnapshot { read, backends, builder, extractor, options, replaced, missing_key } = snapshot;
+        // A snapshot read before the one shown is dropped (#1721), so a slow refresh can't put
+        // back what a save changed. A role save's own result still sends the next choices out;
+        // its list is older than one already shown, so read it again.
         if read < self.backends_read {
+            if roles_saved {
+                self.roles_saved_next();
+                if !self.roles_saving() {
+                    self.refresh_backends();
+                }
+            }
             return false;
         }
         self.backends_read = read;
@@ -1687,8 +1749,14 @@ impl CraftApp {
             self.state.backend = None;
         }
         self.backends = backends;
-        self.builder = builder;
-        self.extractor = extractor;
+        // While role choices are being saved, or when this read was started before the last save
+        // ended, its roles may predate the save: keep what's shown, which the save's own result
+        // (or the read after a failed one) set.
+        if roles_saved || (!self.roles_saving() && job >= self.roles_floor) {
+            self.builder = builder;
+            self.extractor = extractor;
+        }
+        self.missing_key = missing_key;
         self.backend_options = options;
         self.program_replaced = replaced;
         self.model_tuning.retain(|name, state| {
@@ -1699,6 +1767,9 @@ impl CraftApp {
             }
             keep
         });
+        if roles_saved {
+            self.roles_saved_next();
+        }
         // Settings shows which backends have a saved key; the list may have changed.
         self.check_backend_keys();
         true
@@ -1736,11 +1807,29 @@ impl CraftApp {
         if form_request {
             self.server_form.connecting = None;
         }
+        let roles_saved = self.roles_job == Some(job);
+        if roles_saved {
+            self.roles_job = None;
+            // Reads started from here on see this save; older ones may not have.
+            self.roles_floor = self.jobs.next_id();
+        }
         self.chat_jobs.retain(|id| *id != job);
         let done = match done.result {
             Ok(d) => d,
             Err(e) => {
                 self.log(true, e.clone());
+                // A role choice that couldn't be saved keeps a waiting Start from building
+                // with the old one; choices made since are still saved.
+                if roles_saved {
+                    self.start_after_roles = None;
+                    self.save_roles();
+                    // Part of the batch may have been saved before it failed: show what's saved
+                    // now. A save started just above brings its own list instead, and a read
+                    // that arrives while another save is pending can't replace the choice shown.
+                    if !self.roles_saving() {
+                        self.refresh_backends();
+                    }
+                }
                 // A Game files job that failed in the worker settles only its own request; one a
                 // newer pick replaced is logged above and says nothing.
                 if let Some(pending) = self.state.game.finish(job) {
@@ -1837,7 +1926,7 @@ impl CraftApp {
                 self.agent_connections.insert(name, Some(result));
             }
             Done::Backends(snapshot) => {
-                self.apply_backends(snapshot);
+                self.apply_backends(snapshot, job, roles_saved);
             }
             Done::BackendKeys { request, keys } => {
                 if request == self.backend_keys_request {
@@ -1903,7 +1992,7 @@ impl CraftApp {
             }
             Done::ModelChanged { name, result } => match result {
                 Ok(snapshot) => {
-                    if self.apply_backends(snapshot) && model_save.as_deref() == Some(name.as_str()) {
+                    if self.apply_backends(snapshot, job, roles_saved) && model_save.as_deref() == Some(name.as_str()) {
                         self.model_tuning.remove(&name);
                     }
                 }
@@ -1913,7 +2002,7 @@ impl CraftApp {
             },
             Done::ModelOptionsSaved { result } => match result {
                 Ok(snapshot) => {
-                    self.apply_backends(snapshot);
+                    self.apply_backends(snapshot, job, roles_saved);
                 }
                 Err(error) => {
                     self.toast(error.for_people(), true);
@@ -2388,7 +2477,9 @@ pub fn app_icon(size: f32) -> egui::Image<'static> {
 }
 
 /// Run an action; a panic is logged and swallowed so one bad action never takes the app down.
-/// The configured backends and the ones chosen to build and to extract (read off the UI thread).
+/// The configured backends, the ones chosen to build and to extract, each one's options, the saved
+/// programs that are gone, and which lack a key they need (read off the UI thread: keys live in
+/// the system keychain).
 pub(crate) fn backends(hub: &AiHub) -> Done {
     Done::Backends(read_backends(hub))
 }
@@ -2396,13 +2487,17 @@ pub(crate) fn backends(hub: &AiHub) -> Done {
 pub(crate) fn read_backends(hub: &AiHub) -> BackendSnapshot {
     // Numbered before reading: a snapshot read after a save always outnumbers one read before it.
     static READS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let read = READS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let backends = hub.backends();
+    let missing_key = backends.iter().filter(|b| !hub.has_key(&b.name)).map(|b| b.name.clone()).collect();
     BackendSnapshot {
-        read: READS.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
-        backends: hub.backends(),
+        read,
+        backends,
         builder: hub.chosen(craft_anything_ai::Role::Builder),
         extractor: hub.chosen(craft_anything_ai::Role::Extractor),
         options: hub.options(),
         replaced: hub.replaced_programs(),
+        missing_key,
     }
 }
 
@@ -2817,6 +2912,7 @@ mod backend_snapshot_tests {
                 extractor: None,
                 options: Default::default(),
                 replaced: Default::default(),
+                missing_key: Default::default(),
             })
         };
         app.handle_done(jobs::Finished { job: 1, result: Ok(snapshot(10, "New")) });

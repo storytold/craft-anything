@@ -68,6 +68,12 @@ impl CraftApp {
         if self.signing_in.is_some() {
             return self.toast(tr("Finish signing in to the site first."), true);
         }
+        // Who builds and who extracts are read when the build starts: a choice still being
+        // saved goes first, and the build starts once it is (not if it fails).
+        if self.roles_saving() {
+            self.start_after_roles = Some(draft);
+            return;
+        }
         let Some(backend) = self.builder_backend(draft.ai.as_deref()) else { return self.need_builder(true) };
         // Make's pictures are still being checked: start once they are in.
         if self.pending_make_checks > 0 {

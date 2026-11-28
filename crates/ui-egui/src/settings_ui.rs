@@ -1515,6 +1515,67 @@ mod tests {
         assert!(said.contains("won't save over it"), "{said}");
     }
 
+    /// A list of AIs read before a role save ended can arrive after the read that followed it (#1290's
+    /// review): it mustn't put back the builder from before the save, which Make would then build with.
+    #[test]
+    fn a_list_read_before_a_role_save_does_not_undo_it() {
+        use craft_anything_ai::Role;
+        let mut app = demo::app(demo::engine(craft_anything_engine::Mode::Beginner, true));
+        let agent = BackendConfig {
+            name: "Claude Code".into(),
+            kind: BackendKind::AgentCli,
+            model: "claude-code".into(),
+            base_url: None,
+            ssh_host: None,
+            enabled: true,
+        };
+        app.hub.add_backend(agent, None).unwrap();
+        app.builder = None;
+        // A read started now sees no builder chosen; its result is held back until the end.
+        let early = app.jobs.spawn("read", false, |_| Ok(Done::Nothing));
+        let stale = crate::backends(&app.hub);
+        // A role save that stored the builder and then failed (as a batch can, part way).
+        app.set_role(Role::Builder, Some("Claude Code".into()));
+        let save = app.roles_job.expect("a save runs");
+        app.hub.set_role(Role::Builder, Some("Claude Code")).unwrap();
+        app.handle_done(Finished { job: save, result: Err("couldn't save the extractor".into()) });
+        // The read after the failure shows what was saved.
+        let after = app.jobs.next_id() - 1;
+        assert!(after > save, "a read was started after the failed save");
+        app.handle_done(Finished { job: after, result: Ok(crate::backends(&app.hub)) });
+        assert_eq!(app.builder.as_deref(), Some("Claude Code"));
+        // The early read lands last: it doesn't undo the save.
+        app.handle_done(Finished { job: early, result: Ok(stale) });
+        assert_eq!(app.builder.as_deref(), Some("Claude Code"), "an older read can't replace the saved builder");
+    }
+
+    /// A role save's own list can be older than one already shown (a read numbered after it ended
+    /// first). Dropping that list mustn't drop the save's end too: the next choice still goes out.
+    #[test]
+    fn a_role_save_whose_list_is_older_than_the_one_shown_still_saves_the_next_choice() {
+        use craft_anything_ai::Role;
+        let mut app = demo::app(demo::engine(craft_anything_engine::Mode::Beginner, true));
+        app.set_role(Role::Builder, None);
+        let save = app.roles_job.expect("a save runs");
+        app.set_role(Role::Extractor, None);
+        assert!(app.roles_saving());
+        let snapshot = |read| {
+            Done::Backends(crate::BackendSnapshot {
+                read,
+                backends: Vec::new(),
+                builder: None,
+                extractor: None,
+                options: Default::default(),
+                replaced: Default::default(),
+                missing_key: Default::default(),
+            })
+        };
+        app.handle_done(Finished { job: save + 1000, result: Ok(snapshot(u64::MAX - 1)) });
+        app.handle_done(Finished { job: save, result: Ok(snapshot(1)) });
+        let next = app.roles_job.expect("the waiting choice is being saved");
+        assert_ne!(next, save);
+    }
+
     /// A refused save was shown as the engine's English message alone, without what to do: it
     /// leads with a translated line now, and keeps the remediation.
     #[test]
