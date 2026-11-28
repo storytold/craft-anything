@@ -395,12 +395,21 @@ fn ggml_type_name(t: u32) -> String {
         28 => "F64",
         29 => "IQ1_M",
         30 => "BF16",
+        34 => "TQ1_0",
+        35 => "TQ2_0",
+        39 => "MXFP4",
+        40 => "NVFP4",
+        41 => "Q1_0",
+        42 => "Q2_0",
+        43 => "F8_E4M3",
         _ => return format!("type {t}"),
     };
     known.to_string()
 }
 
 /// Type id, weights per on-disk block, and bytes per block (including scales).
+/// GGUF v3 type IDs: <https://github.com/ggml-org/ggml/blob/d9fe7bff3d2bf4d077e25c654486d02c321734aa/docs/gguf.md#file-structure>.
+/// Block geometries: <https://github.com/ggml-org/llama.cpp/blob/a0677c341ba6bbfbbf74fa3c966f4dba74e1c830/gguf-py/gguf/constants.py>.
 const GGML_BLOCK_LAYOUTS: &[(u32, u64, u64)] = &[
     (0, 1, 4),
     (1, 1, 2),
@@ -431,6 +440,13 @@ const GGML_BLOCK_LAYOUTS: &[(u32, u64, u64)] = &[
     (28, 1, 8),
     (29, 256, 56),
     (30, 1, 2),
+    (34, 256, 54),
+    (35, 256, 66),
+    (39, 32, 17),
+    (40, 64, 36),
+    (41, 128, 18),
+    (42, 64, 18),
+    (43, 1, 1),
 ];
 
 fn ggml_tensor_bytes(t: u32, shape: &[u64], parameters: u64) -> Result<Option<u64>, String> {
@@ -446,7 +462,7 @@ fn ggml_tensor_bytes(t: u32, shape: &[u64], parameters: u64) -> Result<Option<u6
 }
 
 fn is_plain_numeric(name: &str) -> bool {
-    matches!(name, "F32" | "F16" | "F64" | "BF16" | "I8" | "I16" | "I32" | "I64" | "U8" | "U16" | "U32" | "U64" | "BOOL")
+    matches!(name, "F32" | "F16" | "F64" | "BF16" | "F8_E4M3" | "I8" | "I16" | "I32" | "I64" | "U8" | "U16" | "U32" | "U64" | "BOOL")
 }
 
 /// `general.file_type`, for the values whose meaning has stayed fixed.
@@ -468,6 +484,13 @@ fn gguf_file_type(n: u64) -> Option<&'static str> {
         16 => "mostly Q5_K small",
         17 => "mostly Q5_K medium",
         18 => "mostly Q6_K",
+        36 => "mostly TQ1_0",
+        37 => "mostly TQ2_0",
+        38 => "mostly MXFP4 MoE",
+        39 => "mostly NVFP4",
+        40 => "mostly Q1_0",
+        41 => "mostly Q2_0",
+        42 => "mostly F8_E4M3",
         _ => return None,
     })
 }

@@ -44,6 +44,15 @@ fn checks_fp8_and_packed_four_and_six_bit_tensor_sizes() {
 }
 
 #[test]
+fn fp8_e4m3_keeps_a_floating_point_summary() {
+    let r = report(json!({"t": tensor("F8_E4M3", 6, 0, 6)}), 6);
+    assert_eq!(r.tensors[0].dtype, "F8_E4M3");
+    assert_eq!(r.tensors[0].data_bytes, Some(6));
+    assert!(r.quantization.is_none());
+    assert!(r.warnings.is_empty());
+}
+
+#[test]
 fn rejects_headers_over_the_format_limit_before_requesting_more_bytes() {
     let mut prefix = 100_000_001u64.to_le_bytes().to_vec();
     prefix.push(b'{');

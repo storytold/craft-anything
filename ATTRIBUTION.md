@@ -72,6 +72,29 @@ under MIT OR Apache-2.0. The inputs are generated with the repository testkit; t
 caller comparison reuses its existing keyed-archive example unchanged. No
 third-party files or assets are included.
 
+## GGUF weight-layout fixtures
+
+`crates/formats/tests/fixtures/gguf_current/fixtures.json` contains seven small GGUF files,
+stored as hexadecimal text with the official reader's tensor sizes and SHA-256 digests.
+The inputs and generation scripts are original work by **Afloat16**, licensed under
+**MIT OR Apache-2.0**. The inputs repeat eight stated floating-point values in three rows,
+with two storage blocks per row; there are no trained weights or third-party assets.
+
+`generate.py` and `quantize.c` in the same folder generate the files using the official
+GGUF writer and quantizers from [llama.cpp at
+`a0677c341ba6bbfbbf74fa3c966f4dba74e1c830`](https://github.com/ggml-org/llama.cpp/tree/a0677c341ba6bbfbbf74fa3c966f4dba74e1c830).
+The upstream GGUF writer and quantizers are by the ggml authors under the [MIT licence](https://github.com/ggml-org/llama.cpp/blob/a0677c341ba6bbfbbf74fa3c966f4dba74e1c830/LICENSE);
+their implementation is not bundled here. The script checks the official type traits, reader
+and dequantizer, and verifies rejection when a tensor is cut one byte short. Rust tests read
+the committed fixtures without requiring the generator. Format facts follow the
+[GGUF specification](https://github.com/ggml-org/ggml/blob/d9fe7bff3d2bf4d077e25c654486d02c321734aa/docs/gguf.md#file-structure)
+and the pinned writer's published type and block-size declarations.
+
+The same Rust test file reconstructs big-endian headers from the corpus metadata while
+retaining its byte payloads, and constructs malformed-row, overflow and unknown-type controls
+from the public specification. These inline variants are original work by Afloat16 under the
+same licence; they are not output from the official writer.
+
 ## Icons (`assets/icons/`)
 
 | Files | Set | Copyright | Source | Licence |

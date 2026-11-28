@@ -993,11 +993,16 @@ the local discovery API. Classification remains a name heuristic; it does not pr
 ## Quantized GGUF tensor ranges
 
 Model-header inspection calculates byte lengths for the supported Q4/Q5/Q8, K and IQ block
-formats, including their scales. A row must contain whole blocks; malformed row widths and
-overflowing shapes remain unknown with a diagnostic. Truncation checks include quantized
-payloads and use nonwrapping offset arithmetic. Synthetic headers cover all 21 supported
-quantized layouts, exact and short files, multiple rows, unknown types and overflowing offsets.
-Tensor data is not decoded, and no model inference was run for this change.
+formats, including their scales, and for TQ1_0, TQ2_0, MXFP4, NVFP4, Q1_0, Q2_0 and F8_E4M3.
+These seven newer layouts and their file-type hints are identified by name. A row must
+contain whole blocks; malformed row widths and overflowing shapes remain unknown with a
+diagnostic. F8_E4M3 is a one-byte floating-point type, with no packed-block alignment and no
+quantized label. Truncation checks include quantized payloads and use nonwrapping offset arithmetic.
+Synthetic headers cover the previously recognized layouts, exact and short files, multiple
+rows, unknown types and overflowing offsets. Seven committed GGUF files generated from
+original weights by pinned official quantizers and the GGUF writer check the newer layouts
+against the official reader's payload sizes, including a cut inside each tensor's final block.
+The inspector reads headers; no tensor decoder or inference dependency is added.
 
 ## sBPF symbol record boundaries
 

@@ -3852,6 +3852,8 @@ Owner: open · Status: in progress
       — claimed: Afloat16, branch bugfix/r3.12-gguf-duplicate-identities-20261111
 - [x] Calculate GGUF quantized tensor byte ranges from their block layout and diagnose invalid row widths.
       — claimed: Afloat16, branch bugfix/r3.12-gguf-quantized-extents-20261110
+- [x] Recognize GGUF TQ1_0, TQ2_0, MXFP4, NVFP4, Q1_0, Q2_0 and F8_E4M3 weights, their file-type hints and exact payload extents.
+      — claimed: Afloat16, branch feature/r3.12-gguf-current-weight-types ([#2360](https://github.com/storytold/craft-anything/issues/2360))
 
 - [x] Require complete sBPF symbol records and their declared string-table links before reporting symbol identities.
       — claimed: Afloat16, branch bugfix/r3.12-sbpf-symbol-framing-20261110
