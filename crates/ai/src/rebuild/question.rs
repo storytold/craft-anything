@@ -118,8 +118,10 @@ pub fn ask(
                 bring_back_session(ws, &entry, id);
             }
             // Only a native adapter that resumes can answer from a copy of the builder's chat.
-            // Copilot's ACP question starts fresh, even when the project has a saved session id.
-            let native_session = crate::cli_agents::adapter_for(&entry.config.model).resumes();
+            // Copilot's ACP question starts fresh, even when the project has a saved session id;
+            // pi's question starts fresh on purpose, so the answer isn't the builder's either.
+            let question_adapter = crate::cli_agents::adapter_for(&entry.config.model);
+            let native_session = question_adapter.resumes() && question_adapter.questions_fork_session();
             let from = answered_from(session.as_deref(), native_session);
             let builder_session = session.clone();
             let spec = CliSpec {

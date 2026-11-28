@@ -57,6 +57,7 @@ pub const KNOWN: &[(&str, &str, &str)] = &[
     ("dsh", "dsh", "DeepSeek Harness"),
     ("devin", "devin", "Devin"),
     ("kimi-code", "kimi", "Kimi Code CLI"),
+    ("pi", "pi", "Pi"),
 ];
 
 pub fn program_for(agent: &str) -> String {
@@ -1241,9 +1242,10 @@ fn run_cli(spec: &CliSpec, text: &str, retry: bool, tx: &Sender<AgentEvent>, sto
         });
         return nothing_done(&name);
     }
+    let access = access_for(spec.builder.is_some(), spec.deep, spec.question);
     // An access mode this agent can't hold (Clean room, for one whose reads we can't check) is
     // refused before anything else starts.
-    if let Err(e) = adapter.validate_access(access_for(spec.builder.is_some(), spec.deep, spec.question)) {
+    if let Err(e) = adapter.validate_access(access) {
         let _ = tx.send(AgentEvent::Error { message: e.message, remediation: e.remediation, log: None });
         return nothing_done(&name);
     }
@@ -1262,7 +1264,7 @@ fn run_cli(spec: &CliSpec, text: &str, retry: bool, tx: &Sender<AgentEvent>, sto
         let _ = tx.send(event);
         return nothing_done(&name);
     }
-    if let Err(e) = adapter.validate_model(&spec.config, &spec.options, spec.project.as_deref(), stop) {
+    if let Err(e) = adapter.validate_model_for_access(&spec.config, &spec.options, spec.project.as_deref(), access, stop) {
         let event = if e.code == ErrorCode::Cancelled {
             AgentEvent::Status { text: "Stopped.".into() }
         } else {
@@ -1320,7 +1322,6 @@ fn run_cli(spec: &CliSpec, text: &str, retry: bool, tx: &Sender<AgentEvent>, sto
         });
         return nothing_done(&name);
     }
-    let access = access_for(spec.builder.is_some(), spec.deep, spec.question);
     // Kept until the run is over; over SSH the file would be on the wrong computer.
     let message_file =
         (remote.is_none() && adapter.reads_message_file()).then(|| MessageFile::write(&std::env::temp_dir(), &format!("{preamble}{text}"))).flatten();
@@ -4096,7 +4097,7 @@ echo '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
         reg.register(Arc::new(EchoAgent));
         assert_eq!(
             format!("{reg:?}"),
-            r#"["claude-code", "codex", "gemini-cli", "opencode", "antigravity", "hermes", "maki", "aider", "copilot", "grok", "dsh", "devin", "kimi-code", "echo-agent"]"#
+            r#"["claude-code", "codex", "gemini-cli", "opencode", "antigravity", "hermes", "maki", "aider", "copilot", "grok", "dsh", "devin", "kimi-code", "pi", "echo-agent"]"#
         );
     }
 

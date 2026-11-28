@@ -40,6 +40,9 @@ pub struct Grants {
     pub mid_turn_notes: Given,
     /// The message doesn't go through argv, so its length isn't the command line's limit.
     pub long_message: Given,
+    /// What was seen and what wasn't, when a column above is true only for the mode that ran: a
+    /// live build in one mode says nothing about the other. Empty when every mode was run.
+    pub notes: &'static str,
 }
 
 /// How a run reaches the agent by default: its arguments and environment, or an ACP session.
@@ -59,35 +62,36 @@ struct Declared {
     tool_server: Given,
     approvals: Given,
     mid_turn_notes: Given,
+    notes: &'static str,
 }
 
 /// The table, one row per built-in adapter and the plain one. An ACP row's server and approvals
 /// ride the session; a per-message row's are checked against its arguments and environment.
 const DECLARED: &[Declared] = &[
-    Declared { id: "claude-code", path: Path::Argv, tool_server: Given::Yes, approvals: Given::Yes, mid_turn_notes: Given::Yes },
+    Declared { id: "claude-code", path: Path::Argv, tool_server: Given::Yes, approvals: Given::Yes, mid_turn_notes: Given::Yes, notes: "" },
     // `codex exec` can't stop to ask anyone, so a tool is either pre-approved or refused by the
     // person's own Codex policy (#540); commands stay inside Codex's sandbox.
-    Declared { id: "codex", path: Path::Argv, tool_server: Given::Yes, approvals: Given::No, mid_turn_notes: Given::No },
+    Declared { id: "codex", path: Path::Argv, tool_server: Given::Yes, approvals: Given::No, mid_turn_notes: Given::No, notes: "" },
     // No server in its arguments and no environment variable for one: a Gemini CLI builder runs
     // without our tools. Its ACP mode would hand them over, but that isn't the default.
-    Declared { id: "gemini-cli", path: Path::Argv, tool_server: Given::No, approvals: Given::No, mid_turn_notes: Given::No },
+    Declared { id: "gemini-cli", path: Path::Argv, tool_server: Given::No, approvals: Given::No, mid_turn_notes: Given::No, notes: "" },
     // The server goes in a private `OPENCODE_CONFIG` file the run names (#481); `--auto` decides
     // what it may do by itself.
-    Declared { id: "opencode", path: Path::Argv, tool_server: Given::Yes, approvals: Given::No, mid_turn_notes: Given::No },
+    Declared { id: "opencode", path: Path::Argv, tool_server: Given::Yes, approvals: Given::No, mid_turn_notes: Given::No, notes: "" },
     // Run with `--dangerously-skip-permissions`, and nothing hands it our server.
-    Declared { id: "antigravity", path: Path::Argv, tool_server: Given::No, approvals: Given::No, mid_turn_notes: Given::No },
-    Declared { id: "hermes", path: Path::Argv, tool_server: Given::No, approvals: Given::No, mid_turn_notes: Given::No },
+    Declared { id: "antigravity", path: Path::Argv, tool_server: Given::No, approvals: Given::No, mid_turn_notes: Given::No, notes: "" },
+    Declared { id: "hermes", path: Path::Argv, tool_server: Given::No, approvals: Given::No, mid_turn_notes: Given::No, notes: "" },
     // Nothing can ask in `-p`, so its changing tools are switched off outside a build instead.
-    Declared { id: "maki", path: Path::Argv, tool_server: Given::No, approvals: Given::No, mid_turn_notes: Given::No },
-    Declared { id: "aider", path: Path::Argv, tool_server: Given::No, approvals: Given::No, mid_turn_notes: Given::No },
-    Declared { id: "copilot", path: Path::Acp, tool_server: Given::Yes, approvals: Given::Yes, mid_turn_notes: Given::No },
-    Declared { id: "grok", path: Path::Acp, tool_server: Given::Yes, approvals: Given::Yes, mid_turn_notes: Given::No },
+    Declared { id: "maki", path: Path::Argv, tool_server: Given::No, approvals: Given::No, mid_turn_notes: Given::No, notes: "" },
+    Declared { id: "aider", path: Path::Argv, tool_server: Given::No, approvals: Given::No, mid_turn_notes: Given::No, notes: "" },
+    Declared { id: "copilot", path: Path::Acp, tool_server: Given::Yes, approvals: Given::Yes, mid_turn_notes: Given::No, notes: "" },
+    Declared { id: "grok", path: Path::Acp, tool_server: Given::Yes, approvals: Given::Yes, mid_turn_notes: Given::No, notes: "" },
     // Its print path gets neither; ACP (`acp = true` on the backend) hands over the server and
     // its permission requests, but isn't what a run does unless the person turned it on.
-    Declared { id: "devin", path: Path::Argv, tool_server: Given::No, approvals: Given::No, mid_turn_notes: Given::No },
+    Declared { id: "devin", path: Path::Argv, tool_server: Given::No, approvals: Given::No, mid_turn_notes: Given::No, notes: "" },
     // `kimi acp` takes our server in `session/new` and asks with `session/request_permission`;
     // its print mode (`kimi -p`) has neither, so it isn't used. No live run has checked either yet.
-    Declared { id: "kimi-code", path: Path::Acp, tool_server: Given::Yes, approvals: Given::Yes, mid_turn_notes: Given::No },
+    Declared { id: "kimi-code", path: Path::Acp, tool_server: Given::Yes, approvals: Given::Yes, mid_turn_notes: Given::No, notes: "" },
     // Its headless profile takes a patch overlay that holds the server, but no run has checked
     // that what it wants to do reaches our approval policy.
     Declared {
@@ -96,6 +100,19 @@ const DECLARED: &[Declared] = &[
         tool_server: Given::Yes,
         approvals: Given::NotYet("its headless profile asks nothing of the host, and no run has checked whether an approval request reaches us"),
         mid_turn_notes: Given::No,
+        notes: "",
+    },
+    // Our server rides a one-function extension the run loads with `-e`, since pi takes no
+    // tool-server flag; the same extension's `tool_call` handler asks `core_action_approve` about
+    // pi's own `bash`, `powershell`, `write` and `edit`. Deep builds reached Ready live; a Clean
+    // room build has only been unit-tested (its tool list), so that mode is what the note says.
+    Declared {
+        id: "pi",
+        path: Path::Argv,
+        tool_server: Given::Yes,
+        approvals: Given::Yes,
+        mid_turn_notes: Given::No,
+        notes: "a Deep build reached Ready live with the server and the approval bridge; no live Clean room build has run, so that mode's tool list is only unit-tested",
     },
     // Any other CLI: the prompt as its last argument, its output streamed as text.
     Declared {
@@ -104,6 +121,7 @@ const DECLARED: &[Declared] = &[
         tool_server: Given::No,
         approvals: Given::NotYet("nothing asks us; an agent with no adapter of its own is driven as a plain command line"),
         mid_turn_notes: Given::No,
+        notes: "",
     },
 ];
 
@@ -123,6 +141,7 @@ pub fn grants(adapter: &dyn AgentAdapter) -> Grants {
         approvals: declared(id).map_or(not_stated, |d| d.approvals),
         resume: if adapter.resumes() { Given::Yes } else { Given::No },
         mid_turn_notes: declared(id).map_or(not_stated, |d| d.mid_turn_notes),
+        notes: declared(id).map_or("", |d| d.notes),
         // ACP hands the message over in the session, so no command line is involved either way. A
         // message file is written only on this computer: over SSH it still goes in argv.
         long_message: if adapter.prompt_on_stdin() || adapter.reads_message_file() || path == Path::Acp { Given::Yes } else { Given::No },
@@ -140,7 +159,7 @@ pub fn table(adapters: &AgentAdapters) -> Vec<(&'static str, Grants)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli_agents::{APPROVAL_TOOL, Access, ArgsCx, MCP_NAME, McpCommand};
+    use crate::cli_agents::{APPROVAL_TOOL, Access, ArgsCx, MCP_NAME, McpCommand, RunDir};
     use crate::config::BackendOptions;
     use std::path::Path as StdPath;
 
@@ -150,9 +169,10 @@ mod tests {
 
     /// What a builder run of `adapter` hands the process: its arguments, and the environment
     /// variable that names our server when it goes that way.
-    fn builder_run(adapter: &dyn AgentAdapter) -> (Vec<String>, Option<String>) {
+    fn builder_run(adapter: &dyn AgentAdapter) -> (Vec<String>, Option<String>, Option<RunDir>) {
         let mcp = McpCommand { command: "craft-anything-cli".into(), args: vec!["mcp".into()], notes: Some(StdPath::new("notes").to_path_buf()) };
         let options = BackendOptions::default();
+        let run = adapter.run_files().then(RunDir::make).flatten();
         let cx = ArgsCx {
             options: &options,
             prompt: "make a game",
@@ -163,9 +183,9 @@ mod tests {
             reads_checked: false,
             question: false,
             message_file: None,
-            run_dir: None,
+            run_dir: run.as_ref().map(|d| d.0.as_path()),
         };
-        (adapter.args(&cx), adapter.mcp_env(&mcp, Access::Build).ok().flatten().map(|(k, v)| format!("{k}={v}")))
+        (adapter.args(&cx), adapter.mcp_env(&mcp, Access::Build).ok().flatten().map(|(k, v)| format!("{k}={v}")), run)
     }
 
     /// Whether the run carries someone else's program to reach our server: in an argument (Claude
@@ -200,7 +220,7 @@ mod tests {
     fn a_tool_server_is_declared_exactly_when_a_run_carries_one() {
         for a in adapters() {
             let row = row_of(a.as_ref());
-            let (argv, env) = builder_run(a.as_ref());
+            let (argv, env, _run) = builder_run(a.as_ref());
             match row.path {
                 Path::Argv => {
                     let carried = carries_server(&argv, env.as_deref(), "craft-anything-cli");
@@ -224,12 +244,19 @@ mod tests {
         }
     }
 
+    /// Whether the run names our approval tool, in an argument or in a file an argument names:
+    /// pi's extension holds the bridge and calls the CLI's `core-action-approve`.
+    fn names_approval(argv: &[String]) -> bool {
+        let names = |text: &str| text.contains(APPROVAL_TOOL) || text.contains(&APPROVAL_TOOL.replace('_', "-"));
+        argv.iter().any(|a| names(a)) || argv.iter().any(|a| std::fs::read_to_string(a).is_ok_and(|text| names(&text)))
+    }
+
     #[test]
     fn declared_notes_and_approvals_match_the_arguments() {
         for a in adapters() {
             let row = row_of(a.as_ref());
             let g = grants(a.as_ref());
-            let (argv, _) = builder_run(a.as_ref());
+            let (argv, _, _run) = builder_run(a.as_ref());
             let notes = argv.iter().any(|w| w.contains("builder-notes"));
             assert_eq!(
                 g.mid_turn_notes.given(),
@@ -240,7 +267,7 @@ mod tests {
                 if notes { "carry" } else { "don't carry" }
             );
             if g.approvals.given() {
-                let asks = argv.iter().any(|w| w.contains(APPROVAL_TOOL)) || row.path == Path::Acp;
+                let asks = names_approval(&argv) || row.path == Path::Acp;
                 assert!(asks, "{}: an approval channel is declared, but its run has none", row.id);
             }
         }
@@ -271,7 +298,7 @@ mod tests {
         let claude = rows.iter().find(|(id, _)| *id == "claude-code").map(|(_, g)| *g).expect("Claude Code's row");
         assert_eq!(
             claude,
-            Grants { tool_server: Given::Yes, approvals: Given::Yes, resume: Given::Yes, mid_turn_notes: Given::Yes, long_message: Given::Yes },
+            Grants { tool_server: Given::Yes, approvals: Given::Yes, resume: Given::Yes, mid_turn_notes: Given::Yes, long_message: Given::Yes, notes: "" },
             "Claude Code gets everything today; the other rows are what to bring up to it"
         );
     }

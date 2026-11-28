@@ -1223,6 +1223,34 @@ Owner: open · Status: in progress
       discovery, MCP-only tool restrictions, model selection and fresh read-only questions;
       unit tests and CLI 1.0.105 with an isolated home and loopback model, all five access modes
       — claimed: qu-gg, branch `feature/r2.2-copilot-integration` (recorded during PR preparation)
+- [x] Pi as a coding agent (`pi -p --mode json`, message on stdin): discovery, model and thinking
+      effort, session resume, and our MCP server per run as an extension with direct exposure —
+      the only way in, since pi has no `--mcp-config`. pi has no `--permission-prompt-tool` either,
+      so the same generated extension holds the approval bridge: its `tool_call` handler asks
+      `core_action_approve` about pi's own `bash`, `powershell`, `write` and `edit`, and blocks the
+      call with the policy's words when it refuses — nothing is installed into pi's configuration.
+      A Deep build therefore edits and runs with pi's tools, and a Clean room build keeps this
+      run's tools only; `codemode` and `tool_search` stay out. A project's session travels with it
+      and is put back in the folder pi names (the linked `/tmp` resolved first). See [Pi](pi.md).
+      Four live builds on macOS reached Ready (one Deep with the bridge); one carried to another
+      folder continued from the restored session.
+      Review fixes: the run's extension folder is removed however its turn ends; the approval
+      input goes in on stdin and the call has a deadline (a large write's content could stop
+      Windows starting the CLI); no other extension, context file or trust-gated project file
+      loads, and `-e builtin:mcp` is loaded back because `--no-extensions` turns it off too; SSH
+      is refused with the reason; a question is `--no-session --no-mcp` and is never marked as the
+      builder's session; the grants row says Clean room was not run live. Checked against pi
+      1.6.0: `--thinking` takes `off` where Craft Anything says `none`, and `--session-id` is the
+      project-local conversation (`--session` looks it up across folders).
+
+- [ ] Live-check a Clean room Pi build (the tool list and the approval bridge are unit-tested,
+      and a Deep build was run live)
+- [ ] Pi over SSH: refused today, because the extension is written on this computer; a remote
+      builder needs our tool server written on the host, as OpenCode's does
+- [x] Pi's model list in Settings: `get_available_models` over `--mode rpc` gives each model's
+      thinking depths, with `--list-models` as the fallback; a chosen model and depth are checked
+      per run (`validate_model_for_access`). Live: 57 models read from pi 1.6.0.
+- [ ] Pi's sign-in check (`pi auth check` needs a provider or model the adapter isn't given)
 - [x] Grok Build as a coding agent over ACP (`grok agent stdio`): discovery in `~/.grok/bin`,
       the person's own `grok login` (a missing `auth.json` is unknown, so an API key still
       starts), model and reasoning effort, and our MCP server on the session with `"type": "stdio"`

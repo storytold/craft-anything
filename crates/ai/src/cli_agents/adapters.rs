@@ -15,6 +15,7 @@ mod hermes;
 mod kimi_code;
 mod maki;
 mod opencode;
+mod pi;
 pub use aider::Aider;
 pub use antigravity::Antigravity;
 pub use copilot::Copilot;
@@ -25,6 +26,7 @@ pub use hermes::Hermes;
 pub use kimi_code::KimiCode;
 pub use maki::Maki;
 pub use opencode::OpenCode;
+pub use pi::PiCli;
 
 /// What a run's arguments are built from.
 pub struct ArgsCx<'a> {
@@ -79,6 +81,19 @@ pub trait AgentAdapter: Send + Sync {
     /// Check a saved choice in the actual run context before invoking the agent.
     fn validate_model(&self, _config: &BackendConfig, _options: &BackendOptions, _directory: Option<&Path>, _stop: &Stop) -> Result<(), ToolError> {
         Ok(())
+    }
+    /// Check a saved choice for the access mode the run will have. An agent whose catalogue
+    /// depends on that mode (an extension's providers are off in a restricted run) overrides it;
+    /// otherwise it is [`validate_model`](AgentAdapter::validate_model).
+    fn validate_model_for_access(
+        &self,
+        config: &BackendConfig,
+        options: &BackendOptions,
+        directory: Option<&Path>,
+        _access: Access,
+        stop: &Stop,
+    ) -> Result<(), ToolError> {
+        self.validate_model(config, options, directory, stop)
     }
     /// Refuse options that the native transport cannot support, before preflight or process I/O.
     /// Saving a model choice and discovering its catalogue do not imply native execution support.
@@ -194,6 +209,12 @@ pub trait AgentAdapter: Send + Sync {
     /// It can continue a saved session.
     fn resumes(&self) -> bool {
         false
+    }
+    /// A question can be answered from a fork of the builder's saved session, leaving the
+    /// builder's own conversation unchanged. When false, a question starts fresh even though the
+    /// adapter can [resume](AgentAdapter::resumes) a build.
+    fn questions_fork_session(&self) -> bool {
+        true
     }
     /// It honours [`ArgsCx::question`]: it can be held to reading only, using a fresh session
     /// or leaving a resumed session unchanged. Questions go only to adapters that say so.
@@ -342,6 +363,7 @@ impl AgentAdapters {
                 Arc::new(DeepSeekHarness),
                 Arc::new(Devin),
                 Arc::new(KimiCode),
+                Arc::new(PiCli),
             ],
         }
     }
