@@ -926,6 +926,7 @@ yet, and the quick start is how every new person begins.
       addresses in one build (a local copy per codegen unit): pair copies whose bytes agree, or
       say they're copies. `hex_encode` → `_git_oid_tostr` is now a low-confidence structure pair
       (the new build inlined `hex_encode`)
+      — claimed: scks1, branch bugfix/r5.7-pair-codegen-copies
 - [ ] Live check on Windows: rebuild a project while its frozen pin runs, and the build isn't
       blocked
 
