@@ -20,7 +20,7 @@ impl AgentAdapter for Antigravity {
         if let Some(m) = &cx.options.cli_model {
             a.extend(["--model".into(), m.clone()]);
         }
-        if let Some(r) = cx.resume {
+        if let Some(r) = cx.resume.map(str::trim).filter(|s| !s.is_empty()) {
             a.extend(["--conversation".into(), r.to_string()]);
         }
         a.extend(["--output-format".into(), "stream-json".into(), "-p".into(), format!("{}{}", cx.preamble, cx.prompt)]);

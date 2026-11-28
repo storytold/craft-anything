@@ -1360,8 +1360,9 @@ impl Worker {
         })
     }
 
-    /// Keep the session the agent reported, with the mode it ran in; a lost one leaves neither.
+    /// Keep the session the agent reported, with the mode it ran in; a lost or empty one leaves neither.
     fn remember_session(ws: &mut Workspace, session: Option<String>, deep: bool) -> Result<(), ToolError> {
+        let session = session.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
         ws.manifest.agent_session_deep = session.is_some().then_some(deep);
         ws.manifest.agent_session = session;
         ws.save()

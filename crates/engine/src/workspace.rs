@@ -161,7 +161,12 @@ pub fn read_manifest(bytes: &[u8]) -> Result<Manifest, ToolError> {
     if let Some(obj) = doc.as_object_mut() {
         obj.insert("version".into(), Value::from(reached));
     }
-    serde_json::from_value(doc).map_err(|e| ToolError::invalid(e.to_string()))
+    let mut manifest: Manifest = serde_json::from_value(doc).map_err(|e| ToolError::invalid(e.to_string()))?;
+    if manifest.agent_session.as_deref().is_some_and(|s| s.trim().is_empty()) {
+        manifest.agent_session = None;
+        manifest.agent_session_deep = None;
+    }
+    Ok(manifest)
 }
 
 /// The JSON Schema of `craft.json` as published in `docs/schemas/craft.schema.json`.
@@ -540,7 +545,7 @@ impl Manifest {
     /// The saved session, if `agent` (`claude-code`, `codex`…) saved it: another agent can't
     /// continue it (#469). One saved before the agent was kept counts.
     pub fn agent_session_for(&self, agent: &str) -> Option<&str> {
-        self.agent_session.as_deref().filter(|_| self.agent_session_by.as_deref().is_none_or(|a| a == agent))
+        self.agent_session.as_deref().map(str::trim).filter(|s| !s.is_empty() && self.agent_session_by.as_deref().is_none_or(|a| a == agent))
     }
 
     /// The session `agent` saved in this mode. One saved before the mode was kept counts as
@@ -1053,7 +1058,7 @@ impl Workspace {
     /// A coding agent's session saved for this project in `deep` mode. A session saved before the
     /// mode was kept counts as Deep, since it may have read inside the original.
     pub fn builder_session_in(&self, deep: bool) -> bool {
-        self.manifest.agent_session.as_ref().is_some_and(|_| self.manifest.agent_session_deep.unwrap_or(true) == deep)
+        self.manifest.agent_session.as_deref().is_some_and(|s| !s.trim().is_empty() && self.manifest.agent_session_deep.unwrap_or(true) == deep)
     }
 
     /// The API builder's conversation, kept so a follow-up continues it (`ai::context`).
@@ -2178,6 +2183,14 @@ mod tests {
         ws.manifest.agent_session_deep = Some(false);
         assert!(!ws.builder_session_in(true));
         assert!(ws.builder_session_in(false));
+        ws.manifest.agent_session = Some("".into());
+        assert!(!ws.builder_session_in(false), "empty agent_session is not a resumable session");
+        assert_eq!(ws.manifest.agent_session_for("claude-code"), None);
+        ws.manifest.agent_session = Some("   ".into());
+        assert_eq!(ws.manifest.agent_session_for_mode("claude-code", false), None);
+        ws.save().unwrap();
+        let reopened = Workspace::open(&ws.root).unwrap();
+        assert_eq!((reopened.manifest.agent_session, reopened.manifest.agent_session_deep), (None, None));
     }
 
     /// A rename survives a stale save, a copy takes the build but not the conversation (nor its
