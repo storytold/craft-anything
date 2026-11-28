@@ -1239,6 +1239,20 @@ after tool results. Test the child process's targets and the UI's finding ids, n
 must be installed, and a test without a renderer must explicitly clear `output.textures_delta`.
 Use the repository's `run_ui` API and its font setup instead of assuming an older egui harness.
 
+**A remote agent's environment was set on the local `ssh`.** ssh forwards none of our environment,
+so `CRAFT_ANYTHING_AGENT` set on the `ssh` process never reached the agent: the remote CLI called
+tools as the person, who may loosen approvals the agent may not. Set it inside the remote command
+line, as the per-message path does, and test the line `ssh` is given rather than the local
+process's environment (the same mistake as #395).
+
+**A builder's own tools are `other_tools`, which Auto mode refuses, and that reads like a model
+stalling.** CodeBuddy explored a build with its own shell (`Bash`, `ToolSearch`) and never wrote a
+file; `--permission-mode bypassPermissions` changed nothing, because that is the agent's policy and
+this refusal is ours: kinds with no approval rule of their own land in `other_tools`, which Auto
+refuses. Two turns of that look like the model choosing not to write. Before blaming a new builder,
+look for "refused permission for tools with no approval rule of their own" in the feed, and set
+that kind to `allow` for the project to see what the builder does with it.
+
 **An ACP handshake passed while the tools were missing, and an empty tool list enabled them all.**
 Copilot CLI 1.0.105 initialized successfully but did not expose a server supplied only through
 ACP's `session/new`; explicit `--additional-mcp-config` made it available. An empty

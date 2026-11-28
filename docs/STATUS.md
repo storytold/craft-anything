@@ -837,6 +837,35 @@ launch or preview was run for this documentation correction.
   `session/new`. Clean room, deep chat, and questions are refused, as for Grok; a deep build is
   allowed, and an edit is gated only when Kimi sends `session/request_permission`. Scripted
   stand-in tests only: no live run yet.
+- CodeBuddy (`codebuddy --acp`) is offered when adding a coding agent and speaks ACP by default.
+  A deep build runs with `--permission-mode default`, so a tool call that none of CodeBuddy's own
+  `allow` rules resolves comes to `session/request_permission` and is decided once; a deep chat and a question run with
+  `--permission-mode plan`, where the CLI refuses writes and commands. The chosen model and depth
+  go through `session/set_config_option` (`model`, then `thought_level`, because a model change can
+  reset the depth). Our MCP server is added on the session without a `"type"` field. Extra
+  arguments are refused, and so is `acp = false`: `--acp` is the only approval channel. Clean room
+  is refused: the adapter declares no file or terminal capability, so the CLI reads files itself in
+  every mode.
+  Sign-in is the CLI's own (`/login` in a CLI session, or `CODEBUDDY_API_KEY`); nothing is read.
+  CodeBuddy reaches MCP tools through one wrapper (`DeferExecuteTool`), which the approval policy
+  unwraps to the real tool name. Checked against CodeBuddy 2.182.0, signed in: both config ids, a
+  live catalogue validation, `plan` refusing a `mkdir`, `default` sending a permission request,
+  and all our tools listed over the session. A whole local build ran on 2026-11-25 (2.185.0,
+  macOS): a Rust rebuild of a small Python guessing game wrote `app/`, built with
+  `cargo build --release`, passed 4 of the 5 checks (build, screenshot, self-test and credits; the
+  mechanics comparison stays unverified), and the program runs. Two earlier attempts had ended
+  after two turns that wrote nothing: the project's approval for the builder's own tools
+  (`other_tools`, the kind with no rule of its own) is refused in Auto mode, so its `Running`
+  calls were; allowing that kind let it write. It runs on this computer only: Detect doesn't offer
+  it on an SSH host, and a backend with `ssh_host` set is refused. The same ACP session did run
+  over `ssh` (2.186.0 on an x86_64 Linux host, after a sign-in there): a question, `doctor` and the
+  remote helper's MCP `initialize` answered, and a whole build wrote `app/` on the host, where
+  `cargo build` passed and its screenshot and self-test checks passed. The comparisons against the
+  original stayed unverified, though: the project record and the target live on this computer, and
+  the stall check watches this computer's `app/`, which stays empty while the builder writes on
+  the host, so the run stops as unchanged. That is why the remote case isn't offered yet (open
+  roadmap line). Windows was not tried (npm shims there have failed starts before; see
+  `docs/pitfalls.md`). See [codebuddy.md](codebuddy.md).
 - Maki (`maki -p`, or over ACP with `acp = true`) is offered when adding a coding agent and found by
   Detect. Over ACP it asks us before commands, our own tools and writes outside its working folder;
   writes inside that folder (a build's project folder, our own records included) and every read

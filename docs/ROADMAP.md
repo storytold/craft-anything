@@ -1243,6 +1243,32 @@ Owner: open · Status: in progress
 - [ ] Kimi Code CLI: run a live deep build with a signed-in `kimi` and check that our server's
       tools reach the session, which edits and commands send `session/request_permission`, the
       model list `session/new` returns, and a saved session continuing with `session/load`.
+- [x] CodeBuddy CLI as a coding agent over ACP (`codebuddy --acp`): model and depth through
+      `session/set_config_option` (`model`, `thought_level`), our MCP server on the session, and
+      the CLI's own sign-in (`/login`, or `CODEBUDDY_API_KEY` with
+      `CODEBUDDY_INTERNET_ENVIRONMENT`). A build runs in `--permission-mode default`, so a tool call
+      that its own allow rules don't settle is decided once; a chat and a question run in `plan`,
+      which refuses writes and commands.
+      Clean room is refused, because the CLI reads files on its own in every mode. Extra arguments
+      are refused, and the approval policy unwraps CodeBuddy's `DeferExecuteTool` wrapper to the
+      real tool name. Verified against CodeBuddy 2.182.0, signed in: both config ids, live
+      catalogue validation, `plan` refusing a write, `default` sending a permission request, and
+      our tools listed over the session. A whole build ran on 2026-11-25 here (2.185.0, macOS):
+      it wrote `app/` and built, and the check passed 4 of 5 (the mechanics comparison stays
+      unverified). Two earlier attempts had stalled because the project refused the builder's own
+      tools (`other_tools`) in Auto mode, not because of the model. It runs on this computer only:
+      Detect doesn't offer it on an SSH host, and a backend with `ssh_host` set is refused. The
+      ACP-over-ssh path itself was run live against 2.185.0 on an x86_64 Linux host and is in
+      place, but switched off (`acp_over_ssh()`) until a remote build can be checked (below). See
+      [CodeBuddy](codebuddy.md).
+  - [ ] Live-check CodeBuddy's detection and a first turn on Windows, where it installs through
+        npm and npm shims have failed starts here before (`docs/pitfalls.md`, "Found on Windows,
+        but isn't on your PATH when run"); until then Windows support is unknown, not assumed.
+  - [ ] Let a whole remote build be checked like a local one, then turn the remote case on
+        (`acp_over_ssh()`): the project record and the target live on this computer, the builder
+        writes on the host, and the stall check watches the local `app/`, so a working remote build
+        stops as unchanged (found live on 2026-11-25, after a whole build of the same game on the
+        host wrote `app/` and passed `cargo build`, the screenshot and the self-test).
 - [x] Review hardening: cap target handoff at 128 while preserving the active target; propagate
       context-discovery cancellation, normalize CLI-only efforts for Claude requests, and name
       the configured agent in shared picker warnings, with focused regressions and translations

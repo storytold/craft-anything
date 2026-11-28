@@ -463,14 +463,17 @@ mod tests {
         assert_eq!(serde_json::to_value(&hint).unwrap()["kind"], "claude_desktop_without_cli");
     }
 
-    /// Non-Git SSH hosts offer both supported agent suggestions without probing the remote computer.
+    /// Non-Git SSH hosts offer each supported agent suggestion without probing the remote computer.
     #[test]
-    fn ssh_hosts_offer_opencode_as_well_as_claude_code() {
+    fn ssh_hosts_offer_each_remote_agent() {
         let found = remote_agents("test-box".into());
         assert_eq!(found.iter().map(|d| d.suggestion.model.as_str()).collect::<Vec<_>>(), ["claude-code", "opencode"]);
         let oc = &found[1].suggestion;
         assert_eq!(oc.name, "OpenCode on test-box");
         assert_eq!(oc.ssh_host.as_deref(), Some("test-box"));
+        // CodeBuddy is ACP-only and its ACP mode runs on this computer, so a host would offer a
+        // route the run refuses: Detect doesn't offer it there until the remote case works.
+        assert!(found.iter().all(|d| d.suggestion.model != "codebuddy"));
     }
 
     #[test]
