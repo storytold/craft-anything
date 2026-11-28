@@ -42,24 +42,51 @@ fn main() {
 /// Joins each language's catalog files (`src/i18n/<code>/*.tsv`, in name order) into
 /// `<out>/<code>.tsv`, which `i18n.rs` embeds. A PR adds its strings in a file of its own, so two
 /// PRs that add strings don't touch the same lines (#1465).
-pub fn join_catalogs(src: &Path, out: &Path) {
+///
+/// The returned lines are also printed as `cargo::error`, so they fail the build: a key shared by
+/// two files of one language ([`join_files`]), or a `.tsv` left beside the language folders.
+pub fn join_catalogs(src: &Path, out: &Path) -> Vec<String> {
     println!("cargo::rerun-if-changed={}", src.display());
-    let dirs = match entries(src) {
-        Ok(paths) => paths.into_iter().filter(|p| p.is_dir()),
-        Err(e) => return println!("cargo::error=reading {}: {e}", src.display()),
+    let paths = match entries(src) {
+        Ok(paths) => paths,
+        Err(e) => {
+            let msg = format!("reading {}: {e}", src.display());
+            println!("cargo::error={msg}");
+            return vec![msg];
+        }
     };
+    let mut problems = Vec::new();
+    let mut dirs = Vec::new();
+    for path in paths {
+        if path.is_dir() {
+            dirs.push(path);
+        } else if path.is_file() && path.extension().is_some_and(|ext| ext == "tsv") {
+            // The old layout was one `i18n/<code>.tsv`. Leaving it there would hide it from the join.
+            let msg = format!("{} sits beside the language folders; move it into a language folder", path.display());
+            println!("cargo::error={msg}");
+            problems.push(msg);
+        }
+    }
     // Start from nothing, so a language whose folder was removed doesn't keep its old catalog.
     if let Err(e) = std::fs::remove_dir_all(out).or_else(|e| if e.kind() == std::io::ErrorKind::NotFound { Ok(()) } else { Err(e) }) {
-        return println!("cargo::error=clearing {}: {e}", out.display());
+        let msg = format!("clearing {}: {e}", out.display());
+        println!("cargo::error={msg}");
+        problems.push(msg);
+        return problems;
     }
     if let Err(e) = std::fs::create_dir_all(out) {
-        return println!("cargo::error=making {}: {e}", out.display());
+        let msg = format!("making {}: {e}", out.display());
+        println!("cargo::error={msg}");
+        problems.push(msg);
+        return problems;
     }
     for dir in dirs {
         let files = match entries(&dir) {
             Ok(paths) => paths.into_iter().filter(|p| p.extension().is_some_and(|x| x == "tsv")),
             Err(e) => {
-                println!("cargo::error=reading {}: {e}", dir.display());
+                let msg = format!("reading {}: {e}", dir.display());
+                println!("cargo::error={msg}");
+                problems.push(msg);
                 continue;
             }
         };
@@ -70,9 +97,10 @@ pub fn join_catalogs(src: &Path, out: &Path) {
         }
         let joined = match join_files(&files) {
             Ok(joined) => joined,
-            Err(problems) => {
-                for p in problems {
+            Err(found) => {
+                for p in found {
                     println!("cargo::error={p}");
+                    problems.push(p);
                 }
                 continue;
             }
@@ -80,9 +108,12 @@ pub fn join_catalogs(src: &Path, out: &Path) {
         let Some(code) = dir.file_name() else { continue };
         let target = out.join(code).with_extension("tsv");
         if let Err(e) = std::fs::write(&target, joined) {
-            println!("cargo::error=writing {}: {e}", target.display());
+            let msg = format!("writing {}: {e}", target.display());
+            println!("cargo::error={msg}");
+            problems.push(msg);
         }
     }
+    problems
 }
 
 /// One language's catalog files joined in the order given, or what's wrong: a file that can't be

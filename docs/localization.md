@@ -103,7 +103,8 @@ registry in `i18n.rs` embeds the result.
 Add new strings in a file of your own in each language folder, named for your branch or roadmap
 item (`de/r5.4-context-budget.tsv`), not at the end of `core.tsv`: two PRs that append to the same
 file conflict as soon as one merges, while two new files never do (#1465). A key may appear in
-only one file of a folder; the catalog tests fail on a duplicate.
+only one file of a folder; the build fails on a duplicate, naming both files. A `.tsv` left
+beside the language folders fails the build too: it belongs inside a language folder.
 
 The catalogs cover first run, new projects, project controls, Settings, the
 workbench, tool titles, tool groups, target descriptions, tooltips and
