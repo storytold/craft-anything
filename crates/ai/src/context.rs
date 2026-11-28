@@ -53,6 +53,23 @@ pub fn estimate_overhead(system: &str, tools: &[crate::model::ToolDef]) -> u64 {
     ((system.len() + tool_chars) / 4) as u64
 }
 
+/// Replace each picture in `history` that still carries its bytes by its note, so none of them is
+/// sent again. Returns how many were replaced.
+pub fn pictures_to_notes(history: &mut [Msg]) -> usize {
+    history.iter_mut().flat_map(|m| m.blocks.iter_mut()).map(|b| usize::from(picture_to_note(b))).sum()
+}
+
+/// Turn a picture with its bytes into its note; false for any other block.
+fn picture_to_note(b: &mut Block) -> bool {
+    if let Block::Image { name, data, .. } = b
+        && !data.is_empty()
+    {
+        *b = Block::Text { text: Block::image_note(name) };
+        return true;
+    }
+    false
+}
+
 /// Shorten tool results, drop reasoning and replace pictures by their note in all but the last
 /// [`KEEP_RECENT`] messages. Returns how many blocks changed.
 pub fn trim_old(history: &mut [Msg]) -> usize {
@@ -64,10 +81,7 @@ pub fn trim_old(history: &mut [Msg]) -> usize {
         m.blocks.retain(|b| !matches!(b, Block::Thinking { .. } | Block::RedactedThinking { .. }));
         changed += before - m.blocks.len();
         for b in &mut m.blocks {
-            if let Block::Image { name, data, .. } = b
-                && !data.is_empty()
-            {
-                *b = Block::Text { text: Block::image_note(name) };
+            if picture_to_note(b) {
                 changed += 1;
                 continue;
             }

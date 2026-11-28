@@ -144,6 +144,7 @@ fn consumed_note_progress_errors_preserve_the_completed_turn() {
             max_turns: 10,
             context_tokens: 0,
             tools: Default::default(),
+            vision: Default::default(),
         };
         let api = ApiConversation::start(Arc::new(EngineHost(worker.engine.clone())), vec![slot], LoopConfig::default()).unwrap();
         let entry = crate::BackendEntry {
@@ -251,6 +252,7 @@ fn consumed_note_resets_survive_failed_and_cancelled_turns() {
                     max_turns: 10,
                     context_tokens: 0,
                     tools: Default::default(),
+                    vision: Default::default(),
                 };
                 let api = ApiConversation::start(Arc::new(EngineHost(worker.engine.clone())), vec![slot], LoopConfig::default()).unwrap();
                 let entry = crate::BackendEntry {
