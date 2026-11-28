@@ -2900,6 +2900,8 @@ Owner: open · Status: in progress
       — claimed: Plastic-time, branch bugfix/r3.12-js-constant-text-budget
 - [x] Read `.cts` files as CommonJS and `.mts` files as ES modules, as Node and TypeScript do, instead of guessing from the syntax.
       — claimed: Plastic-time, branch bugfix/r3.12-js-cts-commonjs
+- [x] Swift extensions with a generic signature print their constraints on the extended type: `…rlE` as `Type< where A: P>` (`r` was rejected as unsupported) and `…lE` as `Type<A where A: P>` (the constraints were dropped).
+      — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-constrained-ext
 - [x] Reject physical line breaks in regular GraphQL strings, including after a backslash.
       — claimed: Plastic-time, branch bugfix/r3.12-graphql-string-line-breaks
 - [x] Keep escaped triple quotes inside GraphQL block strings when reading operations.

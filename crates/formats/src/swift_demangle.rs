@@ -81,6 +81,10 @@ enum N {
     Extension {
         module: Box<N>,
         ty: Box<N>,
+        /// Optional `where` clause from a constrained generic signature popped by `E`.
+        constraints: Vec<String>,
+        /// Whether the generic parameters derived from the type are listed before `where`.
+        list_params: bool,
     },
     Bound {
         base: Box<N>,
@@ -139,6 +143,8 @@ enum N {
     Requirement(String),
     Sig {
         reqs: Vec<String>,
+        /// Whether the generic parameter names (`A`, `B`, ...) are printed before `where`.
+        list_params: bool,
     },
     Generic {
         sig: Box<N>,
@@ -191,6 +197,7 @@ struct D<'a> {
     subs: Vec<N>,
     words: Vec<String>,
     max_param: Option<u64>,
+    constrained_sig: bool,
     /// Nodes we may still copy into or out of substitutions (guards against expansion).
     budget: usize,
 }
@@ -203,7 +210,7 @@ fn is_lower(c: u8) -> bool {
 
 impl<'a> D<'a> {
     fn new(s: &'a [u8]) -> Self {
-        D { s, pos: 0, stack: Vec::new(), subs: Vec::new(), words: Vec::new(), max_param: None, budget: 200_000 }
+        D { s, pos: 0, stack: Vec::new(), subs: Vec::new(), words: Vec::new(), max_param: None, constrained_sig: false, budget: 200_000 }
     }
 
     fn peek(&self) -> Option<u8> {
@@ -1382,11 +1389,15 @@ impl<'a> D<'a> {
                 self.push(t)
             }
             b'E' => {
-                let _sig = self.pop_if(|n| matches!(n, N::Sig { .. }));
+                let sig = self.pop_if(|n| matches!(n, N::Sig { .. }));
+                let (constraints, list_params) = match sig {
+                    Some(N::Sig { reqs, list_params }) => (reqs, list_params),
+                    _ => (Vec::new(), true),
+                };
                 let module = self.pop_context()?;
                 let ty = self.pop_type()?;
                 // Extensions take no substitution slot.
-                self.push(N::Extension { module: Box::new(module), ty: Box::new(ty) })
+                self.push(N::Extension { module: Box::new(module), ty: Box::new(ty), constraints, list_params })
             }
             b'F' => {
                 let ty = self.pop_entity_type(true)?;
@@ -1881,8 +1892,10 @@ impl<'a> D<'a> {
                     reqs.push(r);
                 }
                 reqs.reverse();
+                let list_params = !self.constrained_sig;
+                self.constrained_sig = false;
                 self.note_param(0);
-                self.push(N::Sig { reqs })
+                self.push(N::Sig { reqs, list_params })
             }
             b'm' => {
                 let t = self.pop_type()?;
@@ -1913,6 +1926,20 @@ impl<'a> D<'a> {
                     self.note_param(i);
                     self.push(N::Param(0, i))
                 }
+            }
+            b'r' => {
+                if !matches!(self.stack.last(), Some(N::Requirement(_))) {
+                    return Err("constrained extension without a requirement".into());
+                }
+                if self.constrained_sig {
+                    return Err("duplicate constrained signature operator".into());
+                }
+                // Only the `rl` form, with no parameter counts between, is supported.
+                if self.peek() != Some(b'l') {
+                    return Err("constrained signature without its terminator".into());
+                }
+                self.constrained_sig = true;
+                Ok(())
             }
             b's' => self.push(N::Module("Swift".into())),
             b't' => {
@@ -1988,7 +2015,7 @@ fn type_arg_allowed(n: &N) -> bool {
     match n {
         N::Global { .. } | N::Entity { .. } | N::Conformance { .. } => false,
         N::Nominal { ctx, .. } => type_arg_allowed(ctx),
-        N::Extension { module, ty } => type_arg_allowed(module) && type_arg_allowed(ty),
+        N::Extension { module, ty, .. } => type_arg_allowed(module) && type_arg_allowed(ty),
         N::Bound { base, args } => type_arg_allowed(base) && args.iter().all(type_arg_allowed),
         N::Tuple(elems) => elems.iter().all(|(_, x)| type_arg_allowed(x)),
         N::Func { params, result, attrs } => {
@@ -2020,7 +2047,9 @@ fn weight(n: &N, depth: usize) -> usize {
     let d = depth + 1;
     let kids: usize = match n {
         N::Nominal { ctx, .. } => weight(ctx, d),
-        N::Extension { module, ty } => weight(module, d).saturating_add(weight(ty, d)),
+        N::Extension { module, ty, constraints, .. } => {
+            constraints.iter().fold(weight(module, d).saturating_add(weight(ty, d)), |a, c| a.saturating_add(c.len()))
+        }
         N::Bound { base, args } => args.iter().fold(weight(base, d), |a, x| a.saturating_add(weight(x, d))),
         N::Tuple(t) => t.iter().fold(0usize, |a, (_, x)| a.saturating_add(weight(x, d))),
         N::Func { params, result, attrs } => {
@@ -2079,7 +2108,23 @@ fn path(n: &N, depth: usize) -> String {
         N::Nominal { ctx, name, .. } => format!("{}.{name}", path(ctx, depth + 1)),
         // An extension is printed with its declaring module in parentheses before the extended
         // type, as in `(extension in Foundation):Swift.String.Encoding`.
-        N::Extension { module, ty } => format!("(extension in {}):{}", path(module, depth + 1), path(ty, depth + 1)),
+        N::Extension { module, ty, constraints, list_params } => {
+            let base = format!("(extension in {}):{}", path(module, depth + 1), path(ty, depth + 1));
+            if constraints.is_empty() {
+                base
+            } else if *list_params {
+                let mp = max_param(ty, depth + 1);
+                let params: Vec<String> = (0..=mp.min(1023)).map(|i| param_name(0, i)).collect();
+                // Compact rare empties (should not happen for normal extension constraints).
+                if params.is_empty() {
+                    format!("{base}< where {}>", constraints.join(", "))
+                } else {
+                    format!("{base}<{} where {}>", params.join(", "), constraints.join(", "))
+                }
+            } else {
+                format!("{base}< where {}>", constraints.join(", "))
+            }
+        }
         other => render(other, depth + 1),
     }
 }
@@ -2109,9 +2154,15 @@ fn params_text(p: &N, labels: &[Option<String>], depth: usize) -> String {
 }
 
 fn sig_text(sig: &N, max_param: u64) -> String {
-    let N::Sig { reqs } = sig else { return String::new() };
-    let params: Vec<String> = (0..=max_param.min(1023)).map(|i| param_name(0, i)).collect();
-    if reqs.is_empty() { format!("<{}>", params.join(", ")) } else { format!("<{} where {}>", params.join(", "), reqs.join(", ")) }
+    let N::Sig { reqs, list_params } = sig else { return String::new() };
+    let params: Vec<String> = if *list_params { (0..=max_param.min(1023)).map(|i| param_name(0, i)).collect() } else { Vec::new() };
+    if reqs.is_empty() {
+        if params.is_empty() { String::new() } else { format!("<{}>", params.join(", ")) }
+    } else if params.is_empty() {
+        format!("< where {}>", reqs.join(", "))
+    } else {
+        format!("<{} where {}>", params.join(", "), reqs.join(", "))
+    }
 }
 
 fn max_param(n: &N, depth: usize) -> u64 {
