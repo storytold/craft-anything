@@ -5,9 +5,21 @@
 use super::*;
 use std::ffi::OsStr;
 
-/// Run a step of a project's build in `app`, with `env` set for it on top of ours: whether it
-/// succeeded, and what it printed.
+/// Run a step of a project's build and combine its output for the check report.
 fn run_in(app: &Path, prog: &Path, args: &[String], minutes: u64, stop: &CheckStop, env: &[(&str, &OsStr)]) -> Result<(bool, String), ToolError> {
+    run_step(app, prog, args, minutes, stop, env, false).map(step_text)
+}
+
+/// Run a step with the given environment, keeping both output streams available to adapters.
+fn run_step(
+    app: &Path,
+    prog: &Path,
+    args: &[String],
+    minutes: u64,
+    stop: &CheckStop,
+    env: &[(&str, &OsStr)],
+    merge_output: bool,
+) -> Result<craft_anything_platform::Output, ToolError> {
     // A round with a time limit (the builder's own checks) cuts a step that would run past it,
     // instead of waiting out the step's own, much longer, deadline.
     let limit = Duration::from_secs(minutes * 60);
@@ -16,7 +28,8 @@ fn run_in(app: &Path, prog: &Path, args: &[String], minutes: u64, stop: &CheckSt
     // zero deadline is seen and count as passed.
     stop.check()?;
     let s = stop.clone();
-    env.iter()
+    let process = env
+        .iter()
         .fold(craft_anything_platform::Process::new(prog), |p, (k, v)| p.env(k, v))
         .args(args)
         .cwd(app)
@@ -26,12 +39,14 @@ fn run_in(app: &Path, prog: &Path, args: &[String], minutes: u64, stop: &CheckSt
         .stdout_cap(8 << 20)
         // A pause stops the program now; the round's limit reaches it as the clamped deadline
         // above, which says the step took longer than allowed.
-        .cancel_when(move || s.paused())
-        .run()
-        .map(|o| {
-            let (stdout, stderr) = if o.success { (o.stdout_text(), o.stderr_text()) } else { (o.stdout_end_text(), o.stderr_end_text()) };
-            (o.success, format!("{stdout}{stderr}"))
-        })
+        .cancel_when(move || s.paused());
+    let process = if merge_output { process.merge_output() } else { process };
+    process.run()
+}
+
+fn step_text(o: craft_anything_platform::Output) -> (bool, String) {
+    let (stdout, stderr) = if o.success { (o.stdout_text(), o.stderr_text()) } else { (o.stdout_end_text(), o.stderr_end_text()) };
+    (o.success, format!("{stdout}{stderr}"))
 }
 
 /// Whether a check error is definitely a missing or non-executable local tool (not a transient
@@ -74,11 +89,12 @@ fn run_tool(
     minutes: u64,
     stop: &CheckStop,
     env: &[(&str, &OsStr)],
-) -> Result<(bool, String), ToolError> {
+    merge_output: bool,
+) -> Result<craft_anything_platform::Output, ToolError> {
     let Some((program, args)) = tool.command(app, command) else {
         return Err(ToolError::invalid(format!("{} has no such command.", tool.name)));
     };
-    run_in(app, &program, &args, minutes, stop, env)
+    run_step(app, &program, &args, minutes, stop, env, merge_output)
 }
 
 /// What a Unity without a licence prints, and what to tell the person.
@@ -124,34 +140,109 @@ fn own_unity_check(app: &Path, editor: &Path, stop: &CheckStop, env: &[(&str, &O
 }
 
 fn own_build(app: &Path, tool: &stacks::Toolchain, stop: &CheckStop, env: &[(&str, &OsStr)]) -> Result<(bool, String), ToolError> {
-    match run_tool(app, tool, &tool.build, 2 * 60, stop, env) {
+    match run_tool(app, tool, &tool.build, 2 * 60, stop, env, false).map(step_text) {
         Ok((true, _)) => Ok((true, format!("`{}` passed.", tool.build.join(" ")))),
         Ok((false, out)) => Ok((false, format!("Build failed (`{}`): {}", tool.build.join(" "), error_lines(&out)))),
         Err(e) => step_error(&format!("build (`{}`)", tool.build.join(" ")), e),
     }
 }
 
-/// A person's own project: run its tests. Output that says none ran isn't a failure, and neither
-/// is a project we know no way to test, and the note says so.
-pub(super) fn own_tests_check(app: &Path, tool: Option<&stacks::Toolchain>, stop: &CheckStop, env: &[(&str, &OsStr)]) -> Result<(bool, String), ToolError> {
-    let Some(tool) = tool else { return Ok((true, "No tests ran: Craft Anything doesn't know how to test this kind of project.".into())) };
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum OwnTestsOutcome {
+    Passed,
+    Failed,
+    Skipped,
+}
+
+/// Run a person's own tests, distinguishing an intentional skip from a pass or failure.
+pub(super) fn own_tests_check(
+    app: &Path,
+    tool: Option<&stacks::Toolchain>,
+    stop: &CheckStop,
+    env: &[(&str, &OsStr)],
+) -> Result<(OwnTestsOutcome, String), ToolError> {
+    let Some(tool) = tool else { return Ok((OwnTestsOutcome::Skipped, "No tests ran: Craft Anything doesn't know how to test this kind of project.".into())) };
     let says_none = |text: &str| tool.no_tests.iter().find(|n| text.contains(n.as_str())).cloned();
     if let Some(name) = &tool.test_script {
         // shortcut: `workspaces=true` in .npmrc can give a root with no script tests; they aren't
         // run, and the note says so. Read .npmrc if that turns up.
         let script = craft_anything_engine::outputs::npm_script(app, name).unwrap_or_default();
         if script.is_empty() || tool.no_tests.iter().any(|n| n == script.trim()) {
-            return Ok((true, format!("No tests ran: package.json has no `{name}` script to run.")));
+            return Ok((OwnTestsOutcome::Skipped, format!("No tests ran: package.json has no `{name}` script to run.")));
         }
     }
-    match run_tool(app, tool, &tool.test, 30, stop, env) {
-        Ok((true, _)) => Ok((true, format!("`{}` passed.", tool.test.join(" ")))),
-        Ok((false, out)) => match says_none(&out).filter(|_| tool.test_script.is_none()) {
-            Some(why) => Ok((true, format!("No tests ran: {}.", why.trim_end_matches('.')))),
-            None => Ok((false, format!("The project's tests failed:\n{}", last_lines(&out, 20)))),
-        },
-        Err(e) => step_error("tests", e),
+    let cargo = tool.name == "Rust";
+    // Cargo announces targets on stderr and libtest reports their results on stdout. Preserve
+    // their order so extra rustdoc summaries cannot cover for a target with no result.
+    let output = run_tool(app, tool, &tool.test, 30, stop, env, cargo);
+    if cargo && output.as_ref().is_ok_and(|out| out.success && cargo_ran_no_tests(out)) {
+        return Ok((OwnTestsOutcome::Skipped, "No tests ran: Cargo reported zero executed tests.".into()));
     }
+    match output.map(step_text) {
+        Ok((true, _)) => Ok((OwnTestsOutcome::Passed, format!("`{}` passed.", tool.test.join(" ")))),
+        Ok((false, out)) => match says_none(&out).filter(|_| tool.test_script.is_none()) {
+            Some(why) => Ok((OwnTestsOutcome::Skipped, format!("No tests ran: {}.", why.trim_end_matches('.')))),
+            None => Ok((OwnTestsOutcome::Failed, format!("The project's tests failed:\n{}", last_lines(&out, 20)))),
+        },
+        Err(e) => step_error("tests", e).map(|(_, note)| (OwnTestsOutcome::Failed, note)),
+    }
+}
+
+/// A skip needs an empty Cargo run or a zero-test libtest summary for every target.
+fn cargo_ran_no_tests(out: &craft_anything_platform::Output) -> bool {
+    if out.stdout_truncated {
+        return false;
+    }
+    let text = out.stdout_text();
+    let mut lines = text.lines().map(str::trim).filter(|line| !line.is_empty());
+    let mut target_is_doc = None;
+    let mut summaries = 0;
+    let mut suite = None;
+    for line in lines.clone() {
+        if line.starts_with("Running ") || line.starts_with("Doc-tests ") {
+            if suite.is_some() || (target_is_doc.is_some() && summaries == 0) {
+                return false;
+            }
+            target_is_doc = Some(line.starts_with("Doc-tests "));
+            summaries = 0;
+        } else if let Some(count) = line.strip_prefix("running ").and_then(|header| header.strip_suffix(" tests").or_else(|| header.strip_suffix(" test"))) {
+            let Ok(count) = count.parse::<usize>() else { return false };
+            match target_is_doc {
+                Some(doc) if suite.is_none() && (doc || summaries == 0) => suite = Some((count, 0)),
+                _ => return false,
+            }
+        } else if let Some(summary) = line.strip_prefix("test result: ") {
+            let Some((count, ignored_rows)) = suite.take() else { return false };
+            if ignored_rows != count || !empty_libtest_summary(summary, count) {
+                return false;
+            }
+            summaries += 1;
+        } else if let Some((_, ignored_rows)) = &mut suite
+            && line.starts_with("test ")
+            && line.match_indices(" ... ignored").any(|(start, status)| {
+                let reason = &line[start + status.len()..];
+                reason.is_empty() || reason.starts_with(',')
+            })
+        {
+            *ignored_rows += 1;
+        }
+    }
+    if target_is_doc.is_some() {
+        return summaries > 0 && suite.is_none();
+    }
+    // Cargo also succeeds when the project disables all test targets.
+    lines.clone().any(|line| line.starts_with("Finished `test` profile "))
+        && lines.all(|line| line.starts_with("Compiling ") || line.starts_with("Finished `test` profile "))
+}
+
+/// What stable libtest reports for a successful target with no tests or benchmarks executed.
+fn empty_libtest_summary(line: &str, count: usize) -> bool {
+    let Some(counts) = line.strip_prefix("ok. 0 passed; 0 failed; ") else { return false };
+    let Some((ignored, tail)) = counts.split_once(" ignored; 0 measured; ") else { return false };
+    let Some((filtered, time)) = tail.split_once(" filtered out; finished in ") else { return false };
+    ignored.parse::<usize>() == Ok(count)
+        && filtered.parse::<usize>().is_ok()
+        && time.strip_suffix('s').and_then(|seconds| seconds.parse::<f64>().ok()).is_some_and(|seconds| seconds.is_finite() && seconds >= 0.0)
 }
 
 /// The last `n` lines with something on them: where a test run sums up what failed.
@@ -368,13 +459,13 @@ func TestAnswer(t *testing.T) {
         let build = || own_build_check(app, "the project folder", stacks::BUILDERS_CHOICE, None, None, &stop, &env).unwrap();
         let test = || own_tests_check(app, Some(tool), &stop, &env).unwrap();
         assert_eq!(build(), (true, "`go build ./...` passed.".into()));
-        assert_eq!(test(), (true, "`go test ./...` passed.".into()));
+        assert_eq!(test(), (OwnTestsOutcome::Passed, "`go test ./...` passed.".into()));
         assert!(cache.join("README").is_file(), "Go's build cache is the test's own");
 
         std::fs::write(&tests, passing_test.replace("!= 42", "!= 43")).unwrap();
         assert!(build().0, "a test assertion must not fail the build");
-        let (passed, note) = test();
-        assert!(!passed && note.contains("unexpected answer"), "{note}");
+        let (outcome, note) = test();
+        assert!(outcome == OwnTestsOutcome::Failed && note.contains("unexpected answer"), "{note}");
 
         std::fs::write(app.join("main.go"), "package main\nfunc main(\n").unwrap();
         let (passed, note) = build();
@@ -386,17 +477,17 @@ func TestAnswer(t *testing.T) {
     fn a_persons_own_tests_decide_and_no_tests_is_no_failure() {
         let (d, stop) = (tempfile::tempdir().unwrap(), CheckStop::default());
         let tests = |tool: &stacks::Toolchain| own_tests_check(d.path(), Some(tool), &stop, &[]);
-        assert!(tests(&stand_in("exit 0", &[])).unwrap().0);
-        let (passed, note) = tests(&stand_in("echo 'adds: 4 is not 5'; echo; echo '1 failed'; exit 1", &[])).unwrap();
-        assert!(!passed && note.ends_with("adds: 4 is not 5\n1 failed"), "the summary, not only lines saying error: {note}");
-        let (passed, note) = tests(&stand_in("echo no tests here; exit 5", &["no tests here"])).unwrap();
-        assert!(passed && note.starts_with("No tests ran"), "{note}");
+        assert_eq!(tests(&stand_in("exit 0", &[])).unwrap().0, OwnTestsOutcome::Passed);
+        let (outcome, note) = tests(&stand_in("echo 'adds: 4 is not 5'; echo; echo '1 failed'; exit 1", &[])).unwrap();
+        assert!(outcome == OwnTestsOutcome::Failed && note.ends_with("adds: 4 is not 5\n1 failed"), "the summary, not only lines saying error: {note}");
+        let (outcome, note) = tests(&stand_in("echo no tests here; exit 5", &["no tests here"])).unwrap();
+        assert!(outcome == OwnTestsOutcome::Skipped && note.starts_with("No tests ran"), "{note}");
         let missing = stacks::Toolchain { test: vec!["no-such-program-here".into()], ..Default::default() };
         let err = tests(&missing).unwrap_err();
         assert_eq!(err.code, ErrorCode::EngineMissing, "{err:?}");
         assert!(err.message.starts_with("Couldn't run the tests"), "{err:?}");
-        let (passed, note) = own_tests_check(d.path(), None, &stop, &[]).unwrap();
-        assert!(passed && note.starts_with("No tests ran"), "{note}");
+        let (outcome, note) = own_tests_check(d.path(), None, &stop, &[]).unwrap();
+        assert!(outcome == OwnTestsOutcome::Skipped && note.starts_with("No tests ran"), "{note}");
     }
 
     #[cfg(unix)]
@@ -407,8 +498,8 @@ func TestAnswer(t *testing.T) {
         std::fs::write(d.path().join("own-sh.bat"), "not for this system").unwrap();
         let test = ["no-such-program-here", "-c", "echo 'error: from its own copy'; exit 1"].map(String::from).to_vec();
         let tool = stacks::Toolchain { test, local_programs: vec!["not-here".into(), "own-sh.bat".into(), "own-sh".into()], ..Default::default() };
-        let (passed, note) = own_tests_check(d.path(), Some(&tool), &stop, &[]).unwrap();
-        assert!(!passed && note.contains("from its own copy"), "{note}");
+        let (outcome, note) = own_tests_check(d.path(), Some(&tool), &stop, &[]).unwrap();
+        assert!(outcome == OwnTestsOutcome::Failed && note.contains("from its own copy"), "{note}");
     }
 
     /// The table's own words, on what the real make (3.81; 4.x quotes alike) and npm (11) print.
@@ -426,14 +517,18 @@ func TestAnswer(t *testing.T) {
             own_tests_check(d.path(), Some(&stacks::Toolchain { test, ..tool.clone() }), &stop, &[]).unwrap().0
         };
         let (make, node) = (named_by("Makefile"), named_by("package.json"));
-        assert!(printing(make, "make: *** No rule to make target `test'.  Stop."));
-        assert!(printing(make, "make: *** No rule to make target 'test'.  Stop."));
-        assert!(!printing(make, "make: *** No rule to make target `fixture.txt', needed by `test'.  Stop."), "a prerequisite is a failure");
-        assert!(!printing(make, "make: *** No rule to make target 'fixture.txt', needed by 'test'.  Stop."));
-        assert!(!printing(make, "make[1]: *** No rule to make target `test'.  Stop."), "a make it runs is a failure");
+        assert_eq!(printing(make, "make: *** No rule to make target `test'.  Stop."), OwnTestsOutcome::Skipped);
+        assert_eq!(printing(make, "make: *** No rule to make target 'test'.  Stop."), OwnTestsOutcome::Skipped);
+        assert_eq!(
+            printing(make, "make: *** No rule to make target `fixture.txt', needed by `test'.  Stop."),
+            OwnTestsOutcome::Failed,
+            "a prerequisite is a failure"
+        );
+        assert_eq!(printing(make, "make: *** No rule to make target 'fixture.txt', needed by 'test'.  Stop."), OwnTestsOutcome::Failed);
+        assert_eq!(printing(make, "make[1]: *** No rule to make target `test'.  Stop."), OwnTestsOutcome::Failed, "a make it runs is a failure");
         std::fs::write(d.path().join("package.json"), r#"{"scripts":{"test":"npm test --workspaces"}}"#).unwrap();
-        assert!(!printing(node, "npm error Missing script: \"test\""), "one package of several, maybe beside a real failure");
-        assert!(!printing(node, "npm error Missing script: \"verify\""), "a script its tests call is a failure");
+        assert_eq!(printing(node, "npm error Missing script: \"test\""), OwnTestsOutcome::Failed, "one package of several, maybe beside a real failure");
+        assert_eq!(printing(node, "npm error Missing script: \"verify\""), OwnTestsOutcome::Failed, "a script its tests call is a failure");
     }
 
     #[test]
@@ -445,8 +540,8 @@ func TestAnswer(t *testing.T) {
         let node = stacks::Toolchain { test: vec!["no-such-program-here".into()], windows_program: None, ..table.clone() };
         for json in [r#"{"name":"x"}"#, r#"{"scripts":{"test":"echo \"Error: no test specified\" && exit 1"}}"#] {
             std::fs::write(d.path().join("package.json"), json).unwrap();
-            let (passed, note) = own_tests_check(d.path(), Some(&node), &stop, &[]).unwrap();
-            assert!(passed && note.starts_with("No tests ran"), "nothing is started: {note}");
+            let (outcome, note) = own_tests_check(d.path(), Some(&node), &stop, &[]).unwrap();
+            assert!(outcome == OwnTestsOutcome::Skipped && note.starts_with("No tests ran"), "nothing is started: {note}");
         }
         let real = r#"{"scripts":{"test":"jest && echo 'no test specified for integration'"}}"#;
         std::fs::write(d.path().join("package.json"), real).unwrap();
@@ -484,7 +579,7 @@ func TestAnswer(t *testing.T) {
         let tool = stand_in(r#"test "$CRAFT_PROBE" = given"#, &[]);
         let env = [("CRAFT_PROBE", OsStr::new("given"))];
         assert!(own_build(d.path(), &tool, &stop, &env).unwrap().0);
-        assert!(own_tests_check(d.path(), Some(&tool), &stop, &env).unwrap().0);
+        assert_eq!(own_tests_check(d.path(), Some(&tool), &stop, &env).unwrap().0, OwnTestsOutcome::Passed);
         assert!(!own_build(d.path(), &tool, &stop, &[]).unwrap().0, "nothing is set without being given");
     }
 

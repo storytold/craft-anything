@@ -12,7 +12,7 @@
 //! - stdin is closed, fed from bytes we own, or a pipe the caller writes to; never inherited;
 //! - a wall-clock deadline always applies (default 2 minutes) plus an optional idle deadline
 //!   (no output for that long);
-//! - stdout and stderr are drained on their own threads and capped, so pipes never fill;
+//! - stdout and stderr are drained and capped, separately by default;
 //! - on timeout, cancel or drop the whole process group (Unix) or Job Object (Windows) is killed;
 //! - a missing program, a non-zero exit (with [`Process::run_checked`]) or a timeout comes back as a
 //!   [`ToolError`] with a plain-English remediation.
@@ -81,6 +81,7 @@ pub struct Process {
     idle: Option<Duration>,
     stdout_cap: usize,
     stderr_cap: usize,
+    merge_output: bool,
     cancel: Option<Cancel>,
     on_stdout: Option<LineSink>,
     on_stderr: Option<LineSink>,
@@ -153,6 +154,7 @@ impl Process {
             idle: None,
             stdout_cap: DEFAULT_STDOUT_CAP,
             stderr_cap: DEFAULT_STDERR_CAP,
+            merge_output: false,
             cancel: None,
             on_stdout: None,
             on_stderr: None,
@@ -236,6 +238,13 @@ impl Process {
         self
     }
 
+    /// Put both output streams in the stdout capture, in write order. The stdout cap and
+    /// stdout line callback apply to both streams, and the stderr capture is empty.
+    pub fn merge_output(mut self) -> Self {
+        self.merge_output = true;
+        self
+    }
+
     /// Stop (and kill the process group) as soon as `f` returns true.
     pub fn cancel_when(mut self, f: impl Fn() -> bool + Send + Sync + 'static) -> Self {
         self.cancel = Some(Arc::new(f));
@@ -298,6 +307,14 @@ impl Process {
     pub fn spawn(self) -> Result<RunningProcess, ToolError> {
         let name = self.display();
         let (program, lead) = crate::which::launch_target(&self.program);
+        let (merged_reader, merged_writers) = if self.merge_output {
+            let pipe_error = |e| ToolError::new(ErrorCode::ProgramFailed, format!("Couldn't open an output pipe for {name}: {e}"));
+            let (reader, writer) = std::io::pipe().map_err(pipe_error)?;
+            let stderr = writer.try_clone().map_err(pipe_error)?;
+            (Some(reader), Some((writer, stderr)))
+        } else {
+            (None, None)
+        };
         let mut wrap = CommandWrap::with_new(&program, |cmd| {
             cmd.args(&lead).args(&self.args);
             if self.env_clear {
@@ -318,8 +335,11 @@ impl Process {
                 StdinMode::Closed => Stdio::null(),
                 StdinMode::Bytes(_) | StdinMode::Piped => Stdio::piped(),
             });
-            cmd.stdout(Stdio::piped());
-            cmd.stderr(Stdio::piped());
+            if let Some((stdout, stderr)) = merged_writers {
+                cmd.stdout(stdout).stderr(stderr);
+            } else {
+                cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+            }
         });
         #[cfg(unix)]
         wrap.wrap(process_wrap::std::ProcessGroup::leader());
@@ -328,6 +348,7 @@ impl Process {
         #[cfg(windows)]
         wrap.wrap(process_wrap::std::JobObject).wrap(process_wrap::std::CreationFlags(windows::Win32::System::Threading::CREATE_NO_WINDOW));
         let mut child = spawn_retrying(|| wrap.spawn()).map_err(|e| spawn_error(&name, &self.program, self.cwd.as_deref(), e, self.remediation.as_deref()))?;
+        drop(wrap); // The command owns the parent copies of a merged pipe writer.
         let pid = child.id();
         let start = Instant::now();
         let activity = Arc::new(AtomicU64::new(0));
@@ -352,6 +373,9 @@ impl Process {
         let out_buf = Arc::new(Mutex::new(Capped::new(self.stdout_cap)));
         let err_buf = Arc::new(Mutex::new(Capped::new(self.stderr_cap)));
         let mut readers = Vec::new();
+        if let Some(r) = merged_reader {
+            readers.push(spawn_reader(r, out_buf.clone(), self.on_stdout.clone(), activity.clone(), start));
+        }
         if let Some(r) = child.stdout().take() {
             readers.push(spawn_reader(r, out_buf.clone(), self.on_stdout.clone(), activity.clone(), start));
         }

@@ -269,6 +269,10 @@
           ],
           "format": "double"
         },
+        "skipped": {
+          "type": "boolean",
+          "default": false
+        },
         "unknowns": {
           "type": "array",
           "default": [],

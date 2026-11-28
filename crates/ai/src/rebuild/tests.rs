@@ -4704,8 +4704,68 @@ fn a_persons_own_project_is_judged_by_its_own_build_and_tests_whatever_its_kind(
     let (_d, ws) = own_folder("index.html", Edit);
     let r = check_worker(&ws, false).run_checks(&ws, &GameKind, 1).unwrap();
     assert_eq!(r.iter().map(|c| c.check.as_str()).collect::<Vec<_>>(), [CheckResult::BUILD, kinds::own::OwnTestsCheck::ID]);
-    assert!(r.iter().all(|c| c.passed), "{r:?}");
+    assert!(r.iter().all(|c| c.good(90.0)), "{r:?}");
+    assert!(!r[0].skipped && r[1].skipped, "{r:?}");
     assert!(r[1].note.starts_with("No tests ran"), "says what wasn't run: {}", r[1].note);
+    let summary = self_check::summary(&r, 90.0);
+    assert!(summary.contains("static site"), "{summary}");
+    assert!(summary.contains("no tests ran"), "{summary}");
+    assert!(!summary.contains("all 2 checks pass"), "{summary}");
+    let report = self_check::report(&r, 90.0, &[], |_| false);
+    assert!(report.contains("own-tests: not run"), "{report}");
+}
+
+#[test]
+fn an_owned_rust_project_reports_when_cargo_executed_no_tests() {
+    use craft_anything_engine::workspace::ExistingFiles::Edit;
+    let d = tempfile::tempdir().unwrap();
+    std::fs::create_dir(d.path().join("src")).unwrap();
+    std::fs::write(d.path().join("Cargo.toml"), "[package]\nname = \"craft-test-probe\"\nversion = \"0.1.0\"\nedition = \"2024\"\n").unwrap();
+    std::fs::create_dir(d.path().join(".cargo")).unwrap();
+    std::fs::write(d.path().join(".cargo/config.toml"), "[term]\nquiet = true\n").unwrap();
+    let lib = d.path().join("src/lib.rs");
+    std::fs::write(&lib, "pub fn answer() -> u32 { 42 }").unwrap();
+    let ws = Workspace::create_at(d.path(), "Mine", "Check my Rust project", TargetRef::None, Some(Edit)).unwrap();
+    let worker = check_worker(&ws, false);
+    let ignored_docs = "/// ```ignore\n/// ignored()\n/// ```\n/// ```ignore,standalone_crate\n/// ignored()\n/// ```\npub fn answer() -> u32 { 42 }";
+    for (source, passed, skipped) in [
+        ("pub fn answer() -> u32 { 42 }", true, true),
+        (r#"#[test] #[ignore = ""] fn ignored() { panic!("ignored"); }"#, true, true),
+        (r#"#[test] #[ignore = "until checks ... ignored upstream"] fn ignored() { panic!("ignored"); }"#, true, true),
+        (ignored_docs, true, true),
+        ("#[test] fn passing() { assert_eq!(2 + 2, 4); }", true, false),
+        ("/// ```\n/// assert_eq!(2 + 2, 4);\n/// ```\npub fn answer() -> u32 { 42 }", true, false),
+        ("#[test] fn failing() { panic!(\"test failed\"); }", false, false),
+    ] {
+        std::fs::write(&lib, source).unwrap();
+        let results = worker.run_checks(&ws, &GameKind, 1).unwrap();
+        assert_eq!(results.len(), 2, "{results:?}");
+        let tests = &results[1];
+        assert_eq!((tests.passed, tests.skipped), (passed, skipped), "{tests:?}");
+        let summary = self_check::summary(&results, 90.0);
+        assert_eq!(summary.contains("no tests ran"), skipped, "{summary}");
+    }
+    let manifest = d.path().join("Cargo.toml");
+    let mut contents = std::fs::read_to_string(&manifest).unwrap();
+    std::fs::write(d.path().join(".cargo/config.toml"), "[term]\nverbose = true\n").unwrap();
+    std::fs::write(&manifest, format!("{contents}\n[lib]\ntest = false\ndoctest = false\n")).unwrap();
+    let results = worker.run_checks(&ws, &GameKind, 1).unwrap();
+    assert!(results[1].passed && results[1].skipped, "{results:?}");
+
+    // More than one doctest summary must not account for a custom executable before it.
+    std::fs::write(&lib, ignored_docs).unwrap();
+    contents.push_str("\n[[test]]\nname = \"custom\"\npath = \"custom.rs\"\nharness = false\n");
+    std::fs::write(manifest, contents).unwrap();
+    for custom in [
+        "fn main() { assert_eq!(2 + 2, 4); }",
+        r#"fn main() { assert_eq!(2 + 2, 4); println!("test result: ok. 0 passed; 0 failed; custom suite ran"); }"#,
+        r#"fn main() { println!("test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"); }"#,
+        r#"fn main() { println!("running 1 test\ntest result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s"); }"#,
+    ] {
+        std::fs::write(d.path().join("custom.rs"), custom).unwrap();
+        let results = worker.run_checks(&ws, &GameKind, 1).unwrap();
+        assert!(results[1].passed && !results[1].skipped, "{results:?}");
+    }
 }
 
 /// A round of the builder's own checks has a time limit and looks at Pause before each check. A

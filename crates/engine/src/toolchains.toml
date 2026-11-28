@@ -7,7 +7,8 @@ name = "Rust"
 found_by = ["Cargo.toml"]
 sources = ["src/*.rs"]
 build = ["cargo", "build", "--quiet"]
-test = ["cargo", "test", "--quiet"]
+# Keep Cargo's target announcements so the test checker can account for each harness.
+test = ["cargo", "test", "--color=never", "--config=term.quiet=false", "--config=term.verbose=false"]
 
 [[toolchain]]
 name = "Node.js"

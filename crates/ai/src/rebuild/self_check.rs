@@ -77,12 +77,24 @@ pub fn summary(checks: &[CheckResult], good_enough: f64) -> String {
     let claims: Vec<_> = checks.iter().flat_map(|c| &c.claims).collect();
     let held = claims.iter().filter(|c| c.passed).count();
     let claims_part = if claims.is_empty() { String::new() } else { format!(", {held} of {} claims hold", claims.len()) };
-    let good = checks.iter().filter(|c| c.good(good_enough)).count();
-    let mut text = match checks.iter().find_map(|c| c.similarity) {
-        Some(s) => format!("about {s:.0}% like the original{claims_part}"),
-        None if good == checks.len() => format!("all {} checks pass{claims_part}", checks.len()),
-        None => format!("{good} of {} checks pass{claims_part}", checks.len()),
+    let ran: Vec<_> = checks.iter().filter(|c| !c.skipped).collect();
+    let skipped_tests = ran.len() < checks.len();
+    let good = ran.iter().filter(|c| c.good(good_enough)).count();
+    let mut text = match ran.as_slice() {
+        [] if skipped_tests => "no tests ran".into(),
+        [build] if skipped_tests && build.check == CheckResult::BUILD => {
+            // A static site can be ready without running a build command either.
+            if build.passed { build.note.trim_end_matches('.').into() } else { "build check failed".into() }
+        }
+        _ => match ran.iter().find_map(|c| c.similarity) {
+            Some(s) => format!("about {s:.0}% like the original{claims_part}"),
+            None if good == ran.len() => format!("all {} checks pass{claims_part}", ran.len()),
+            None => format!("{good} of {} checks pass{claims_part}", ran.len()),
+        },
     };
+    if skipped_tests && !ran.is_empty() {
+        text.push_str(" · no tests ran");
+    }
     let unverified: usize = checks.iter().map(|c| c.unknowns.len()).sum();
     match unverified {
         0 => {}
@@ -101,7 +113,14 @@ pub fn report(checks: &[CheckResult], good_enough: f64, open: &[craft_anything_e
     }
     let mut lines = Vec::new();
     for c in checks {
-        let mut line = format!("{}: {}", c.check, if c.passed { "passed" } else { "failed" });
+        let outcome = if c.skipped {
+            "not run"
+        } else if c.passed {
+            "passed"
+        } else {
+            "failed"
+        };
+        let mut line = format!("{}: {outcome}", c.check);
         if !c.good(good_enough) && !can_refine(c) {
             line.push_str(" (incomplete; another builder turn cannot resolve this)");
         }
@@ -249,6 +268,22 @@ mod tests {
         assert_eq!(summary(std::slice::from_ref(&blind), 90.0), "about 95% like the original; 1 comparison remains unverified");
         let unknowns = CheckResult { unknowns: vec!["first".into(), "second".into()], ..CheckResult::new("mechanics", 1, true, "readable") };
         assert_eq!(summary(&[unknowns], 90.0), "0 of 1 checks pass; 2 comparisons remain unverified");
+    }
+
+    #[test]
+    fn skip_label_comes_from_saved_status_and_keeps_unverified_comparisons() {
+        let mut stored = serde_json::to_value(CheckResult::new(kinds::own::OwnTestsCheck::ID, 1, true, "No tests ran in an old record.")).unwrap();
+        let old: CheckResult = serde_json::from_value(stored.clone()).unwrap();
+        assert!(summary(&[old], 90.0).contains("checks pass"), "a record without skip metadata keeps its recorded pass");
+
+        stored["skipped"] = serde_json::json!(true);
+        stored["unknowns"] = serde_json::json!(["The result could not be compared."]);
+        stored["note"] = serde_json::json!("No runnable suite was found.");
+        let skipped: CheckResult = serde_json::from_value(stored).unwrap();
+        let summary = summary(std::slice::from_ref(&skipped), 90.0);
+        assert!(summary.contains("no tests ran") && summary.contains("1 comparison remains unverified"), "{summary}");
+        let detail = report(&[skipped], 90.0, &[]);
+        assert!(detail.contains("own-tests: not run") && detail.contains("No runnable suite was found."), "{detail}");
     }
 
     #[test]

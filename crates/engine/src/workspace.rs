@@ -267,6 +267,9 @@ pub struct CheckResult {
     pub check: String,
     /// The build works: it built, or it was served and compared.
     pub passed: bool,
+    /// An optional check did not run. Readiness is still determined by `good`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub skipped: bool,
     /// 0..=100, higher is closer. `None` when the build wasn't compared.
     pub similarity: Option<f64>,
     pub note: String,
@@ -330,6 +333,7 @@ impl CheckResult {
             round,
             check: check.into(),
             passed,
+            skipped: false,
             similarity: None,
             note: note.into(),
             artifacts: Vec::new(),
@@ -365,6 +369,8 @@ struct CheckRecord {
     check: Option<String>,
     #[serde(default)]
     passed: Option<bool>,
+    #[serde(default)]
+    skipped: bool,
     similarity: Option<f64>,
     note: String,
     #[serde(default)]
@@ -388,6 +394,7 @@ impl From<CheckRecord> for CheckResult {
             round: r.round,
             check: r.check.unwrap_or_else(|| (if compared { CheckResult::WEB_VISUAL } else { CheckResult::BUILD }).into()),
             passed: r.passed.unwrap_or(compared || r.note.starts_with("Build succeeded")),
+            skipped: r.skipped,
             similarity: r.similarity,
             note: r.note,
             artifacts: r.artifacts,
@@ -1791,7 +1798,7 @@ mod tests {
     fn checks_from_older_projects_are_judged_as_they_were() {
         let old = |json: &str| serde_json::from_str::<CheckResult>(json).unwrap();
         let built = old(r#"{"round":1,"similarity":null,"note":"Build succeeded.","at_ms":5}"#);
-        assert!(built.passed && built.check == CheckResult::BUILD && built.artifacts.is_empty());
+        assert!(built.passed && !built.skipped && built.check == CheckResult::BUILD && built.artifacts.is_empty());
         let failed = old(r#"{"round":2,"similarity":null,"note":"Build failed: error[E0308]","at_ms":5}"#);
         assert!(!failed.passed);
         let compared = old(r#"{"round":1,"similarity":71.0,"note":"1440 px: 71% alike","at_ms":5}"#);
