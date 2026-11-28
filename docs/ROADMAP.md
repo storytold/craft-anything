@@ -3965,6 +3965,9 @@ Owner: open · Status: in progress
       — claimed: FredApps, branch refactor/target-kind-craft-sniff
 - [x] Decode Swift `MS`/`WS`/`…TS` protocol self-conformance symbols: `_$ss5ErrorMS` reads `protocol self-conformance descriptor for Swift.Error`, `_$ss5ErrorWS` reads `protocol self-conformance witness table for Swift.Error`, and `_$ss5ErrorP5_codeSivgTS` reads `protocol self-conformance witness for Swift.Error._code.getter : Swift.Int`.
       — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-self-conformance
+- [x] Associated type paths (`A.Element.Iterator`, `A.Content.ID`, ...) decoded from multi-name
+      `QZ`/`QY` forms (and `qx`/`QX`/`Qa`), including nested-depth generic parameters.
+      — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-assoc-type-unsupported
 - [x] Swift protocol requirements base descriptors decode. A symbol ending `TL` is the protocol
       requirements base descriptor of the protocol before it, which the demangler reported as an
       unsupported thunk; `_$s7SwiftUI10ShapeStyleTL` is

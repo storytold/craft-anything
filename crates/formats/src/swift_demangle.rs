@@ -106,6 +106,8 @@ enum N {
     },
     /// The type of `Self` in a class method that returns it. The type it was built from is not printed.
     DynamicSelf,
+    /// The constrained existential `Self` root of an associated-type path (`s`). Renders as `Self`.
+    ConstrainedExistentialSelf,
     /// A type with a word before it: `weak `, `@thick `, `@autoclosure `, `@convention(c) `.
     /// `wrapped` says whether an optional of it needs parentheses, `(weak A)?`.
     Attributed {
@@ -1098,6 +1100,25 @@ impl<'a> D<'a> {
         self.push(N::Global { prefix: what.into(), inner: Box::new(name), suffix: String::new() })
     }
 
+    /// `GENERIC-PARAM-INDEX`: `z` (depth 0, idx 0), a simple `INDEX` (depth 0, idx n + 1),
+    /// `d INDEX INDEX` (depth m + 1, idx n), or `s` (self). Returns `(depth, idx)`, where `idx` is
+    /// already scaled the way `N::Param` stores it.
+    fn generic_param_index(&mut self) -> R<(u64, u64)> {
+        if self.next_if(b'd') {
+            let depth = self.index()?.checked_add(1).ok_or("overflow")?;
+            let idx = self.index()?;
+            return Ok((depth, idx));
+        }
+        if self.next_if(b'z') {
+            return Ok((0, 0));
+        }
+        if self.next_if(b's') {
+            return Ok((0, 0));
+        }
+        let n = self.index()?;
+        Ok((0, n.checked_add(1).ok_or("overflow")?))
+    }
+
     /// `TL`: the protocol requirements base descriptor of a protocol, the descriptor the runtime
     /// uses to find the protocol's requirement witnesses. The operand is the protocol itself: its
     /// name (an identifier, an operator or a private name) and the context it is declared in (a
@@ -1557,6 +1578,159 @@ impl<'a> D<'a> {
                         }
                         _ => Err("opaque type without its declaration".into()),
                     }
+                }
+                b'Z' => {
+                    // `QZ`: an associated type path (one or more names) rooted at the first
+                    // generic parameter (`A`). Shortcut for `QYz`.
+                    self.note_param(0);
+                    let mut parts = Vec::new();
+                    let mut closed = false;
+                    while !closed {
+                        let mut node = self.pop()?;
+                        if matches!(node, N::FirstMarker) {
+                            closed = true;
+                            node = self.pop()?;
+                        }
+                        // A component may carry an optional protocol qualifier before its identifier.
+                        let name = if let N::Nominal { kind: 'P', .. } = &node {
+                            let proto = node;
+                            let ident = match self.pop()? {
+                                N::Ident(n) => n,
+                                _ => return Err("expected an associated type name".into()),
+                            };
+                            format!("{}.{}", path(&proto, 0), ident)
+                        } else {
+                            match node {
+                                N::Ident(n) => n,
+                                _ => return Err("expected an associated type name".into()),
+                            }
+                        };
+                        parts.push(name);
+                    }
+                    parts.reverse();
+                    if parts.is_empty() {
+                        return Err("empty associated type path".into());
+                    }
+                    let mut n = N::Param(0, 0);
+                    for name in parts {
+                        n = N::Member { base: Box::new(n), name };
+                    }
+                    self.add_sub(&n)?;
+                    self.push(n)
+                }
+                b'Y' => {
+                    // `QY`: an associated type path (one or more names) rooted at a generic
+                    // parameter numbered like `Qy`, possibly at a nested depth. `s` roots the
+                    // path at the constrained existential `Self` instead of parameter zero.
+                    let root = if self.pos < self.s.len() && self.s[self.pos] == b's' {
+                        self.pos += 1;
+                        self.note_param(0);
+                        N::ConstrainedExistentialSelf
+                    } else {
+                        let (depth, i) = self.generic_param_index()?;
+                        self.note_param(i);
+                        N::Param(depth, i)
+                    };
+                    let mut parts = Vec::new();
+                    let mut closed = false;
+                    while !closed {
+                        let mut node = self.pop()?;
+                        if matches!(node, N::FirstMarker) {
+                            closed = true;
+                            node = self.pop()?;
+                        }
+                        // A component may carry an optional protocol qualifier before its identifier.
+                        let name = if let N::Nominal { kind: 'P', .. } = &node {
+                            let proto = node;
+                            let ident = match self.pop()? {
+                                N::Ident(n) => n,
+                                _ => return Err("expected an associated type name".into()),
+                            };
+                            format!("{}.{}", path(&proto, 0), ident)
+                        } else {
+                            match node {
+                                N::Ident(n) => n,
+                                _ => return Err("expected an associated type name".into()),
+                            }
+                        };
+                        parts.push(name);
+                    }
+                    parts.reverse();
+                    if parts.is_empty() {
+                        return Err("empty associated type path".into());
+                    }
+                    let mut n = root;
+                    for name in parts {
+                        n = N::Member { base: Box::new(n), name };
+                    }
+                    self.add_sub(&n)?;
+                    self.push(n)
+                }
+                b'x' => {
+                    // `Qx`: an associated type named on a base type.
+                    // optional protocol qualifier above the identifier on the stack
+                    let (qual, name) = if matches!(self.stack.last(), Some(N::Nominal { kind: 'P', .. })) {
+                        let q = self.pop()?;
+                        let n = self.pop_name()?;
+                        (Some(q), n)
+                    } else {
+                        let n = self.pop_name()?;
+                        (None, n)
+                    };
+                    let base = self.witness_type()?;
+                    let full_name = match qual {
+                        Some(proto) => format!("{}.{}", path(&proto, 0), name),
+                        None => name,
+                    };
+                    let n = N::Member { base: Box::new(base), name: full_name };
+                    self.add_sub(&n)?;
+                    self.push(n)
+                }
+                b'X' => {
+                    // `QX`: an associated type path named on a base type.
+                    let mut parts = Vec::new();
+                    let mut closed = false;
+                    while !closed {
+                        let mut node = self.pop()?;
+                        if matches!(node, N::FirstMarker) {
+                            closed = true;
+                            node = self.pop()?;
+                        }
+                        // A component may carry an optional protocol qualifier before its identifier.
+                        let name = if let N::Nominal { kind: 'P', .. } = &node {
+                            let proto = node;
+                            let ident = match self.pop()? {
+                                N::Ident(n) => n,
+                                _ => return Err("expected an associated type name".into()),
+                            };
+                            format!("{}.{}", path(&proto, 0), ident)
+                        } else {
+                            match node {
+                                N::Ident(n) => n,
+                                _ => return Err("expected an associated type name".into()),
+                            }
+                        };
+                        parts.push(name);
+                    }
+                    parts.reverse();
+                    if parts.is_empty() {
+                        return Err("empty associated type path".into());
+                    }
+                    let base = self.witness_type()?;
+                    let mut n = base;
+                    for name in parts {
+                        n = N::Member { base: Box::new(n), name };
+                    }
+                    self.add_sub(&n)?;
+                    self.push(n)
+                }
+                b'a' => {
+                    // `Qa`: an associated type declaration reference.
+                    let name = self.pop_name()?;
+                    let base = self.pop_type()?;
+                    let n = N::Member { base: Box::new(base), name };
+                    self.add_sub(&n)?;
+                    self.push(n)
                 }
                 _ => Err("unsupported associated type".into()),
             },
@@ -2032,7 +2206,8 @@ fn weight(n: &N, depth: usize) -> usize {
         N::OpaqueRef { decl, .. } => weight(decl, d),
         N::Attributed { inner, .. } => weight(inner, d),
         N::ClassBound { class, protos } => protos.iter().fold(weight(class, d), |a, x| a.saturating_add(weight(x, d))),
-        N::Member { base, .. } => weight(base, d),
+        // A qualified name carries rendered protocol text, which substitutions copy.
+        N::Member { base, name } => weight(base, d).saturating_add(name.len()),
         N::Existential(v) => v.iter().fold(0usize, |a, x| a.saturating_add(weight(x, d))),
         N::Generic { sig, ty } => weight(sig, d).saturating_add(weight(ty, d)),
         N::Entity { ctx, ty, .. } => weight(ctx, d).saturating_add(ty.as_ref().map_or(0, |t| weight(t, d))),
@@ -2234,6 +2409,7 @@ fn render(n: &N, depth: usize) -> String {
             format!("{} & {}", render(class, d), rest.join(" & "))
         }
         N::DynamicSelf => "Self".into(),
+        N::ConstrainedExistentialSelf => "Self".into(),
         N::Attributed { text, inner, .. } => format!("{text}{}", render(inner, d)),
         N::Existential(ps) => {
             if ps.is_empty() {
