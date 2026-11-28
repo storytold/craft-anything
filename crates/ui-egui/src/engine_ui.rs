@@ -210,7 +210,6 @@ pub fn deep_modal(app: &mut CraftApp, ui: &mut Ui, close: &mut bool) {
 /// Asked when Deep mode could use Ghidra and it isn't here: get it (then use it), or go on without.
 pub fn ghidra_modal(app: &mut CraftApp, ui: &mut Ui, close: &mut bool) {
     let t = Tokens::get(ui.ctx());
-    ui.set_width(520.0);
     let ready = app.ghidra_ready();
     let downloading = app.ghidra_download();
     ui.horizontal(|ui| {
@@ -504,7 +503,6 @@ pub fn assets_toggle(app: &mut CraftApp, ui: &mut Ui, mut on: bool) {
 /// Asks for a fal.ai key when generated assets are turned on without one.
 pub fn assets_modal(app: &mut CraftApp, ui: &mut Ui, close: &mut bool) {
     let t = Tokens::get(ui.ctx());
-    ui.set_width(520.0);
     ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(Vec2::splat(48.0), egui::Sense::hover());
         ui.painter().rect_filled(rect, t.radius, t.accent_soft);
@@ -818,7 +816,6 @@ fn steps(app: &CraftApp, b: Builder, inv: &Inventory) -> Vec<Step> {
 /// The body of the "Get <engine>" dialog. Sets `close` when the person is done with it.
 pub fn modal(app: &mut CraftApp, ui: &mut Ui, b: Builder, close: &mut bool) {
     let t = Tokens::get(ui.ctx());
-    ui.set_width(520.0);
     let Some(inv) = app.game_engines.clone() else {
         ui.horizontal(|ui| {
             ui.add(crate::widgets::Spinner::new().size(theme::icon::MD).color(t.accent));

@@ -282,7 +282,6 @@ fn megabytes(bytes: u64) -> String {
 /// Pin this build: a frozen copy (the default) or a light one, and a name.
 pub fn pin_modal(app: &mut CraftApp, ui: &mut Ui, close: &mut bool) {
     let t = Tokens::get(ui.ctx());
-    ui.set_width(560.0);
     ui.label(theme::heading(tr("Pin this build"), theme::SECTION));
     ui.add_space(theme::space::XS);
     ui.add(egui::Label::new(RichText::new(tr("Keep it in the sidebar to open any time, whatever later builds change.")).color(t.text_dim)).wrap());

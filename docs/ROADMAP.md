@@ -1837,6 +1837,10 @@ Gaps found while using the app for real projects.
       this computer has. Build it from a session kept in a temp folder with
       `engines.only_configured`, as `engine::testing::session()` does
       — claimed: Plastic-time, branch bugfix/r2.9-isolate-demo-engine-session
+- [x] A start or rebuild dialog taller than the window could not scroll, so its choices or buttons
+      were covered on a 1366 x 768 screen (#2470). The shared modal scrolls inside the window, so
+      every choice and button stays reachable
+      — claimed: AlexJoaquimPereira, branch bugfix/2470-scroll-start-dialogs
 - [x] `i18n::trf` filled placeholders with repeated replacements, so a value containing a later
       placeholder was rewritten. It now fills them in one pass over the template: inserted names
       and other values stay literal, and unknown names and stray braces are kept as written. The

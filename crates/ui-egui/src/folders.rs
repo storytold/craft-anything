@@ -145,7 +145,6 @@ fn choose(app: &mut CraftApp, choice: ExistingFiles) {
 /// "This folder already has files": the app itself, or material to start from.
 pub fn existing_modal(app: &mut CraftApp, ui: &mut Ui, close: &mut bool) {
     let t = Tokens::get(ui.ctx());
-    ui.set_width(560.0);
     let Some(folder) = app.state.make.folder.clone() else {
         *close = true;
         return;

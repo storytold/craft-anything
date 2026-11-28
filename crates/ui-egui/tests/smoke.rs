@@ -3899,6 +3899,81 @@ fn with_nothing_to_build_with_start_offers_what_was_found_instead_of_a_dead_end(
     h.get_by_label("Build with Claude Code");
 }
 
+/// #2470: at 1366 x 768 a start dialog with several detected agents was taller than the window,
+/// leaving its choices and buttons below the bottom edge with no way to scroll to them.
+#[test]
+fn a_tall_start_dialog_scrolls_at_1366_by_768() {
+    use craft_anything_ai::{BackendConfig, BackendKind, Detected};
+    use craft_anything_ui_egui::state::Modal;
+    let mut h = harness_sized(egui::vec2(1366.0, 768.0), || {
+        let mut a = demo::app(demo::engine(Mode::Beginner, true));
+        a.detected = Some(
+            (0..10)
+                .map(|i| Detected {
+                    suggestion: BackendConfig {
+                        name: format!("Agent {i}"),
+                        kind: BackendKind::AgentCli,
+                        model: "claude-code".into(),
+                        base_url: None,
+                        ssh_host: None,
+                        enabled: true,
+                    },
+                    reason: String::new(),
+                    needs_key: false,
+                })
+                .collect(),
+        );
+        a.state.modal = Some(Modal::NeedBuilder { start: true });
+        a
+    });
+    h.run_steps(5);
+    h.get_by_label("Build with Agent 9").scroll_to_me();
+    h.run_steps(3);
+    // The dialog's own viewport, not the window: an agent clipped by the scroll area must fail.
+    let viewport = h.ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new("craft-modal-clip"))).expect("the dialog viewport was recorded");
+    let agent = h.get_by_label("Build with Agent 9").rect();
+    assert!(viewport.contains_rect(agent), "the last agent at {agent:?} is outside the dialog viewport {viewport:?}");
+    h.get_by_label("Cancel").scroll_to_me();
+    h.run_steps(3);
+    let viewport = h.ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new("craft-modal-clip"))).expect("the dialog viewport was recorded");
+    let cancel = h.get_by_label("Cancel").rect();
+    assert!(viewport.contains_rect(cancel), "Cancel at {cancel:?} is outside the dialog viewport {viewport:?}");
+    h.get_by_label("Cancel").click();
+    h.run_steps(2);
+    assert_eq!(h.state().state.modal, None);
+}
+
+/// The engine dialog opens while its inventory is still being looked up. When the inventory
+/// arrives, the same dialog must use the new room instead of the short first frame's viewport.
+#[test]
+fn an_engine_dialog_uses_the_room_that_arrives_with_its_inventory() {
+    use craft_anything_engines::game::Builder;
+    use craft_anything_ui_egui::state::Modal;
+    let mut h = harness_sized(egui::vec2(1366.0, 768.0), || {
+        let mut a = demo::app(demo::engine(Mode::Beginner, true));
+        a.game_engines = None;
+        a.state.modal = Some(Modal::Engine(Builder::Unreal));
+        a
+    });
+    h.run_steps(3);
+    assert_eq!(h.state().state.modal, Some(Modal::Engine(Builder::Unreal)));
+    h.state_mut().game_engines = Some(Default::default());
+    h.run_steps(4);
+    h.get_by_label("Get Unreal Engine");
+    assert_eq!(h.state().state.modal, Some(Modal::Engine(Builder::Unreal)), "the same dialog grew");
+    let clip = h.ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new("craft-modal-clip"))).expect("the dialog viewport was recorded");
+    assert!(clip.height() >= 300.0, "the grown dialog's viewport is only {} points tall", clip.height());
+    let close = h.query_all_by_label("Close").max_by(|a, b| a.rect().bottom().total_cmp(&b.rect().bottom())).expect("a Close button");
+    close.scroll_to_me();
+    h.run_steps(3);
+    let close = h.query_all_by_label("Close").max_by(|a, b| a.rect().bottom().total_cmp(&b.rect().bottom())).expect("a Close button");
+    let rect = close.rect();
+    assert!(clip.contains_rect(rect), "the dialog's Close at {rect:?} is outside its viewport {clip:?}");
+    close.click();
+    h.run_steps(2);
+    assert_eq!(h.state().state.modal, None);
+}
+
 /// #259: with only the Claude desktop app installed, the dialog says that building needs Claude
 /// Code apart from it, instead of only "No coding agent was found".
 #[test]
