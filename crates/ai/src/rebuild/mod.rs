@@ -45,6 +45,7 @@ pub mod feed;
 mod kept_check;
 pub mod kinds;
 mod locate;
+mod long_step;
 pub mod notes;
 mod output;
 pub mod project;
@@ -395,6 +396,7 @@ impl RebuildRun {
             taken_in_turn: Vec::new(),
             keys: hub.keys.clone(),
             kept_checks: Mutex::default(),
+            long_step: Default::default(),
         };
         let r2 = running.clone();
         let key_store = hub.keys.clone();
@@ -619,6 +621,8 @@ struct Worker {
     keys: crate::keys::KeyStore,
     /// The last check round in which everything worked, kept while nothing it looks at changes.
     kept_checks: Mutex<kept_check::KeptChecks>,
+    /// When a builder step that is still running is named in the feed (#2429).
+    long_step: long_step::LongStepLimits,
 }
 
 /// The project a run records its usage in, and when it last did.
@@ -1482,11 +1486,16 @@ impl Worker {
         // session when its last one finishes: the refresh waits for a free moment, so the loop
         // keeps reading what that tool says meanwhile.
         let mut refresh = false;
+        // Steps that run unusually long are named in the feed (#2429), never stopped.
+        let mut long = long_step::LongSteps::new(self.long_step);
+        let roots = [ws.app_dir(), ws.root.clone()];
         loop {
             if self.stop.is_cancelled() {
                 agent.stop();
+                long.clear();
             }
             for e in agent.poll() {
+                long.observe(&e, Instant::now(), &roots);
                 refresh |= matches!(e, AgentEvent::ToolFinished { .. });
                 if matches!(e, AgentEvent::TurnDone { .. }) {
                     refresh_investigation(&mut self.shown().session(), ws);
@@ -1539,6 +1548,11 @@ impl Worker {
             if refresh && let Some(mut session) = self.shown().try_session() {
                 refresh_investigation(&mut session, ws);
                 refresh = false;
+            }
+            if !self.stop.is_cancelled() {
+                for text in long.due(Instant::now()) {
+                    self.emit(RunEvent::Agent(AgentEvent::Status { text }));
+                }
             }
             self.relay_inbox();
             self.relay_read_notes(ws);

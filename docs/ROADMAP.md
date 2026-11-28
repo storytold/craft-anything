@@ -488,6 +488,16 @@ Every round spends the person's money or quota. One that can't do anything shoul
       started in the person's own folder is told to leave Craft Anything's records alone: tell every
       builder, and say in the error that something else wrote the file and how to go on
       — claimed: youkaicountry, branch bugfix/r5.3-builder-wrote-progress-record
+- [x] #2429: a builder step that runs unusually long (`find /`, an endless ffmpeg, 30-90 minutes
+      with nothing new in the feed) is named in the feed after 10 minutes, with how long it has run
+      and that Pause or Stop ends it, then every 30 minutes while it runs (`rebuild/long_step.rs`).
+      Nothing is stopped - claimed: ilijachrchev, branch bugfix/2429-long-command-notice
+- [ ] **decision**: a time limit on the builder's own shell commands (#2429). Claude Code's Bash
+      tool has its own; other agents and the API loop's `build_command_run` differ, and a real
+      build or import can be long. Decide whether there is one, how long, whether the person can
+      change it, and what the builder is told when it fires
+- [ ] Watch a real long build step (a Claude Code subagent's `find /` on Windows, as in #2429) and
+      check the note appears once, names the command, and stops after Pause
 
 ### R5.4 Local models can build
 Owner: open · Status: todo

@@ -301,7 +301,7 @@ impl Activity {
     }
 }
 
-fn is_checklist(tool: &str) -> bool {
+pub(super) fn is_checklist(tool: &str) -> bool {
     tool == "TodoWrite" || tool == "build_checklist"
 }
 
