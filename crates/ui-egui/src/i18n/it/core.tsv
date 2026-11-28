@@ -1509,9 +1509,3 @@ Stop Ghidra's analysis	Ferma l'analisi di Ghidra
 
 # Saved-builder notice: English until native-speaker review.
 The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.	The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.
-Auto	Automatico
-Sees pictures	Vede le immagini
-Yes	Sì
-No	No
-Whether a builder on this AI is shown pictures: the original's screenshots, your pictures of it, and the check's pictures of the build. Auto: what its server says; a model it says nothing about isn't shown any.	Se a chi costruisce con questa IA vengono mostrate immagini: gli screenshot dell'originale, le tue immagini e le immagini della build fatte dal controllo. Auto: quello che dice il suo server; a un modello di cui non dice nulla non ne vengono mostrate.
-Set whether an AI sees pictures	Imposta se un'IA vede le immagini

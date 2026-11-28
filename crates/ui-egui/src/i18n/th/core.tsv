@@ -1507,9 +1507,3 @@ Stop Ghidra's analysis	หยุดการวิเคราะห์ของ
 
 # Saved-builder notice: English until native-speaker review.
 The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.	The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.
-Auto	อัตโนมัติ
-Sees pictures	ดูรูปได้
-Yes	ใช่
-No	ไม่
-Whether a builder on this AI is shown pictures: the original's screenshots, your pictures of it, and the check's pictures of the build. Auto: what its server says; a model it says nothing about isn't shown any.	จะให้ผู้สร้างบน AI นี้ดูรูปหรือไม่: ภาพหน้าจอของต้นฉบับ รูปของคุณที่ถ่ายต้นฉบับ และรูปของงานที่สร้างซึ่งการตรวจถ่ายไว้ อัตโนมัติ: ตามที่เซิร์ฟเวอร์บอก ถ้าเซิร์ฟเวอร์ไม่บอกอะไรเกี่ยวกับโมเดล จะไม่ให้ดูรูป
-Set whether an AI sees pictures	ตั้งค่าว่า AI ดูรูปได้หรือไม่
