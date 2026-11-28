@@ -2804,6 +2804,80 @@ mod picking_up_a_build {
         }
     }
 
+    /// After two check rounds, the request carries only the latest round's pictures as pictures:
+    /// the first message's and the first round's are notes by then, in what both APIs are sent.
+    #[test]
+    fn after_two_checks_only_the_latest_rounds_pictures_are_sent() {
+        use crate::agent::tests::{Scripted, turn};
+        use crate::agent::{ApiConversation, EngineHost, LoopConfig, ModelSlot};
+        use crate::model::{Block, StopReason};
+        let b = bench();
+        let mut ws = worked_on(&b);
+        std::fs::write(ws.capture_dir().join("screenshot-1280.png"), PNG).unwrap();
+        let seen = Arc::default();
+        let done = || turn(vec![Block::Text { text: "Done.".into() }], StopReason::EndTurn);
+        // Each fix changes app/, so the check after it looks again.
+        let write = |content: &str| {
+            turn(
+                vec![Block::ToolUse {
+                    id: "w".into(),
+                    name: "build_file_write".into(),
+                    input: serde_json::json!({"path": "app/index.html", "content": content}),
+                }],
+                StopReason::ToolUse,
+            )
+        };
+        let script =
+            Scripted { turns: std::collections::VecDeque::from([done(), write("Closer"), done(), write("Closer still"), done()]), seen: Arc::clone(&seen) };
+        let mut worker = check_worker(&ws, false);
+        let slot = ModelSlot {
+            name: "Scripted".into(),
+            model: Box::new(script),
+            local: true,
+            effort: None,
+            max_turns: 10,
+            context_tokens: 0,
+            tools: Default::default(),
+            vision: crate::Vision::Yes,
+        };
+        let build = std::collections::BTreeSet::from([craft_anything_engine::Toolset::Core, craft_anything_engine::Toolset::Build]);
+        let api = ApiConversation::start_with(Arc::new(EngineHost(worker.engine.clone())), vec![slot], LoopConfig::default(), build).unwrap();
+        let entry = crate::BackendEntry {
+            config: crate::BackendConfig {
+                name: "Scripted".into(),
+                kind: BackendKind::OpenaiCompatible,
+                model: "scripted".into(),
+                base_url: None,
+                ssh_host: None,
+                enabled: true,
+            },
+            options: Default::default(),
+        };
+        let mut opts = RunOptions::default();
+        opts.kinds.register(Arc::new(PicturedKind));
+        // Neither round is good enough, so there are two fixes, each after a check.
+        opts.good_enough = 100.0;
+        opts.max_rounds = 2;
+        worker.run(&mut ws, entry, Some(api), None, super::super::KeptHistory::default(), &opts).unwrap();
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 5, "a build turn, then two fixes that each write a file and answer");
+        let last = seen.last().unwrap();
+        let openai: Vec<serde_json::Value> = last.iter().flat_map(|m| crate::openai::messages_json(m, false)).collect();
+        let anthropic: Vec<serde_json::Value> = last.iter().map(crate::anthropic::message_json).collect();
+        let parts = |v: &[serde_json::Value], kind: &str| v.iter().map(|m| m.to_string().matches(&format!("\"type\":\"{kind}\"")).count()).collect::<Vec<_>>();
+        for (api, sent, kind) in [("openai", &openai, "image_url"), ("anthropic", &anthropic, "image")] {
+            let per_message = parts(sent, kind);
+            let with = per_message.iter().filter(|n| **n > 0).count();
+            assert_eq!(with, 1, "{api}: pictures in one message only, {per_message:?}");
+            // That one is the second fix's: the original and the build of round 2 at one width.
+            let at = per_message.iter().position(|n| *n > 0).unwrap();
+            assert_eq!(per_message[at], 2, "{api}: {per_message:?}");
+            assert!(sent[at].to_string().contains("checks/round-2/screenshot-1280.png"), "{api}");
+            let all = sent.iter().map(|m| m.to_string()).collect::<String>();
+            assert!(all.contains("checks/round-1/screenshot-1280.png") && all.contains("isn't sent again"), "{api}: earlier pictures stay as notes");
+        }
+    }
+
     /// "Try again" when the last check couldn't run: the run checks first and its first message
     /// is the fix after that check, so it carries the check's pictures once, not the original's
     /// first-message pictures as well (which repeated the original and could crowd the build's out).

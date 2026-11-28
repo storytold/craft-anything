@@ -531,13 +531,18 @@ impl AgentLoop {
     }
 
     /// Add the person's message with its pictures (each named in a line before it, so the model
-    /// can tell them apart), or with a note in place of each when the model can't see them.
+    /// can tell them apart), or with a note in place of each when the model can't see them. Only
+    /// the latest message with pictures carries their bytes: the earlier ones become their notes,
+    /// so a build's requests don't grow by a round's pictures after every check.
     fn push_message(&mut self, text: &str, pictures: Vec<Block>) {
+        let sees = !pictures.is_empty() && self.sees_pictures();
+        if sees {
+            context::pictures_to_notes(&mut self.history);
+        }
         context::push_user_text(&mut self.history, text);
         if pictures.is_empty() {
             return;
         }
-        let sees = self.sees_pictures();
         let Some(last) = self.history.last_mut() else { return };
         for picture in pictures.into_iter().take(MAX_PICTURES) {
             let Block::Image { name, .. } = &picture else { continue };
@@ -905,6 +910,11 @@ impl AgentLoop {
                     if !produced && self.current + 1 < self.chain.len() {
                         self.current += 1;
                         self.ask_window();
+                        // Pictures meant for a backend that sees would have a blind one refuse the request.
+                        let pictured = self.history.iter().flat_map(|m| &m.blocks).any(|b| matches!(b, Block::Image { data, .. } if !data.is_empty()));
+                        if pictured && !self.sees_pictures() {
+                            context::pictures_to_notes(&mut self.history);
+                        }
                         let next = self.chain.get(self.current).map(|s| s.name.clone()).unwrap_or_default();
                         self.emit(AgentEvent::Status { text: format!("{name} failed ({}). Trying {next}…", e.message) });
                         continue;
@@ -1664,6 +1674,44 @@ pub(crate) mod tests {
             let sight: Vec<_> = journal.iter().filter(|(k, _)| k == "sight").collect();
             assert_eq!(sight.len(), 1, "{case}");
             assert_eq!(sight[0].1["sees"], sees, "{case}");
+        }
+    }
+
+    /// A backend that sees fails and the chain moves on: a fallback that doesn't see gets the
+    /// pictures as notes (a text-only server refuses a request with pictures), one that sees keeps them.
+    #[test]
+    fn a_fallback_that_doesnt_see_gets_the_pictures_as_notes() {
+        let png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR";
+        let name = "checks/round-1/screenshot.png";
+        for fallback_vision in [Vision::No, Vision::Yes] {
+            let host = Arc::new(FakeHost { calls: Mutex::default(), journal: Mutex::default() });
+            let seen = Arc::new(Mutex::new(Vec::new()));
+            let failing = Scripted { turns: VecDeque::from([Err(ToolError::new(ErrorCode::EngineMissing, "temporarily unavailable"))]), seen: Arc::default() };
+            let fallback = Scripted { turns: VecDeque::from([turn(vec![Block::Text { text: "done".into() }], StopReason::EndTurn)]), seen: seen.clone() };
+            let slot = |name: &str, model: Scripted, vision| ModelSlot {
+                name: name.into(),
+                model: Box::new(model),
+                local: true,
+                effort: None,
+                max_turns: 5,
+                context_tokens: 0,
+                tools: Default::default(),
+                vision,
+            };
+            let chain = vec![slot("Sees", failing, Vision::Yes), slot("Fallback", fallback, fallback_vision)];
+            let mut c = ApiConversation::start(host, chain, LoopConfig::default()).unwrap();
+            c.attach(vec![Block::image(name, png).unwrap()]);
+            c.send("Here's your build.");
+            drain_until_done(&mut c, |_, _| {});
+            let seen = seen.lock().unwrap();
+            let sent = &seen.last().expect("the fallback was asked").last().unwrap().blocks;
+            let pictures = sent.iter().filter(|b| matches!(b, Block::Image { data, .. } if !data.is_empty())).count();
+            if fallback_vision == Vision::No {
+                assert_eq!(pictures, 0, "{sent:?}");
+                assert!(sent.iter().any(|b| matches!(b, Block::Text { text } if text == &Block::image_note(name))), "{sent:?}");
+            } else {
+                assert_eq!(pictures, 1, "{sent:?}");
+            }
         }
     }
 
