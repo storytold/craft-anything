@@ -1787,6 +1787,13 @@ Owner: open · Status: in progress
       to add them (`kinds/website.rs`), so a translated rebuild is told to put them back. A
       matching declared language doesn't show the words were translated
 
+- [x] Keep an unreadable website study inventory from silently dropping captured pages or
+      opened controls from the rebuild check. Distinguish an absent optional route list
+      from a broken record, bound the reads, and preserve the recorded files on failure.
+      Keep the failing check's recovery guidance after its retry; only a missing remediation
+      gets generic retry advice, and cancellation still stops immediately
+      — claimed: Afloat16, branch bugfix/r2.7-website-capture-inventories
+
 ### R2.8 Clean room means clean room
 Owner: maintainers · Status: in progress
 - [x] A remote (SSH) builder needs a craft-anything-cli that knows `--deep` and `--clean-room`.

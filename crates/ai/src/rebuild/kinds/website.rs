@@ -20,6 +20,8 @@ pub const ROUTES_FILE: &str = "routes.json";
 /// desktop width; [`phone_states_dir`] holds them at the phone width (a menu button often only
 /// shows there).
 pub const STATES_DIR: &str = "states";
+/// These small inventories list the studied pages and controls, not the captured page bodies.
+const MAX_INVENTORY_BYTES: u64 = 1 << 20;
 /// What a new site's builder is told to leave for running it outside Craft Anything.
 pub const HOW_TO_RUN: &str = "Craft Anything serves your built folder itself, so the site needs no dev or start script here. For anyone running it without Craft Anything, write app/README.md saying how: the commands that build it (such as `npm install` and `npm run build`, or none for plain files) and the folder to serve with any static web server (for example `npx serve dist`), since opening index.html straight from the disk may not work.";
 
@@ -34,24 +36,30 @@ pub fn phone_width(widths: &[u32]) -> Option<u32> {
 }
 
 /// The folders of opened states in a capture folder (`states`, then `states-<width>`).
-pub fn state_dirs(capture: &Path) -> Vec<String> {
-    let mut dirs: Vec<String> = std::fs::read_dir(capture)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|e| e.file_name().to_str().map(String::from))
-        .filter(|n| n == STATES_DIR || n.strip_prefix("states-").is_some_and(|w| w.parse::<u32>().is_ok()))
-        .collect();
+/// A missing capture folder has no states; an unreadable one is an error.
+pub fn state_dirs(capture: &Path) -> Result<Vec<String>, ToolError> {
+    if inventory_absent(capture)? {
+        return Ok(Vec::new());
+    }
+    let entries = std::fs::read_dir(capture).map_err(|e| inventory_error(capture, ToolError::io(capture.display(), e)))?;
+    let mut dirs = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|e| inventory_error(capture, ToolError::io(capture.display(), e)))?;
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if name == STATES_DIR || name.strip_prefix("states-").is_some_and(|w| w.parse::<u32>().is_ok()) {
+            dirs.push(name.to_string());
+        }
+    }
     dirs.sort();
-    dirs
+    Ok(dirs)
 }
 
 /// The opened states the study pictured, as `states/state-<n>.png (label, kind, width)` (none
-/// when there were none).
-pub fn pictured_states(ws: &Workspace) -> Vec<String> {
+/// when there were none). An unreadable inventory is reported, not treated as empty.
+pub fn pictured_states(ws: &Workspace) -> Result<Vec<String>, ToolError> {
     let mut out = Vec::new();
-    for dir in state_dirs(&ws.capture_dir()) {
-        let Some(v) = read_json(&ws.capture_dir().join(&dir).join("states.json")) else { continue };
+    for (dir, v) in state_inventories(ws)? {
         let width = v.get("width").and_then(Value::as_u64).map(|w| format!(", {w} px")).unwrap_or_default();
         out.extend(v.get("states").and_then(Value::as_array).into_iter().flatten().filter_map(|s| {
             let file = s.get("file").and_then(Value::as_str)?;
@@ -59,7 +67,41 @@ pub fn pictured_states(ws: &Workspace) -> Vec<String> {
             Some(format!("{dir}/{file} ({label}, {}{width})", s.get("kind").and_then(Value::as_str).unwrap_or("menu")))
         }));
     }
-    out
+    Ok(out)
+}
+
+/// An absent optional record is different from a dangling link or an unreadable record.
+fn inventory_absent(path: &Path) -> Result<bool, ToolError> {
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => Ok(false),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(true),
+        Err(e) => Err(inventory_error(path, ToolError::io(path.display(), e))),
+    }
+}
+
+fn inventory_error(path: &Path, mut error: ToolError) -> ToolError {
+    error.message = format!("Craft Anything can't read the website study at {}: {}", path.display(), error.message);
+    error.with_remediation("Keep the recorded files. Restore the named record from a backup, or study the website again before comparing the build.")
+}
+
+fn read_inventory<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, ToolError> {
+    let bytes = craft_anything_platform::fs::read_file_capped(path, MAX_INVENTORY_BYTES).map_err(|e| inventory_error(path, e))?;
+    serde_json::from_slice(&bytes).map_err(|e| inventory_error(path, ToolError::invalid(e.to_string())))
+}
+
+/// Read every recorded control inventory before a check opens the preview or replaces results.
+fn state_inventories(ws: &Workspace) -> Result<Vec<(String, Value)>, ToolError> {
+    state_dirs(&ws.capture_dir())?
+        .into_iter()
+        .map(|dir| {
+            let path = ws.capture_dir().join(&dir).join("states.json");
+            let value: Value = read_inventory(&path)?;
+            if !value.get("states").and_then(Value::as_array).is_some_and(|states| states.iter().all(Value::is_object)) {
+                return Err(inventory_error(&path, ToolError::invalid("Expected a states array containing control records.")));
+            }
+            Ok((dir, value))
+        })
+        .collect()
 }
 
 /// Another page of the site: its path, the folder name its capture uses, and its address.
@@ -125,8 +167,10 @@ pub fn pick_deeper_routes(captures: &[Value], start: &str, have: &[Route], max: 
 }
 
 /// The other pages captured for a project (none when only the start page was).
-pub fn routes(ws: &Workspace) -> Vec<Route> {
-    std::fs::read(ws.capture_dir().join(ROUTES_FILE)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+/// Only a missing optional list means no other pages; an unreadable list is an error.
+pub fn routes(ws: &Workspace) -> Result<Vec<Route>, ToolError> {
+    let path = ws.capture_dir().join(ROUTES_FILE);
+    if inventory_absent(&path)? { Ok(Vec::new()) } else { read_inventory(&path) }
 }
 
 impl TargetKind for WebsiteKind {
@@ -195,14 +239,20 @@ impl TargetKind for WebsiteKind {
 
     fn brief_sections(&self, cx: &BriefCx) -> Vec<String> {
         let mut out = Vec::new();
-        let routes = routes(cx.ws);
+        let routes = routes(cx.ws).unwrap_or_else(|e| {
+            out.push(e.for_people());
+            Vec::new()
+        });
         if !routes.is_empty() {
             let list = routes.iter().map(|r| format!("{} (capture/routes/{}/)", r.path, r.slug)).collect::<Vec<_>>().join(", ");
             out.push(format!(
                 "The site has more pages, captured the same way: {list}. Rebuild each at the same path, with the same navigation between them; they're compared with the original too."
             ));
         }
-        let states = pictured_states(cx.ws);
+        let states = pictured_states(cx.ws).unwrap_or_else(|e| {
+            out.push(e.for_people());
+            Vec::new()
+        });
         if !states.is_empty() {
             out.push(format!(
                 "Its menus, pop-ups and tabs were opened one at a time and photographed in capture/ (on a computer, and on a phone where its controls differ, such as a menu button): {}. Make them open and look the same way at each width.",
@@ -726,10 +776,17 @@ fn picture_likeness(cx: &CheckCx, original: &Path, built: &Path) -> Result<Optio
 /// Open the build's menus, pop-ups and tabs the way the study opened the original's in `dir`
 /// (`states` or `states-<width>`), at the same width, and compare each pair of pictures. None
 /// when the study pictured none there.
-fn states_note(cx: &CheckCx, base: &str, out: &Path, dir: &str, unknowns: &mut Vec<String>, claims: &mut Vec<Claim>) -> Result<Option<String>, ToolError> {
+fn states_note(
+    cx: &CheckCx,
+    base: &str,
+    out: &Path,
+    dir: &str,
+    original: &Value,
+    unknowns: &mut Vec<String>,
+    claims: &mut Vec<Claim>,
+) -> Result<Option<String>, ToolError> {
     let theirs = cx.ws.capture_dir().join(dir);
-    let Some(original) = read_json(&theirs.join("states.json")) else { return Ok(None) };
-    if pair_states(&original, &Value::Null).is_empty() {
+    if pair_states(original, &Value::Null).is_empty() {
         return Ok(None);
     }
     let ours = out.join(dir);
@@ -742,7 +799,7 @@ fn states_note(cx: &CheckCx, base: &str, out: &Path, dir: &str, unknowns: &mut V
     }
     let built = read_json(&ours.join("states.json")).unwrap_or(Value::Null);
     let mut parts = Vec::new();
-    for (o, b) in pair_states(&original, &built) {
+    for (o, b) in pair_states(original, &built) {
         let s = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
         let name = match s(o, "label") {
             l if l.is_empty() => format!("a {}", s(o, "kind")),
@@ -789,6 +846,8 @@ impl Check for WebVisualCheck {
 
     fn run(&self, cx: &mut CheckCx) -> Result<CheckResult, ToolError> {
         let (ws, round) = (cx.ws, cx.round);
+        let recorded_routes = routes(ws)?;
+        let recorded_states = state_inventories(ws)?;
         let settings = cx.build_settings();
         let widths = settings.widths();
         let Some(site) = site_dir(&ws.app_dir()) else {
@@ -802,7 +861,7 @@ impl Check for WebVisualCheck {
         std::fs::create_dir_all(ws.checks_dir()).map_err(|e| ToolError::io(ws.checks_dir().display(), e))?;
         // The start page, then every other page studied: the same path on the build.
         let mut pages = vec![("start page".to_string(), String::new(), base.clone())];
-        for r in routes(ws) {
+        for r in recorded_routes {
             let url = format!("{}{}", base.trim_end_matches('/'), r.path);
             pages.push((r.path.clone(), format!("routes/{}", r.slug), url));
         }
@@ -871,8 +930,8 @@ impl Check for WebVisualCheck {
         if scores.is_empty() {
             return Ok(CheckResult::new(self.id(), round, false, "The build couldn't be compared with the original."));
         }
-        for dir in state_dirs(&ws.capture_dir()) {
-            notes.extend(states_note(cx, &base, &out, &dir, &mut unknowns, &mut claims)?);
+        for (dir, original) in recorded_states {
+            notes.extend(states_note(cx, &base, &out, &dir, &original, &mut unknowns, &mut claims)?);
         }
         let failed: Vec<String> = claims.iter().filter(|c| !c.passed).map(|c| format!("{} ({})", c.title, c.detail)).collect();
         if !failed.is_empty() {
@@ -887,6 +946,9 @@ impl Check for WebVisualCheck {
         Ok(CheckResult { similarity: Some(avg), artifacts, pages, unknowns, claims, ..CheckResult::new(self.id(), round, true, notes.join(" | ")) })
     }
 }
+
+#[cfg(test)]
+mod inventory_tests;
 
 #[cfg(test)]
 mod tests {

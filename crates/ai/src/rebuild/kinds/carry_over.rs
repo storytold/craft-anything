@@ -59,7 +59,8 @@ pub struct Page {
 }
 
 /// The start page and the other captured pages of a project, as far as their captures can be read.
-pub fn pages(ws: &Workspace) -> Vec<Page> {
+/// A damaged route inventory is an error, not evidence that only the start page was captured.
+pub fn pages(ws: &Workspace) -> Result<Vec<Page>, ToolError> {
     let read = |dir: &Path| std::fs::read(dir.join("capture.json")).ok().and_then(|b| serde_json::from_slice(&b).ok());
     let capture = ws.capture_dir();
     let start_path = match &ws.manifest.target {
@@ -67,8 +68,8 @@ pub fn pages(ws: &Workspace) -> Vec<Page> {
         _ => "/".into(),
     };
     let start = read(&capture).map(|c| Page { path: start_path, capture: c });
-    let others = routes(ws).into_iter().filter_map(|r| read(&capture.join("routes").join(&r.slug)).map(|c| Page { path: r.path, capture: c }));
-    start.into_iter().chain(others).collect()
+    let others = routes(ws)?.into_iter().filter_map(|r| read(&capture.join("routes").join(&r.slug)).map(|c| Page { path: r.path, capture: c }));
+    Ok(start.into_iter().chain(others).collect())
 }
 
 /// The path of a web address (`https://a.com/shop?x=1` is `/shop`), `/` for the site's root.
@@ -276,7 +277,7 @@ mod tests {
         let ws = Workspace::create(d.path(), "Shop", "Clone it", TargetRef::Website { url: "https://a.com/shop?ref=ad".into() }).unwrap();
         std::fs::create_dir_all(ws.capture_dir()).unwrap();
         std::fs::write(ws.capture_dir().join("capture.json"), r#"{"forms": [{"action": "/checkout"}]}"#).unwrap();
-        let s = carry_over(&pages(&ws)).unwrap();
+        let s = carry_over(&pages(&ws).unwrap()).unwrap();
         assert!(s.contains("1 form(s) on /shop)"), "{s}");
         assert_eq!(path_of("https://a.com"), "/");
     }
@@ -307,14 +308,31 @@ mod tests {
     fn a_project_reads_its_start_page_and_other_pages() {
         let d = tempfile::tempdir().unwrap();
         let ws = Workspace::create(d.path(), "Site", "Clone it", TargetRef::Website { url: "https://a.com".into() }).unwrap();
-        assert!(pages(&ws).is_empty(), "nothing captured yet");
+        assert!(pages(&ws).unwrap().is_empty(), "nothing captured yet");
         let capture = ws.capture_dir();
         std::fs::create_dir_all(capture.join("routes/book")).unwrap();
         std::fs::write(capture.join("capture.json"), "{}").unwrap();
         std::fs::write(capture.join("routes/book/capture.json"), r#"{"forms": [{"fields": [{"type": "date"}]}]}"#).unwrap();
         std::fs::write(capture.join(super::super::website::ROUTES_FILE), r#"[{"path": "/book", "slug": "book", "url": "https://a.com/book"}]"#).unwrap();
-        let s = carry_over(&pages(&ws)).unwrap();
+        let s = carry_over(&pages(&ws).unwrap()).unwrap();
         let seen = s.lines().find(|l| l.starts_with("- Seen")).expect(&s);
         assert!(seen.contains("bookings") && seen.contains("/book"), "the other page's form is read: {s}");
+    }
+
+    #[test]
+    fn a_damaged_route_inventory_is_not_a_start_page_only_summary() {
+        let d = tempfile::tempdir().unwrap();
+        let ws = Workspace::create(d.path(), "Site", "Clone it", TargetRef::Website { url: "https://a.com".into() }).unwrap();
+        std::fs::create_dir_all(ws.capture_dir()).unwrap();
+        std::fs::write(ws.capture_dir().join("capture.json"), "{}").unwrap();
+        let path = ws.capture_dir().join(super::super::website::ROUTES_FILE);
+        let bytes = b"{broken";
+        std::fs::write(&path, bytes).unwrap();
+
+        let error = pages(&ws).err().expect("a readable start page cannot hide a damaged page inventory");
+
+        assert!(error.message.contains(&path.display().to_string()), "{error:?}");
+        assert!(error.remediation.as_deref().is_some_and(|r| r.contains("Keep the recorded files") && r.contains("Restore")), "{error:?}");
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
     }
 }

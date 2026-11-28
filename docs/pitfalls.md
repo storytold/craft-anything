@@ -1103,6 +1103,14 @@ computer. Say what ran and what it printed, write the rest to a log the person c
 agent run does: `crate::failure_log`), and never name a next step you don't spell out. Exit 255
 from ssh is ssh's own failure: don't blame the remote program. Test a message by causing the failure.
 
+**A retry that erased the error's recovery advice.** A broken website study inventory said to
+restore the record or study the site again, but the retry wrapper replaced that with "Try again".
+Keep a failed check's supplied remediation, default only when it is absent, and return cancellation
+unchanged. Unavailable tools keep their setup guidance alongside "Try again"; other checks keep
+their supplied text, including an empty value. Preserve the error details in both cases. Test the
+real wrapper as well as the check: a lower-level error assertion cannot catch recovery guidance
+lost before it reaches the person.
+
 **A rule in the brief taken for a guard.** Every brief says everything outside `app/` is read-only,
 and an OpenCode builder still wrote its own progress notes over `inbox/build-progress.json`. The
 run read the record strictly, as it should, and every Try again stopped at "unknown field `step`"

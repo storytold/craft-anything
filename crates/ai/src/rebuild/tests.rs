@@ -1742,7 +1742,7 @@ fn other_pages_of_the_same_site_are_picked_from_its_links() {
     assert_eq!(kinds::WebsiteKind.brief_sections(&cx(&ws)), [kinds::website::HOW_TO_RUN]);
     std::fs::create_dir_all(ws.capture_dir()).unwrap();
     std::fs::write(ws.capture_dir().join(ROUTES_FILE), serde_json::to_vec(&r).unwrap()).unwrap();
-    assert_eq!(routes(&ws).len(), 4);
+    assert_eq!(routes(&ws).unwrap().len(), 4);
     let s = kinds::WebsiteKind.brief_sections(&cx(&ws)).join(" ");
     assert!(s.contains("/pricing (capture/routes/pricing/)"), "{s}");
 
@@ -3903,8 +3903,8 @@ fn menus_are_studied_on_a_phone_too() {
         std::fs::write(states.join("states.json"), serde_json::to_vec(&list).unwrap()).unwrap();
     }
     std::fs::create_dir_all(ws.capture_dir().join("states-old")).unwrap();
-    assert_eq!(state_dirs(&ws.capture_dir()), ["states", "states-390"]);
-    assert_eq!(pictured_states(&ws), ["states/state-1.png (Products, menu, 1440 px)", "states-390/state-1.png (Menu, menu, 390 px)"]);
+    assert_eq!(state_dirs(&ws.capture_dir()).unwrap(), ["states", "states-390"]);
+    assert_eq!(pictured_states(&ws).unwrap(), ["states/state-1.png (Products, menu, 1440 px)", "states-390/state-1.png (Menu, menu, 390 px)"]);
 }
 
 /// A builder whose turn lasts until its own check (asked like `rebuild_check` from another process)

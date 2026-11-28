@@ -1221,10 +1221,14 @@ impl Worker {
         }
         ws.set_status(Status::Ready, summary.clone())?;
         self.emit(RunEvent::Step { step: Step::Done, text: summary.clone() });
-        if matches!(ws.manifest.target, TargetRef::Website { .. })
-            && let Some(list) = kinds::carry_over::carry_over(&kinds::carry_over::pages(ws))
-        {
-            self.emit(RunEvent::Step { step: Step::Done, text: list });
+        if matches!(ws.manifest.target, TargetRef::Website { .. }) {
+            let list = match kinds::carry_over::pages(ws) {
+                Ok(pages) => kinds::carry_over::carry_over(&pages),
+                Err(e) => Some(e.for_people()),
+            };
+            if let Some(list) = list {
+                self.emit(RunEvent::Step { step: Step::Done, text: list });
+            }
         }
         Ok(summary)
     }
@@ -1712,17 +1716,15 @@ For a plugin's tool, the plugin's `consent` setting in the person's config.toml 
 /// across runs, so a build that never came up was checked 40 and 49 times (#736).
 pub const NOT_WORKING_CHECK_LIMIT: u32 = 10;
 
-/// Wrap a check error that prevented verifying the finished build, preserving tool-setup
-/// remediation alongside the "Try again" guidance (#2178).
+/// Wrap a check error that prevented verifying the finished build, preserving its recovery
+/// guidance. Unavailable tools keep setup instructions alongside "Try again" (#2178).
 fn unchecked_build_error(e: ToolError) -> ToolError {
     const TRY_AGAIN: &str = "Press Try again to check it again. Nothing needs building again.";
-    let remediation = match e.remediation.as_deref().map(str::trim) {
-        Some(fix) if check::is_unavailable_tool_error(&e) && !fix.is_empty() => {
-            if fix.ends_with(['.', '!', '?', ':']) {
-                format!("{fix} {TRY_AGAIN}")
-            } else {
-                format!("{fix}. {TRY_AGAIN}")
-            }
+    let remediation = match e.remediation.as_deref() {
+        Some(fix) if !check::is_unavailable_tool_error(&e) => fix.to_string(),
+        Some(fix) if !fix.trim().is_empty() => {
+            let fix = fix.trim();
+            if fix.ends_with(['.', '!', '?', ':']) { format!("{fix} {TRY_AGAIN}") } else { format!("{fix}. {TRY_AGAIN}") }
         }
         _ => TRY_AGAIN.to_string(),
     };

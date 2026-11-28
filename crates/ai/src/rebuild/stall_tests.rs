@@ -443,8 +443,8 @@ fn own_project_build_check_separates_missing_tool_from_real_failure() {
 
 /// #2178: `checks_with_a_retry_now` still retries transient check errors (such as a dropped
 /// browser WebSocket with no missing-tool reason), never retries cancellation, and
-/// `unchecked_build_error` keeps tool remediation cleanly punctuated while filtering blank or
-/// non-tool remediations.
+/// `unchecked_build_error` keeps tool remediation cleanly punctuated, uses generic retry advice
+/// for blank tool remediation, and preserves other checks' recovery guidance.
 #[test]
 fn retry_policy_and_unchecked_build_remediation_cover_transient_and_cancelled_errors() {
     struct ScriptedCheck {
@@ -512,8 +512,8 @@ fn retry_policy_and_unchecked_build_remediation_cover_transient_and_cancelled_er
     assert_eq!(err.code, ErrorCode::Cancelled);
     assert_eq!(cancel_calls.load(std::sync::atomic::Ordering::SeqCst), 1, "cancelled check must not retry");
 
-    // `unchecked_build_error` punctuates unpunctuated tool remediation, ignores blank or
-    // non-unavailable-tool remediation, and preserves `details`.
+    // `unchecked_build_error` punctuates unpunctuated tool remediation, supplies generic advice
+    // for blank tool remediation, and preserves other remediation and `details`.
     let no_dot = ToolError::new(ErrorCode::NoPermission, "denied").with_remediation("Make it executable");
     let wrapped = unchecked_build_error(no_dot);
     assert_eq!(wrapped.remediation.as_deref(), Some("Make it executable. Press Try again to check it again. Nothing needs building again."));
@@ -524,6 +524,6 @@ fn retry_policy_and_unchecked_build_remediation_cover_transient_and_cancelled_er
     let transient =
         ToolError::new(ErrorCode::EngineMissing, "WebSocket closed").with_remediation("Transient hint.").with_details(serde_json::json!({"reason": "dropped"}));
     let wrapped_transient = unchecked_build_error(transient);
-    assert_eq!(wrapped_transient.remediation.as_deref(), Some("Press Try again to check it again. Nothing needs building again."));
+    assert_eq!(wrapped_transient.remediation.as_deref(), Some("Transient hint."));
     assert_eq!(wrapped_transient.details.as_ref().and_then(|d| d["reason"].as_str()), Some("dropped"));
 }
