@@ -2250,3 +2250,257 @@ fn openrouter_asks_again_for_an_answer_the_key_can_afford() {
     assert!(other.turn(&request, &mut |_| {}, &Stop::default()).is_err());
     assert_eq!(seen.lock().unwrap().len(), 1);
 }
+
+/// #1970: a stop ends an API backend's request at once, whatever it is waiting for, and the turn
+/// ends as a stopped turn does.
+mod stopping {
+    use super::*;
+    use crate::model::{ChatModel, Delta, Effort, Msg, Stop, TurnRequest};
+    use std::net::TcpStream;
+    use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+
+    /// Longest a stopped request may take to end.
+    const PROMPTLY: Duration = Duration::from_secs(2);
+
+    /// A stand-in model server that sends `reply` (nothing, or the start of a streamed answer) to
+    /// each request and then says nothing more, holding the connection until the client closes it.
+    struct Stalls {
+        base: String,
+        requests: Arc<AtomicUsize>,
+        closed: Arc<AtomicUsize>,
+    }
+
+    fn stalls(reply: String) -> Stalls {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}/v1", l.local_addr().unwrap());
+        let (requests, closed) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+        let (counted, ended) = (requests.clone(), closed.clone());
+        std::thread::spawn(move || {
+            for s in l.incoming().flatten() {
+                let (reply, counted, ended) = (reply.clone(), counted.clone(), ended.clone());
+                std::thread::spawn(move || hold(s, &reply, &counted, &ended));
+            }
+        });
+        Stalls { base, requests, closed }
+    }
+
+    fn timed_out(e: &std::io::Error) -> bool {
+        matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut)
+    }
+
+    fn hold(mut s: TcpStream, reply: &str, requests: &AtomicUsize, closed: &AtomicUsize) {
+        // Set right after connecting, before anything can close the connection.
+        if s.set_read_timeout(Some(Duration::from_millis(200))).is_err() {
+            return;
+        }
+        let until = Instant::now() + Duration::from_secs(60);
+        let (mut got, mut buf, mut need) = (Vec::new(), [0u8; 4096], None);
+        // The whole request: its head, then as much body as its content-length says.
+        loop {
+            if let Some(n) = need {
+                if got.len() >= n {
+                    break;
+                }
+            } else if let Some(end) = got.windows(4).position(|w| w == b"\r\n\r\n") {
+                let head = String::from_utf8_lossy(&got[..end]).to_ascii_lowercase();
+                let len = head.lines().find_map(|l| l.strip_prefix("content-length:")).and_then(|v| v.trim().parse::<usize>().ok()).unwrap_or(0);
+                need = Some(end + 4 + len);
+                continue;
+            }
+            match s.read(&mut buf) {
+                Ok(0) => return,
+                Ok(n) => got.extend_from_slice(&buf[..n]),
+                Err(e) if timed_out(&e) && Instant::now() < until => {}
+                Err(_) => return,
+            }
+        }
+        if got.starts_with(b"GET ") {
+            // A window probe (crate::window): this server doesn't say its window.
+            let _ = write!(s, "HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n");
+            return;
+        }
+        requests.fetch_add(1, SeqCst);
+        if s.write_all(reply.as_bytes()).and_then(|()| s.flush()).is_err() {
+            return;
+        }
+        loop {
+            match s.read(&mut buf) {
+                Ok(0) => break,
+                Ok(_) => {}
+                Err(e) if timed_out(&e) && Instant::now() < until => {}
+                Err(e) if timed_out(&e) => return,
+                Err(_) => break,
+            }
+        }
+        closed.fetch_add(1, SeqCst);
+    }
+
+    /// The head of a streamed answer and its first chunk, with no end.
+    fn started(events: &str) -> String {
+        format!("HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ntransfer-encoding: chunked\r\n\r\n{:x}\r\n{events}\r\n", events.len())
+    }
+
+    fn wait_for(what: &str, done: impl Fn() -> bool) {
+        let until = Instant::now() + Duration::from_secs(20);
+        while !done() {
+            assert!(Instant::now() < until, "timed out waiting for {what}");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// Stop `stop` from another thread once the server has the request and `after` has passed;
+    /// the thread says when it stopped.
+    fn stop_later(stop: &Stop, requests: &Arc<AtomicUsize>, after: Duration) -> std::thread::JoinHandle<Instant> {
+        let (stop, requests) = (stop.clone(), requests.clone());
+        std::thread::spawn(move || {
+            wait_for("the request", || requests.load(SeqCst) >= 1);
+            std::thread::sleep(after);
+            stop.stop();
+            Instant::now()
+        })
+    }
+
+    /// Each API backend's own request code, with the default (five-minute) wait for an answer.
+    fn backend(name: &str, base: &str) -> Box<dyn ChatModel> {
+        match name {
+            "Anthropic" => Box::new(anthropic::Anthropic::new(Some(base), "sk-test".into(), "")),
+            "OpenAI" => Box::new(openai::OpenAi::official(Some(base), "sk-test".into(), "")),
+            "OpenRouter" => Box::new(openai::OpenAi::openrouter(Some(base), "sk-test".into(), "")),
+            _ => Box::new(openai::OpenAi::compatible("Local", base, None, "m")),
+        }
+    }
+
+    const BACKENDS: [&str; 4] = ["Anthropic", "OpenAI", "OpenRouter", "local"];
+
+    fn ask(model: &mut dyn ChatModel, stop: &Stop, deltas: &mut Vec<String>) -> Result<crate::model::TurnResult, ToolError> {
+        let messages = [Msg::user_text("hi")];
+        let request = TurnRequest { system: "s", messages: &messages, tools: &[], effort: Effort::Low, max_tokens: 100 };
+        model.turn(
+            &request,
+            &mut |d| {
+                if let Delta::Text(t) = d {
+                    deltas.push(t);
+                }
+            },
+            stop,
+        )
+    }
+
+    /// A server that took the request and never answers: the stop ends the wait at once.
+    #[test]
+    fn a_stop_ends_a_request_waiting_for_its_answer() {
+        for name in BACKENDS {
+            let server = stalls(String::new());
+            let mut model = backend(name, &server.base);
+            let stop = Stop::default();
+            let stopper = stop_later(&stop, &server.requests, Duration::from_millis(300));
+            let error = ask(model.as_mut(), &stop, &mut Vec::new()).err().unwrap_or_else(|| panic!("{name}: answered"));
+            let took = stopper.join().unwrap().elapsed();
+            assert_eq!(error.code, ErrorCode::Cancelled, "{name}: {error:?}");
+            assert!(took < PROMPTLY, "{name}: the stop took {took:?}");
+            assert_eq!(server.requests.load(SeqCst), 1, "{name}: asked once");
+        }
+    }
+
+    /// An answer that started streaming and stalled: the stop ends it at once, after what came
+    /// was shown, and the turn is a stopped one (nothing of it is kept as an answer).
+    #[test]
+    fn a_stop_ends_a_stalled_stream_after_what_it_sent() {
+        let anthropic_start = sse(&[
+            json!({"type":"message_start","message":{"model":"claude-opus-5-5","usage":{"input_tokens":10}}}),
+            json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}),
+            json!({"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hel"}}),
+        ]);
+        let chat_start = "data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n\n".to_string();
+        for name in BACKENDS {
+            let server = stalls(started(if name == "Anthropic" { &anthropic_start } else { &chat_start }));
+            let mut model = backend(name, &server.base);
+            let stop = Stop::default();
+            let stopper = stop_later(&stop, &server.requests, Duration::from_millis(500));
+            let mut deltas = Vec::new();
+            let error = ask(model.as_mut(), &stop, &mut deltas).err().unwrap_or_else(|| panic!("{name}: answered"));
+            let took = stopper.join().unwrap().elapsed();
+            assert_eq!(error.code, ErrorCode::Cancelled, "{name}: {error:?}");
+            assert!(took < PROMPTLY, "{name}: the stop took {took:?}");
+            assert_eq!(deltas, ["Hel"], "{name}: what streamed before the stop was shown");
+        }
+    }
+
+    /// A stop while a paced backend waits for its next turn ends the wait and sends nothing.
+    #[test]
+    fn a_stop_during_a_paced_wait_sends_no_request() {
+        let reply = chat_sse(&[json!({"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]})]);
+        let (url, seen) = mock(vec![(200, "text/event-stream", reply.clone()), (200, "text/event-stream", reply)]);
+        let inner = Box::new(openai::OpenAi::compatible("Paced", &url, None, "m"));
+        let mut paced = pace::Paced { inner, backend: "stop-test-paced".into(), gap: Duration::from_secs(60) };
+        let stop = Stop::default();
+        ask(&mut paced, &stop, &mut Vec::new()).unwrap();
+        let stopper = {
+            let stop = stop.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(300));
+                stop.stop();
+                Instant::now()
+            })
+        };
+        let error = ask(&mut paced, &stop, &mut Vec::new()).unwrap_err();
+        let took = stopper.join().unwrap().elapsed();
+        assert_eq!(error.code, ErrorCode::Cancelled, "{error:?}");
+        assert!(took < PROMPTLY, "the stop took {took:?}");
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(seen.lock().unwrap().len(), 1, "no request after the stop");
+    }
+
+    /// A request given up on still ends by its own time limit, and closes its connection then.
+    #[test]
+    fn a_stopped_request_ends_by_its_own_time_limit() {
+        let server = stalls(String::new());
+        let mut model = openai::OpenAi::compatible("Local", &server.base, None, "m");
+        model.stream_limit = Some(Duration::from_secs(3));
+        let stop = Stop::default();
+        let stopper = stop_later(&stop, &server.requests, Duration::from_millis(100));
+        assert_eq!(ask(&mut model, &stop, &mut Vec::new()).unwrap_err().code, ErrorCode::Cancelled);
+        let stopped = stopper.join().unwrap();
+        assert!(stopped.elapsed() < Duration::from_secs(1), "given up on before its limit: {:?}", stopped.elapsed());
+        wait_for("the connection to close", || server.closed.load(SeqCst) == 1);
+        assert!(stopped.elapsed() < Duration::from_secs(10), "{:?}", stopped.elapsed());
+    }
+
+    /// Nobody stopped it: the AI's own limit still ends a wait for an answer, as before.
+    #[test]
+    fn the_time_limit_still_ends_a_request_nobody_stopped() {
+        let server = stalls(String::new());
+        let mut model = openai::OpenAi::compatible("Local", &server.base, None, "m");
+        model.stream_limit = Some(Duration::from_secs(1));
+        let started = Instant::now();
+        let error = ask(&mut model, &Stop::default(), &mut Vec::new()).unwrap_err();
+        assert_eq!(error.code, ErrorCode::TimedOut, "{error:?}");
+        assert!(http::was_reached(&error), "{error:?}");
+        assert!(started.elapsed() >= Duration::from_millis(900), "{:?}", started.elapsed());
+    }
+
+    /// A conversation stopped while its backend waits for an answer ends its turn at once, with
+    /// "Stopped." and a turn-done event, under the default five-minute wait.
+    #[test]
+    fn a_conversation_stopped_while_its_answer_is_awaited_ends_its_turn_at_once() {
+        let server = stalls(String::new());
+        let (h, _d) = hub();
+        add(&h, "Local", BackendKind::OpenaiCompatible, &server.base, None);
+        let mut c = h.start(None, true).unwrap();
+        c.send("hi");
+        wait_for("the request", || server.requests.load(SeqCst) >= 1);
+        let stopped = Instant::now();
+        c.stop();
+        let mut events = Vec::new();
+        while !events.iter().any(|e| matches!(e, AgentEvent::TurnDone { .. })) {
+            assert!(stopped.elapsed() < Duration::from_secs(20), "no turn-done: {events:?}");
+            events.extend(c.poll());
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let took = stopped.elapsed();
+        assert!(took < PROMPTLY, "the stop took {took:?}");
+        assert!(events.iter().any(|e| matches!(e, AgentEvent::Status { text } if text == "Stopped.")), "{events:?}");
+        assert!(!events.iter().any(|e| matches!(e, AgentEvent::Error { .. })), "a stop isn't a failure: {events:?}");
+        assert_eq!(server.requests.load(SeqCst), 1, "not asked again, nor another backend");
+    }
+}

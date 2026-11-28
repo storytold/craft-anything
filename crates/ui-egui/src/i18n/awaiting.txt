@@ -17,6 +17,13 @@ Builder's tools
 Auto: building tools only below a 64k window, every tool from there.
 Auto: every tool, as this AI is a paid service.
 Change a builder's tools
+Building somewhere else
+This project is building in another Craft Anything window or from the command line. What it does shows here as it goes. To pause it or add to it, use the window or terminal it runs in.
+This project is building somewhere else. Send your message once that build ends.
+A build is still working
+Keep building in the background, or pause it? A build in the background keeps using your AI, and shows here again when you open Craft Anything.
+Keep building
+Don't ask again
 That folder's name has characters Craft Anything can't read. Pick another folder.
 Does the site show more once you're signed in?
 Sign in to this site

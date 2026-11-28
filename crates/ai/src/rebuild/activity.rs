@@ -171,11 +171,22 @@ pub struct Activity {
 
 impl Activity {
     pub(super) fn new(roots: Vec<PathBuf>) -> Activity {
-        Activity { began: Instant::now(), last_ms: 0.into(), roots, state: Mutex::default() }
+        Activity::began_at(roots, Instant::now())
     }
 
-    fn touch(&self) {
-        let ms = u64::try_from(self.began.elapsed().as_millis()).unwrap_or(u64::MAX);
+    /// One whose run began at `began` (a run followed from another process began before it was
+    /// followed).
+    pub(super) fn began_at(roots: Vec<PathBuf>, began: Instant) -> Activity {
+        Activity { began, last_ms: 0.into(), roots, state: Mutex::default() }
+    }
+
+    /// How far into the run it is now.
+    pub(super) fn elapsed(&self) -> Duration {
+        self.began.elapsed()
+    }
+
+    fn touch(&self, at: Duration) {
+        let ms = u64::try_from(at.as_millis()).unwrap_or(u64::MAX);
         self.last_ms.store(ms, Ordering::Relaxed);
     }
 
@@ -185,9 +196,16 @@ impl Activity {
     }
 
     /// Take in one event. Returns the lines it added, for the log.
+    #[cfg(test)]
     pub(super) fn record(&self, e: &RunEvent) -> Vec<ActivityLine> {
-        self.touch();
-        let at = self.began.elapsed();
+        self.record_at(e, self.elapsed())
+    }
+
+    /// Take in one event that happened `at` into the run (now, for the run itself; when it was
+    /// logged, for a run followed from another process). Returns the lines it added, for the log.
+    pub(super) fn record_at(&self, e: &RunEvent, at: Duration) -> Vec<ActivityLine> {
+        self.touch(at);
+        let now = self.began.checked_add(at).unwrap_or_else(Instant::now);
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         let mut new: Vec<(LineKind, String)> = Vec::new();
         if let RunEvent::Agent(AgentEvent::TextDelta { text }) = e {
@@ -201,7 +219,7 @@ impl Activity {
                 new.push((LineKind::Said, rest.to_string()));
             }
         }
-        self.lines_for(e, &mut state, &mut new);
+        self.lines_for(e, now, &mut state, &mut new);
         let lines: Vec<ActivityLine> =
             new.into_iter().map(|(kind, text)| ActivityLine { at, kind, text: cut(&journal::scrubbed_line(&one_line(&text)), LONGEST_LINE) }).collect();
         for l in &lines {
@@ -213,7 +231,7 @@ impl Activity {
         lines
     }
 
-    fn lines_for(&self, e: &RunEvent, state: &mut State, new: &mut Vec<(LineKind, String)>) {
+    fn lines_for(&self, e: &RunEvent, now: Instant, state: &mut State, new: &mut Vec<(LineKind, String)>) {
         match e {
             RunEvent::Step { text, .. } => new.push((LineKind::Stage, text.clone())),
             RunEvent::Agent(a) => match a {
@@ -224,12 +242,12 @@ impl Activity {
                 AgentEvent::ToolStarted { call_id, tool, input } => {
                     let action = describe(tool, input, &self.roots);
                     new.push((LineKind::Started, action.words()));
-                    state.going.push(Going { call_id: call_id.clone(), action, since: Instant::now() });
+                    state.going.push(Going { call_id: call_id.clone(), action, since: now });
                 }
                 AgentEvent::ToolFinished { tool, .. } if is_checklist(tool) => {}
                 AgentEvent::ToolFinished { call_id, tool, ok, summary, .. } => {
                     let found = state.going.iter().rposition(|g| g.call_id == *call_id).map(|i| state.going.remove(i));
-                    let took = found.as_ref().map(|g| g.since.elapsed()).filter(|d| *d >= Duration::from_secs(1));
+                    let took = found.as_ref().map(|g| now.saturating_duration_since(g.since)).filter(|d| *d >= Duration::from_secs(1));
                     let action = found.map_or_else(|| Action { tool: tool.clone(), verb: None, object: None }, |g| g.action);
                     // The action and its result are each cut to their own length, so the line as
                     // a whole is never cut and a long command leaves the result whole.

@@ -2436,6 +2436,53 @@ Gaps found while using the app for real projects.
       drawn in DM Sans and JetBrains Mono; dropdowns have no name for screen readers, only
       their value; fields and dropdowns have no 3:1 border at rest (WCAG 1.4.11), by choice,
       which wants a second look; a compact field is about a point taller than a button
+- [x] A build is owned by the process that runs it, whichever that is: the run holds an OS lock
+      in the project for its whole life, and the app tells a build running in another process
+      (the CLI, another window) from one that stopped part-way, shows it read-only and doesn't
+      offer to start a second builder beside it (#1970, step 1). `inbox/build.lock`, taken
+      before the run touches anything; `project_delete` refuses a project a build holds; the
+      app follows the other build's saved feed every 2 s
+      — claimed: tanish2k09, branch feature/r2.9-builds-outlive-the-app
+- [x] Pause, notes and answers for a build running in another process, and its live feed and
+      activity (#1970, step 2): every run writes `inbox/run-events.jsonl` and reads
+      `inbox/control/`; `RebuildRun::attach` gives a follower with a run's own calls, and the app
+      attaches to each locked project it has no run for
+- [x] **decision** (built, waiting for the maintainers' answer on #1970) The app starts each
+      build as a runner process of its own (`craft-anything-cli rebuild-run`, from a staged copy
+      of the CLI, `build.own_process`), which keeps going when the app closes, crashes or is
+      replaced and is attached to again when it opens (#1970, step 3)
+- [x] **decision** (built, waiting for the maintainers' answer on #1970) On closing during a
+      build in its own process, the person chooses "Keep building" or "Pause"
+      (`build.on_close`: ask, keep or pause) (#1970, step 4)
+- [x] A build in its own process that nobody watches (#1970): followers hold a shared lock on
+      `inbox/watchers.lock`; a runner nobody has watched for 60 s pauses before its next builder
+      turn, unless the person chose "Keep building" (`inbox/run-keep`); it shows one system
+      notification when it ends or needs an answer (`platform::notify`: PowerShell toast,
+      `osascript`, `notify-send`; English only, and on Windows under PowerShell's name); a Pause
+      asked while the runner starts is kept in `inbox/run-stop.json`; a question waiting when the
+      app attaches shows "Needs you"
+- [x] A stopped build ends an API backend's request at once (about 100 ms, not up to its
+      5-minute limit): the request runs on a helper thread and the turn polls the stop
+      (`http::post_json_stoppable`), for Anthropic and every OpenAI-compatible backend (#1970)
+- [ ] Builds in their own process, left for later (#1970):
+      a build started by a version without the event log is only followed from what it saves
+      (no live activity, no notes), and the projects list learns it ended when the list is read
+      again; a fork's own kinds don't reach the runner, which uses the built-in ones; the
+      Settings row's title and subtitle aren't covered by `i18n-coverage` (no Settings row is);
+      a question already answered can mark a project "Needs you" when the app attaches to a
+      project that isn't open (the log replays every past question); a question waiting when the
+      app goes away isn't notified, only one that starts waiting later; a stopped request's
+      helper thread stays until the request's own time limit; the rebuild's retry wait notices
+      a stop within a second, not at once; `investigation_tools`' `UpdateLock` lets go of its
+      file lock only when the file closes, as the build lock did before its Linux fix (one
+      failure in 11 Linux runs of `investigation_locks_are_bounded_cancelled_and_released_on_drop`)
+- [ ] Not run yet for builds in their own process (#1970): a real build with a real coding
+      agent closed and reopened in the desktop app; a runner pausing after 60 s unwatched and a
+      notification from a real runner; macOS, a Linux desktop session (run
+      on Ubuntu 26.04 under WSL2 only: the suites, a runner outliving its killed parent and its
+      closed terminal; not a logout, or a desktop that stops an app's whole cgroup), a project on
+      a network drive, an app started inside a kill-on-close Job Object, and the macOS keychain
+      asking again for the staged CLI
 - [x] Theme gets a System choice, the new default, that follows the system's light or dark
       appearance and changes with it (the switches' slide to a new choice landed with #1862)
       — claimed: jgt87, branch feature/r2.9-sliding-switch-system-theme — PR #1234

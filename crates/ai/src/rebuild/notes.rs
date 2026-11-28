@@ -8,6 +8,7 @@
 //! person's own words ([`Left`]), so a note still waiting when the app closes isn't lost: the
 //! next run takes it as its own waiting note ([`take_left`]).
 
+use craft_anything_engine::questions::AskedQuestion;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -56,10 +57,86 @@ impl From<&super::Note> for Carried {
 
 /// Leave a note for the builder's next step: `text` is what the agent's hook hands over.
 pub fn hand_over(dir: &Path, id: u64, text: &str, left: Option<&Left>) -> Result<(), craft_anything_evidence::ToolError> {
+    hand_over_carrying(dir, id, text, left, &[])
+}
+
+/// [`hand_over`], saying which Just-ask answers `text` carries, so a run in another process that
+/// takes the note marks them told when its builder reads it.
+pub fn hand_over_carrying(dir: &Path, id: u64, text: &str, left: Option<&Left>, questions: &[AskedQuestion]) -> Result<(), craft_anything_evidence::ToolError> {
     std::fs::create_dir_all(dir).map_err(|e| craft_anything_evidence::ToolError::io(dir.display(), e))?;
-    let bytes = serde_json::to_vec(&serde_json::json!({"id": id, "text": text, "left": left}))
+    let bytes = serde_json::to_vec(&serde_json::json!({"id": id, "text": text, "left": left, "questions": questions}))
         .map_err(|e| craft_anything_evidence::ToolError::internal(e.to_string()))?;
     craft_anything_engine::project::write_atomic(&pending(dir, id), &bytes)
+}
+
+/// Ids at or above this are from a process following a run it doesn't own
+/// ([`super::RebuildRun::attach`]); the run's own count from 1 never reaches them. Below 2^53, so
+/// an id survives any JSON reader.
+pub const FOREIGN_BASE: u64 = 1 << 52;
+
+/// A note added by another process than the run's.
+pub fn is_foreign(id: u64) -> bool {
+    id >= FOREIGN_BASE
+}
+
+/// A new id for a note added from a process following someone else's run:
+/// `FOREIGN_BASE | salt << 32 | count`, with 20 random bits per process (`salt`) so two such
+/// processes don't share ids, then the process's own count. One whose file is already in `dir`
+/// is skipped.
+pub fn foreign_id(dir: &Path) -> u64 {
+    use std::hash::{BuildHasher, Hasher};
+    static SALT: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let salt = *SALT.get_or_init(|| {
+        let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+        h.write_u32(std::process::id());
+        h.finish() & 0xF_FFFF
+    });
+    let next = || FOREIGN_BASE | (salt << 32) | (NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) & 0xFFFF_FFFF);
+    for _ in 0..1000 {
+        let id = next();
+        if !pending(dir, id).exists() && !read(dir, id).exists() {
+            return id;
+        }
+    }
+    next()
+}
+
+/// A note waiting in `dir`, as its file says (for a process that didn't write it).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Waiting {
+    pub id: u64,
+    pub left: Left,
+    pub questions: Vec<AskedQuestion>,
+}
+
+/// The notes still waiting in `dir` (not yet read by the builder), oldest first. Files without
+/// the person's words, and ones that can't be read, are left out.
+pub fn waiting(dir: &Path) -> Vec<Waiting> {
+    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    let mut ids: Vec<u64> =
+        entries.flatten().filter_map(|e| e.file_name().to_str().and_then(|n| n.strip_suffix(".json")).and_then(|n| n.parse::<u64>().ok())).collect();
+    ids.sort_unstable();
+    ids.into_iter().filter_map(|id| waiting_one(dir, id)).collect()
+}
+
+/// The note `id` while it waits in `dir`.
+pub fn waiting_one(dir: &Path, id: u64) -> Option<Waiting> {
+    let file = serde_json::from_slice::<serde_json::Value>(&std::fs::read(pending(dir, id)).ok()?).ok()?;
+    let left = serde_json::from_value::<Left>(file.get("left")?.clone()).ok()?;
+    let questions = file.get("questions").and_then(|q| serde_json::from_value::<Vec<AskedQuestion>>(q.clone()).ok()).unwrap_or_default();
+    Some(Waiting { id, left, questions })
+}
+
+/// The note `id` is still waiting (its file is there, not yet read).
+pub fn is_waiting(dir: &Path, id: u64) -> bool {
+    pending(dir, id).is_file()
+}
+
+/// Take the note `id` for the builder, as the hook does: true when it's the run's now (it was
+/// waiting, or the builder read it already), false when it was taken back.
+pub fn take_for_builder(dir: &Path, id: u64) -> bool {
+    std::fs::rename(pending(dir, id), read(dir, id)).is_ok() || was_read(dir, id)
 }
 
 /// The notes an earlier run left waiting (the app closed before the builder took them, #1620),

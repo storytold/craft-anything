@@ -306,9 +306,17 @@ impl OpenAi {
         Ok(catalog)
     }
 
+    /// One streamed request; a stop ends it at once in every phase and as a stopped turn
+    /// ([`http::post_json_stoppable`], [`http::stop_wins`]), so nothing below asks again after it.
     fn stream_once(&self, req: &TurnRequest<'_>, on_delta: &mut dyn FnMut(Delta), stop: &Stop) -> Result<TurnResult, ToolError> {
+        let result = self.stream_unchecked(req, on_delta, stop);
+        http::stop_wins(stop, result)
+    }
+
+    fn stream_unchecked(&self, req: &TurnRequest<'_>, on_delta: &mut dyn FnMut(Delta), stop: &Stop) -> Result<TurnResult, ToolError> {
         let agent = http::stream_agent(self.stream_limit);
-        let reader = http::post_json(&agent, &self.label, &self.url("chat/completions"), &self.headers(), &self.body(req)).map_err(|e| self.explain_key(e))?;
+        let reader = http::post_json_stoppable(agent, &self.label, &self.url("chat/completions"), self.headers(), self.body(req), stop)
+            .map_err(|e| self.explain_key(e))?;
         let mut st = ChatStream::default();
         http::parse_sse(reader, |ev| {
             stop.check()?;
@@ -338,6 +346,8 @@ fn rejects_tools(e: &ToolError) -> bool {
 impl ChatModel for OpenAi {
     fn turn(&mut self, req: &TurnRequest<'_>, on_delta: &mut dyn FnMut(Delta), stop: &Stop) -> Result<TurnResult, ToolError> {
         match self.stream_once(req, on_delta, stop) {
+            // A stopped turn is never asked again, in another protocol or for a shorter answer.
+            Err(e) if e.code == ErrorCode::Cancelled => Err(e),
             Err(e) if !self.react && self.auto_react && !req.tools.is_empty() && (rejects_tools(&e) || self.no_provider_for_tools(&e)) => {
                 log::info!("{} rejected tool calling; switching to the text protocol", self.label);
                 self.react = true;

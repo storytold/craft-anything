@@ -116,19 +116,36 @@ pub fn plan_from(input: &Value) -> Option<Vec<PlanStep>> {
 }
 
 /// A run's feed: every event goes in, and it's saved at most every couple of seconds while it
-/// changes and at once when the run ends.
+/// changes and at once when the run ends. The run's own feed also writes each change to its event
+/// log ([`super::attach::EventLog`]), so another process can follow it; a *mirror* (that process's
+/// copy, [`FeedLog::mirror`]) takes the same changes in and never writes anything.
 pub(super) struct FeedLog {
     root: PathBuf,
     feed: Vec<FeedItem>,
     saved_at: Option<std::time::Instant>,
     activity: Arc<Activity>,
-    log: ActivityFile,
+    /// The activity log the run writes; `None` for a mirror, which writes no files.
+    log: Option<ActivityFile>,
+    /// Where the run says each change for other processes, once it's started (`None` for a mirror).
+    events: Option<super::attach::EventLog>,
 }
 
 impl FeedLog {
     pub(super) fn open(ws: &Workspace) -> FeedLog {
         let activity = Arc::new(Activity::new(vec![ws.app_dir(), ws.root.clone()]));
-        FeedLog { root: ws.root.clone(), feed: load(ws), saved_at: None, activity, log: ActivityFile::new(&ws.root) }
+        FeedLog { root: ws.root.clone(), feed: load(ws), saved_at: None, activity, log: Some(ActivityFile::new(&ws.root)), events: None }
+    }
+
+    /// Another process's run, as it began (`base`), to be brought up to date with what its event
+    /// log says. Nothing it takes in is written anywhere.
+    pub(super) fn mirror(root: &Path, base: Vec<FeedItem>, activity: Arc<Activity>) -> FeedLog {
+        FeedLog { root: root.to_path_buf(), feed: base, saved_at: None, activity, log: None, events: None }
+    }
+
+    /// From here on, say every change in `events` too: the feed as it is now first, then each one.
+    pub(super) fn log_events(&mut self, mut events: super::attach::EventLog, clean_room: bool) {
+        events.start(clean_room, self.activity.elapsed(), &self.feed);
+        self.events = Some(events);
     }
 
     pub(super) fn activity(&self) -> Arc<Activity> {
@@ -136,8 +153,19 @@ impl FeedLog {
     }
 
     pub(super) fn record(&mut self, e: &RunEvent) {
-        let lines = self.activity.record(e);
-        self.log.append(&lines, &self.activity);
+        let at = self.activity.elapsed();
+        self.record_at(e, at);
+    }
+
+    /// Take in an event that happened `at` into the run (for a mirror, when its run logged it).
+    pub(super) fn record_at(&mut self, e: &RunEvent, at: Duration) {
+        let lines = self.activity.record_at(e, at);
+        if let Some(log) = &mut self.log {
+            log.append(&lines, &self.activity);
+        }
+        if let Some(events) = &mut self.events {
+            events.event(at, e);
+        }
         apply(&mut self.feed, e);
         self.save(matches!(e, RunEvent::Finished { .. }));
     }
@@ -152,11 +180,24 @@ impl FeedLog {
     }
 
     pub(super) fn answered(&mut self, id: &str, shown: &str) {
-        answered(&mut self.feed, id, shown);
+        self.mark_answered(id, shown);
         self.save(true);
     }
 
+    /// Mark a card answered, and say so in the event log when that changed the feed.
+    fn mark_answered(&mut self, id: &str, shown: &str) {
+        let waiting = self.feed.iter().any(|i| matches!(i, FeedItem::Ask { request, answer: None } if request.id == id));
+        answered(&mut self.feed, id, shown);
+        if waiting && let Some(events) = &mut self.events {
+            events.answered(id, shown);
+        }
+    }
+
     fn save(&mut self, now: bool) {
+        // A mirror never writes the feed: the run that owns it does (one writer per file).
+        if self.log.is_none() {
+            return;
+        }
         if !now && self.saved_at.is_some_and(|t| t.elapsed() < Duration::from_secs(2)) {
             return;
         }
@@ -165,7 +206,7 @@ impl FeedLog {
         if let Ok(ws) = Workspace::open(&self.root) {
             for item in load(&ws) {
                 if let FeedItem::Ask { request, answer: Some(a) } = item {
-                    answered(&mut self.feed, &request.id, &a);
+                    self.mark_answered(&request.id, &a);
                 }
             }
         }

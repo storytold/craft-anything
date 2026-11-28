@@ -1021,11 +1021,45 @@ pub struct Launch {
     log: Option<PathBuf>,
     label: Option<String>,
     remediation: Option<String>,
+    detached: bool,
+    env: Vec<(OsString, OsString)>,
 }
 
 impl Launch {
     pub fn new(program: impl AsRef<OsStr>) -> Self {
-        Launch { program: program.as_ref().to_owned(), args: Vec::new(), cwd: None, hide_console: false, log: None, label: None, remediation: None }
+        Launch {
+            program: program.as_ref().to_owned(),
+            args: Vec::new(),
+            cwd: None,
+            hide_console: false,
+            log: None,
+            label: None,
+            remediation: None,
+            detached: false,
+            env: Vec::new(),
+        }
+    }
+
+    /// Set an environment variable for the program (on top of ours).
+    pub fn env(mut self, k: impl AsRef<OsStr>, v: impl AsRef<OsStr>) -> Self {
+        self.env.push((k.as_ref().to_owned(), v.as_ref().to_owned()));
+        self
+    }
+
+    /// Keep it running whatever happens to us: our process killed, our terminal closed, or the
+    /// whole group or job we run in stopped. For a background program with no window of its own
+    /// (a build that outlives the app, #1970); it implies [`hide_console`](Self::hide_console).
+    ///
+    /// Unix: it starts a session of its own (`setsid`), so it has no controlling terminal (no
+    /// hang-up when ours closes) and isn't in our process group. Windows: a new process group
+    /// (no Ctrl+C from our console), no console window, and out of the Job Object we may be in
+    /// (`CREATE_BREAKAWAY_FROM_JOB`), so a job that kills its programs when it closes doesn't
+    /// take it along. A job that doesn't allow that refuses the breakaway; the program is then
+    /// started inside it, and [`Launched::outside_our_job`] says so.
+    pub fn detached(mut self) -> Self {
+        self.detached = true;
+        self.hide_console = true;
+        self
     }
 
     pub fn arg(mut self, a: impl AsRef<OsStr>) -> Self {
@@ -1097,40 +1131,29 @@ impl Launch {
     /// it. Dropping the handle leaves the program running.
     pub fn start_watched(self) -> Result<Launched, ToolError> {
         let name = self.display();
-        let mut cmd = std::process::Command::new(&self.program);
-        cmd.args(&self.args).stdin(Stdio::null());
-        use_search_path(&mut cmd);
-        match &self.log {
-            Some(path) => {
-                let out = open_log(path).map_err(|e| ToolError::io(path.display(), e))?;
-                let err = out.try_clone().map_err(|e| ToolError::io(path.display(), e))?;
-                cmd.stdout(out).stderr(err);
+        let log = match &self.log {
+            Some(path) => Some(open_log(path).map_err(|e| ToolError::io(path.display(), e))?),
+            None => None,
+        };
+        // A detached start first asks to leave our Job Object; a job that doesn't allow it refuses
+        // with "access denied", and the program is started inside it instead.
+        let (child, outside_our_job) = match self.spawn_wrapped(log.as_ref(), self.detached) {
+            Ok(child) => (child, self.detached),
+            Err(e) if self.detached && cfg!(windows) && e.kind() == std::io::ErrorKind::PermissionDenied => {
+                log::info!("{name}: this process's job doesn't allow a program to leave it; starting {name} inside it");
+                let child = self
+                    .spawn_wrapped(log.as_ref(), false)
+                    .map_err(|e| spawn_error(&name, &self.program, self.cwd.as_deref(), e, self.remediation.as_deref()))?;
+                (child, false)
             }
-            None => {
-                cmd.stdout(Stdio::null()).stderr(Stdio::null());
-            }
-        }
-        if let Some(dir) = &self.cwd {
-            cmd.current_dir(dir);
-        }
-        #[cfg(windows)]
-        if self.hide_console {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            cmd.creation_flags(CREATE_NO_WINDOW);
-        }
-        let mut wrap = process_wrap::std::CommandWrap::from(cmd);
-        #[cfg(unix)]
-        wrap.wrap(process_wrap::std::ProcessGroup::leader());
-        #[cfg(windows)]
-        {
-            wrap.wrap(process_wrap::std::JobObject);
-            if self.hide_console {
-                wrap.wrap(process_wrap::std::CreationFlags(windows::Win32::System::Threading::CREATE_NO_WINDOW));
-            }
-        }
-        let child = spawn_retrying(|| wrap.spawn()).map_err(|e| spawn_error(&name, &self.program, self.cwd.as_deref(), e, self.remediation.as_deref()))?;
-        let launched = Launched { pid: child.id(), started: Instant::now(), state: Arc::new(Mutex::new(LaunchState { child: Some(child), ended: None })) };
+            Err(e) => return Err(spawn_error(&name, &self.program, self.cwd.as_deref(), e, self.remediation.as_deref())),
+        };
+        let launched = Launched {
+            pid: child.id(),
+            started: Instant::now(),
+            outside_our_job,
+            state: Arc::new(Mutex::new(LaunchState { child: Some(child), ended: None })),
+        };
         // Reap it when it closes. If no thread can be made the child still runs (and `ended`
         // stays unknown); on Unix it stays a zombie until we exit, which is harmless.
         let watched = launched.clone();
@@ -1155,6 +1178,65 @@ impl Launch {
             }
         });
         Ok(launched)
+    }
+
+    /// Start the program as set up, leaving our Job Object too when `break_away` (Windows only).
+    fn spawn_wrapped(&self, log: Option<&std::fs::File>, break_away: bool) -> std::io::Result<Box<dyn ChildWrapper>> {
+        // Set up again for each try: a wrapper adds its setup to the command each time it starts,
+        // and a second `setsid` in the same child fails (EPERM), so a retry after "Text file busy"
+        // would fail for a reason that isn't there.
+        spawn_retrying(|| self.wrapped(log, break_away)?.spawn())
+    }
+
+    /// The command [`spawn_wrapped`](Self::spawn_wrapped) starts, with its wrappers.
+    fn wrapped(&self, log: Option<&std::fs::File>, break_away: bool) -> std::io::Result<process_wrap::std::CommandWrap> {
+        let mut cmd = std::process::Command::new(&self.program);
+        cmd.args(&self.args).stdin(Stdio::null());
+        use_search_path(&mut cmd);
+        for (k, v) in &self.env {
+            cmd.env(k, v);
+        }
+        match log {
+            Some(out) => {
+                cmd.stdout(out.try_clone()?).stderr(out.try_clone()?);
+            }
+            None => {
+                cmd.stdout(Stdio::null()).stderr(Stdio::null());
+            }
+        }
+        if let Some(dir) = &self.cwd {
+            cmd.current_dir(dir);
+        }
+        let mut wrap = process_wrap::std::CommandWrap::from(cmd);
+        #[cfg(unix)]
+        {
+            let _ = break_away;
+            if self.detached {
+                wrap.wrap(process_wrap::std::ProcessSession);
+            } else {
+                wrap.wrap(process_wrap::std::ProcessGroup::leader());
+            }
+        }
+        #[cfg(windows)]
+        {
+            use windows::Win32::System::Threading::{CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, PROCESS_CREATION_FLAGS};
+            // Its own job too (one that doesn't kill on close), so `stop` ends what it started.
+            wrap.wrap(process_wrap::std::JobObject);
+            let mut flags = PROCESS_CREATION_FLAGS(0);
+            if self.hide_console {
+                flags |= CREATE_NO_WINDOW;
+            }
+            if self.detached {
+                flags |= CREATE_NEW_PROCESS_GROUP;
+            }
+            if break_away {
+                flags |= CREATE_BREAKAWAY_FROM_JOB;
+            }
+            if flags.0 != 0 {
+                wrap.wrap(process_wrap::std::CreationFlags(flags));
+            }
+        }
+        Ok(wrap)
     }
 }
 
@@ -1201,6 +1283,7 @@ fn cut_log(path: &std::path::Path) {
 pub struct Launched {
     pid: u32,
     started: Instant,
+    outside_our_job: bool,
     state: Arc<Mutex<LaunchState>>,
 }
 
@@ -1222,6 +1305,13 @@ pub struct Ended {
 impl Launched {
     pub fn pid(&self) -> u32 {
         self.pid
+    }
+
+    /// A [`detached`](Launch::detached) start left the Job Object this process runs in (always
+    /// true off Windows for a detached start, where there are no jobs). False when our job didn't
+    /// allow it: the program then ends when that job is stopped or closed with kill-on-close.
+    pub fn outside_our_job(&self) -> bool {
+        self.outside_our_job
     }
 
     /// How long ago it started.
@@ -1467,6 +1557,27 @@ mod launch_tests {
         assert!(!l.is_running());
         let text = std::fs::read_to_string(&log).unwrap();
         assert!(text.contains("out-line") && text.contains("err-line"), "{text}");
+    }
+
+    /// A detached start tried again after "Text file busy" (a program just written, still open for
+    /// writing for a moment) starts it, rather than failing its second `setsid` with EPERM.
+    #[cfg(unix)]
+    #[test]
+    fn a_detached_program_still_busy_being_written_starts_once_it_is_free() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let program = dir.path().join("just-written");
+        std::fs::write(&program, "#!/bin/sh\nexit 4\n").unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let writing = std::fs::OpenOptions::new().append(true).open(&program).unwrap();
+        let done = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(40));
+            drop(writing);
+        });
+        let launched = Launch::new(&program).detached().start_watched();
+        done.join().unwrap();
+        let launched = launched.unwrap();
+        assert_eq!(launched.wait_timeout(Duration::from_secs(20)).map(|e| e.code), Some(Some(4)));
     }
 
     /// A program that prints far more than the cap keeps running to the end, and its log is cut

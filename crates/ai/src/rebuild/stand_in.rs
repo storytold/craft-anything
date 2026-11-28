@@ -67,6 +67,8 @@ impl StandIns {
                 feed,
                 root: ws.root.clone(),
                 started: std::time::Instant::now(),
+                remote: None,
+                _watching: None,
             })
         })
     }
@@ -98,5 +100,83 @@ impl StandIns {
     /// The project's latest run finishes well ("Done.").
     pub fn finish(&self, root: &Path) -> bool {
         self.send(root, RunEvent::Finished { ok: true, message: "Done.".into(), paused: false })
+    }
+}
+
+/// For tests: a build as the process that owns it sets it up (its lock, event log, feed and
+/// control folder, as [`RebuildRun::start`] does), without a worker, so a test can follow it from
+/// "another process" ([`RebuildRun::attach`]) and say what it does. The lock is per open file, so
+/// a follower in the same test process sees it as a build elsewhere. It does nothing by itself:
+/// [`Elsewhere::look`] takes in what followers left, as the run's control thread would.
+pub struct Elsewhere {
+    pub(super) lock: Option<BuildLock>,
+    pub(super) root: PathBuf,
+    pub(super) feed: Arc<Mutex<feed::FeedLog>>,
+    pub(super) tx: Sender<RunEvent>,
+    pub(super) rx: Receiver<RunEvent>,
+    pub(super) stop: CancelToken,
+    pub(super) notes: Arc<Mutex<Vec<Note>>>,
+    pub(super) running: Arc<AtomicBool>,
+    pub(super) control: attach::Control,
+}
+
+impl Elsewhere {
+    /// Begin a build of `ws` that shows `shown` as the person's message. Fails when another
+    /// build holds the project.
+    pub fn start(ws: &Workspace, shown: &str) -> Result<Elsewhere, ToolError> {
+        let lock = take_build_lock(ws)?;
+        let events = attach::EventLog::begin(&ws.root);
+        let feed = Arc::new(Mutex::new(feed::FeedLog::open(ws)));
+        feed.lock().unwrap_or_else(PoisonError::into_inner).push(feed::FeedItem::User(feed::UserItem::new(shown.into(), Vec::new())));
+        feed.lock().unwrap_or_else(PoisonError::into_inner).log_events(events, false);
+        let (tx, rx) = std::sync::mpsc::channel();
+        Ok(Elsewhere {
+            lock: Some(lock),
+            root: ws.root.clone(),
+            feed,
+            tx,
+            rx,
+            stop: CancelToken::default(),
+            notes: Arc::default(),
+            running: Arc::new(AtomicBool::new(true)),
+            control: attach::Control::default(),
+        })
+    }
+
+    /// The build reports `e`, to its feed and its event log.
+    pub fn emit(&self, e: RunEvent) {
+        emit_event(&self.feed, &self.tx, &Wake::default(), e);
+    }
+
+    /// One look at what followers left (a pause, answers, notes), as the run's control thread does.
+    pub fn look(&mut self) {
+        self.control.once(&self.root, &self.stop, &self.notes, &self.feed);
+    }
+
+    /// A follower asked it to pause (seen by [`Elsewhere::look`]).
+    pub fn pause_asked(&self) -> bool {
+        self.stop.is_cancelled()
+    }
+
+    /// The notes followers left that it has taken, waiting for its builder.
+    pub fn waiting(&self) -> Vec<Note> {
+        self.notes.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    /// Ends as the run does: the lock first, then the word.
+    pub fn finish(&mut self, ok: bool, message: &str, paused: bool) {
+        self.lock = None;
+        self.emit(RunEvent::Finished { ok, message: message.into(), paused });
+        self.running.store(false, Ordering::SeqCst);
+    }
+
+    /// What it has reported since the last call.
+    pub fn events(&self) -> Vec<RunEvent> {
+        self.rx.try_iter().collect()
+    }
+
+    /// Its feed as it is now.
+    pub fn items(&self) -> Vec<feed::FeedItem> {
+        self.feed.lock().unwrap_or_else(PoisonError::into_inner).items().to_vec()
     }
 }

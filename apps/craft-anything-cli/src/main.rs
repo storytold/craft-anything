@@ -7,6 +7,7 @@
 mod ai_cmd;
 mod output;
 mod rebuild_cmd;
+mod runner_cmd;
 mod setup_cmd;
 mod tool_args;
 
@@ -115,6 +116,18 @@ pub enum Command {
     /// added while it works (printed as the hook's JSON; nothing when none wait).
     #[command(hide = true)]
     BuilderNotes { dir: PathBuf },
+    /// For the app: run one project's build in this process until it ends, with no terminal
+    /// (questions and approvals wait in the project's inbox). The app starts it so a build keeps
+    /// going when the app closes.
+    #[command(hide = true)]
+    RebuildRun {
+        /// The project folder.
+        #[arg(long)]
+        project: PathBuf,
+        /// The build's options (JSON), read and then deleted.
+        #[arg(long)]
+        options: PathBuf,
+    },
     /// Run a tool by name: `craft-anything-cli <tool> [path] [--key value] [--json '{..}' | @file.json | -]`.
     #[command(external_subcommand)]
     Tool(Vec<String>),
@@ -313,6 +326,8 @@ fn run(cli: Cli) -> u8 {
         }
         Command::Chat(a) => ai_cmd::chat(&cli, a),
         Command::Rebuild(a) => rebuild_cmd::rebuild(&cli, a),
+        // The mode comes from the options, not from --deep: the app decided it.
+        Command::RebuildRun { project, options } => runner_cmd::rebuild_run(project, options),
         Command::Ai { command } => ai_cmd::ai(&cli, command, f),
         Command::Tool(args) => tool(&cli, args, f),
     }

@@ -3478,6 +3478,266 @@ fn a_build_that_stopped_part_way_offers_to_continue() {
     assert!(h.query_by_label("This build stopped part-way").is_none(), "no card while it works");
 }
 
+/// #1970: a build running in another process (here, a lock taken by the test, as the CLI's run
+/// would) is followed, not taken for one that stopped part-way, and nothing starts beside it.
+#[test]
+fn a_build_running_elsewhere_is_followed_not_continued() {
+    use craft_anything_ai::rebuild::{RunSet, StandIns};
+    use craft_anything_engine::feed::{FeedItem, UserItem, load, save};
+    use craft_anything_engine::workspace::build_lock::BuildLock;
+    use craft_anything_engine::workspace::{Status, TargetRef, Workspace};
+    let d = tempfile::tempdir().unwrap();
+    let mut ws = Workspace::create(d.path(), "Gamma", "A clock app", TargetRef::None).unwrap();
+    ws.set_status(Status::Building, "Building the first version…").unwrap();
+    let elsewhere = BuildLock::take(&ws).unwrap().expect("free");
+    let runs = StandIns::new();
+    let (dir, starter) = (d.path().to_path_buf(), runs.starter());
+    let mut h = harness(move || {
+        let mut app = demo::app(demo::engine(Mode::Beginner, true));
+        app.settings.projects_dir = Some(dir);
+        app.runs = RunSet::new(1).with_starter(starter);
+        app
+    });
+    h.run_steps(2);
+    h.state_mut().refresh_projects();
+    assert!(wait(&mut h, |app| app.locked.contains(&ws.root)), "the list read which projects are building");
+    h.state_mut().open_workspace(ws.clone());
+    h.run_steps(3);
+    h.get_by_label("Building somewhere else");
+    h.get_by_label("Gamma, Building");
+    assert!(h.query_by_label("This build stopped part-way").is_none(), "it's working, elsewhere");
+    assert!(h.query_by_label("Continue").is_none(), "nothing to carry on");
+    // It has no event log (an older version's build): attaching fails once and isn't tried again
+    // at every refresh; the card stays.
+    let slow = Duration::from_secs(10);
+    let start = Instant::now();
+    while start.elapsed() < slow && !h.state().attach_failed.contains(&ws.root) {
+        h.step();
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(h.state().attach_failed.contains(&ws.root), "an attach was tried, and failed");
+    for _ in 0..3 {
+        h.state_mut().refresh_projects();
+        let read_again = wait(&mut h, |app| {
+            assert!(app.attaching.is_empty(), "no second attach started");
+            app.jobs.running().next().is_none()
+        });
+        assert!(read_again, "the list was read again");
+    }
+    assert!(h.state().runs.get(&ws.root).is_none());
+    h.get_by_label("Building somewhere else");
+    // What that build saves shows here as it goes.
+    let mut items = load(&ws);
+    items.push(FeedItem::User(UserItem::Text("make the hands red".into())));
+    save(&ws.root, &items).unwrap();
+    assert!(
+        wait(&mut h, |app| app.state.feed.iter().any(|i| matches!(i, FeedItem::User(u) if u.text() == "make the hands red"))),
+        "the feed follows the other build"
+    );
+    // A message waits in the box instead of starting a second build.
+    h.state_mut().state.project_input = "and a second hand".into();
+    h.state_mut().send_message();
+    h.run_steps(2);
+    assert_eq!(h.state().state.project_input, "and a second hand", "what was typed is kept");
+    assert!(runs.started().is_empty() && runs.continued().is_empty(), "nothing started beside it");
+    // That build pauses: its lock goes, and this app offers to carry on.
+    Workspace::open(&ws.root).unwrap().set_status(Status::Stopped, "Paused. Send a message to continue.").unwrap();
+    drop(elsewhere);
+    assert!(wait(&mut h, |app| !app.locked.contains(&ws.root)), "the app saw it end");
+    h.run_steps(3);
+    assert!(h.query_by_label("Building somewhere else").is_none());
+    h.get_by_label("Continue").click();
+    h.run_steps(3);
+    assert_eq!(runs.continued(), std::slice::from_ref(&ws.root), "and carries on here now");
+}
+
+/// An app whose projects are in `dir`, with stand-in runs (nothing it starts runs a builder).
+fn app_with_projects(dir: std::path::PathBuf, runs: &craft_anything_ai::rebuild::StandIns) -> Harness<'static, CraftApp> {
+    let starter = runs.starter();
+    harness(move || {
+        let mut app = demo::app(demo::engine(Mode::Beginner, true));
+        app.settings.projects_dir = Some(dir);
+        app.runs = craft_anything_ai::rebuild::RunSet::new(1).with_starter(starter);
+        app
+    })
+}
+
+/// Until the app has attached to the build of `root` running elsewhere.
+fn attached(h: &mut Harness<'static, CraftApp>, root: &std::path::Path) -> bool {
+    h.run_steps(2);
+    h.state_mut().refresh_projects();
+    wait(h, |app| app.runs.get(root).is_some_and(|r| r.is_attached() && r.is_running()))
+}
+
+/// #1970: a build another process runs (here the parts its run is made of, driven by the test,
+/// with a real event log) is attached to: it's simply building here. Its events show, Pause
+/// reaches it, and a message becomes a note waiting for its builder.
+#[test]
+fn a_build_running_in_another_process_is_attached_to() {
+    use craft_anything_ai::AgentEvent;
+    use craft_anything_ai::rebuild::{Elsewhere, RunEvent, StandIns, Step, attach, notes};
+    use craft_anything_engine::feed::FeedItem;
+    use craft_anything_engine::workspace::{Status, TargetRef, Workspace};
+    let d = tempfile::tempdir().unwrap();
+    let mut ws = Workspace::create(d.path(), "Delta", "A clock app", TargetRef::None).unwrap();
+    ws.set_status(Status::Building, "Building the first version…").unwrap();
+    let mut owner = Elsewhere::start(&ws, "make the hands red").unwrap();
+    owner.emit(RunEvent::Step { step: Step::Build, text: "Building the first version…".into() });
+    let runs = StandIns::new();
+    let mut h = app_with_projects(d.path().to_path_buf(), &runs);
+    assert!(attached(&mut h, &ws.root), "the app attached to it");
+    h.state_mut().open_workspace(ws.clone());
+    h.run_steps(3);
+    assert!(h.query_by_label("Building somewhere else").is_none(), "it's building here now");
+    assert!(h.query_by_label("This build stopped part-way").is_none());
+    assert!(h.query_by_label("Continue").is_none(), "nothing to carry on");
+    assert!(!h.state().building_elsewhere(&ws.root));
+    assert!(h.state().state.feed.iter().any(|i| matches!(i, FeedItem::User(u) if u.text() == "make the hands red")), "its feed so far");
+    // What it does next shows as it happens.
+    owner.emit(RunEvent::Agent(AgentEvent::TextDelta { text: "The hands are red now.".into() }));
+    assert!(
+        wait(&mut h, |app| app.state.feed.iter().any(|i| matches!(i, FeedItem::Agent { text, .. } if text.contains("The hands are red now.")))),
+        "its events reach the feed: {:?}",
+        h.state().state.feed
+    );
+    h.get_by_label_contains("The hands are red now.");
+
+    // A message waits for its builder, in the project's notes.
+    h.state_mut().state.project_input = "and a second hand".into();
+    h.state_mut().send_message();
+    h.run_steps(2);
+    assert!(h.state().state.project_input.is_empty(), "sent");
+    let waiting = notes::waiting(&notes::notes_dir(&ws.inbox_dir()));
+    assert!(waiting.iter().any(|w| w.left.text == "and a second hand"), "a waiting note: {:?}", waiting.iter().map(|w| &w.left.text).collect::<Vec<_>>());
+    owner.look();
+    assert!(owner.waiting().iter().any(|n| n.text == "and a second hand"), "the build took it");
+    assert!(runs.started().is_empty() && runs.continued().is_empty(), "nothing started beside it");
+
+    // It can't be deleted while it builds.
+    h.state_mut().delete_project(&ws.root);
+    h.run_steps(3);
+    assert!(ws.root.join("craft.json").is_file(), "not deleted");
+    // Pause from here reaches it.
+    assert!(!attach::stop_path(&ws.root).exists());
+    h.state_mut().pause();
+    assert!(attach::stop_path(&ws.root).exists(), "asked to pause");
+    owner.look();
+    assert!(owner.pause_asked(), "and it pauses");
+    owner.finish(true, "Paused.", true);
+    // It ended without reading the note, which goes next, as with a build of this app's own.
+    assert!(wait(&mut h, |_| runs.started() == [ws.root.clone()]), "the note it didn't get to starts the next build here");
+    assert!(h.state().runs.get(&ws.root).is_some_and(|r| !r.is_attached()));
+    assert!(notes::waiting(&notes::notes_dir(&ws.inbox_dir())).is_empty(), "taken back, so its owner can't send it too");
+}
+
+/// #1970: a question a build elsewhere asked before the app attached to it marks the project as
+/// needing the person, though the open project takes the build's feed whole.
+#[test]
+fn a_question_waiting_when_the_app_attaches_says_it_needs_you() {
+    use craft_anything_ai::rebuild::{Elsewhere, RunEvent, StandIns};
+    use craft_anything_engine::inbox::{Inbox, RequestKind};
+    use craft_anything_engine::workspace::{TargetRef, Workspace};
+    let d = tempfile::tempdir().unwrap();
+    let ws = Workspace::create(d.path(), "Foxtrot", "A clock app", TargetRef::None).unwrap();
+    let owner = Elsewhere::start(&ws, "make the hands red").unwrap();
+    let inbox = Inbox::new(ws.inbox_dir());
+    let id = inbox.post(RequestKind::Question, "Red or orange?", "", vec![], true, None).unwrap();
+    owner.emit(RunEvent::Ask(inbox.pending().into_iter().find(|r| r.id == id).unwrap()));
+    let runs = StandIns::new();
+    let mut h = app_with_projects(d.path().to_path_buf(), &runs);
+    // Open before it's attached to, so attaching takes the feed for the screen.
+    h.state_mut().open_workspace(ws.clone());
+    assert!(attached(&mut h, &ws.root));
+    h.run_steps(2);
+    assert!(h.state().asking.contains(&ws.root), "it needs the person");
+    drop(owner);
+}
+
+/// #1970: closing the window while a build runs in its own process asks whether to keep it
+/// building; the answer decides what closing does to it, and can be kept as the setting.
+#[test]
+fn closing_during_a_build_elsewhere_asks_whether_to_keep_it() {
+    use craft_anything_ai::rebuild::{Elsewhere, StandIns, attach, unwatched};
+    use craft_anything_engine::settings::OnClose;
+    use craft_anything_engine::workspace::{TargetRef, Workspace};
+    use craft_anything_ui_egui::state::Modal;
+    use eframe::App as _;
+    fn ask_to_close(h: &mut Harness<'static, CraftApp>) -> bool {
+        h.input_mut().viewports.entry(egui::ViewportId::ROOT).or_default().events.push(egui::ViewportEvent::Close);
+        h.step();
+        h.output().viewport_output.values().any(|v| v.commands.contains(&egui::ViewportCommand::CancelClose))
+    }
+    let d = tempfile::tempdir().unwrap();
+    let ws = Workspace::create(d.path(), "Echo", "A clock app", TargetRef::None).unwrap();
+    let mut owner = Elsewhere::start(&ws, "make the hands red").unwrap();
+    let runs = StandIns::new();
+
+    // Nothing building: closing isn't stopped.
+    let empty = tempfile::tempdir().unwrap();
+    let mut idle = app_with_projects(empty.path().to_path_buf(), &runs);
+    idle.run_steps(2);
+    assert!(!ask_to_close(&mut idle), "nothing to ask about");
+    assert_eq!(idle.state().state.modal, None);
+
+    // Keep building, and don't ask again.
+    let mut h = app_with_projects(d.path().to_path_buf(), &runs);
+    assert!(attached(&mut h, &ws.root));
+    assert!(ask_to_close(&mut h), "the window stays open");
+    assert_eq!(h.state().state.modal, Some(Modal::CloseDuringBuild { dont_ask: false }));
+    h.run_steps(2);
+    h.get_by_label("A build is still working");
+    h.get_by_label("Don't ask again").click();
+    h.run_steps(2);
+    h.get_by_label("Keep building").click();
+    h.run_steps(2);
+    assert_eq!(h.state().close_choice, Some(OnClose::Keep));
+    assert_eq!(h.state().settings.build.on_close, OnClose::Keep, "kept as the setting");
+    assert_eq!(h.state().state.modal, None);
+    assert!(!ask_to_close(&mut h), "the window closes once chosen");
+    h.state_mut().on_exit();
+    owner.look();
+    assert!(!owner.pause_asked() && !attach::stop_path(&ws.root).exists(), "left building");
+    assert!(unwatched::keep_path(&ws.root).exists(), "and told to go on with nobody watching");
+    drop(h);
+
+    // Pause.
+    let mut h = app_with_projects(d.path().to_path_buf(), &runs);
+    assert!(attached(&mut h, &ws.root), "attached again by the next window");
+    assert!(!unwatched::keep_path(&ws.root).exists(), "which takes that back, so its own crash would pause it");
+    assert!(ask_to_close(&mut h));
+    h.run_steps(2);
+    h.get_by_label("Pause").click();
+    h.run_steps(2);
+    assert_eq!(h.state().close_choice, Some(OnClose::Pause));
+    assert_eq!(h.state().settings.build.on_close, OnClose::Ask, "asked again next time");
+    h.state_mut().on_exit();
+    assert!(attach::stop_path(&ws.root).exists(), "asked to pause");
+    assert!(!unwatched::keep_path(&ws.root).exists());
+    owner.look();
+    assert!(owner.pause_asked());
+    drop(h);
+
+    // A window that closes without being asked to (with the setting at ask) leaves it building,
+    // but without the choice: it pauses at its next turn once nobody watches.
+    drop(owner);
+    let mut owner = Elsewhere::start(&ws, "make the hands blue").unwrap();
+    let mut h = app_with_projects(d.path().to_path_buf(), &runs);
+    assert!(attached(&mut h, &ws.root));
+    h.state_mut().on_exit();
+    owner.look();
+    assert!(!owner.pause_asked(), "left building");
+    assert!(!unwatched::keep_path(&ws.root).exists(), "nothing said to keep going");
+    drop(h);
+
+    // The setting answers without asking.
+    let mut h = app_with_projects(d.path().to_path_buf(), &runs);
+    assert!(attached(&mut h, &ws.root));
+    h.state_mut().settings.build.on_close = OnClose::Pause;
+    assert!(!ask_to_close(&mut h), "no dialog");
+    assert_eq!(h.state().state.modal, None);
+    assert_eq!(h.state().close_choice, Some(OnClose::Pause));
+}
+
 #[test]
 fn the_builders_open_questions_show_beside_the_project() {
     let mut h = harness(|| {

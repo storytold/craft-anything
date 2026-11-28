@@ -75,6 +75,11 @@ impl RunSet {
                 ToolError::new(ErrorCode::BadInput, "This project is already building.").with_remediation("Add to it while it works, or stop it first.")
             );
         }
+        // A build in another process holds the project (#1970): queueing would save a waiting
+        // status and request over that build's, and starting would be refused anyway.
+        if build_lock::held(&ws.root) {
+            return Err(building_elsewhere());
+        }
         // Queueing saves its waiting status too. Keep the last run's final session and builder
         // choices, rather than writing them back from the caller's older project snapshot.
         ws.reload()?;
@@ -82,7 +87,7 @@ impl RunSet {
         if self.active() < self.limit && self.queue.is_empty() {
             let root = ws.root.clone();
             let run = (self.starter)(hub, ws.clone(), opts)?;
-            queued_request::finished(&ws, saved.as_ref());
+            clear_queued_request(&run, &ws, saved.as_ref());
             self.runs.insert(root, run);
             return Ok(Started::Running);
         }
@@ -113,12 +118,15 @@ impl RunSet {
             let started = queued_request::validate(&ws).and_then(|()| (self.starter)(hub, ws, opts));
             match started {
                 Ok(run) => {
-                    queued_request::finished(&keep, saved.as_ref());
+                    clear_queued_request(&run, &keep, saved.as_ref());
                     self.runs.insert(root, run);
                 }
                 Err(e) => {
                     let message = e.for_people();
-                    let _ = keep.set_status(Status::NeedsYou, message.clone());
+                    // A build that took the project meanwhile, in another process, keeps its status.
+                    if !build_lock::held(&root) {
+                        let _ = keep.set_status(Status::NeedsYou, message.clone());
+                    }
                     out.push((root, RunEvent::Finished { ok: false, message, paused: false }));
                 }
             }
@@ -187,12 +195,58 @@ impl RunSet {
         }
     }
 
-    /// Empty the queue and stop every run (closing the app).
+    /// Empty the queue and stop every run (closing the app), the ones followed in another process
+    /// too. To leave those working, [`detach_all`](Self::detach_all) first.
     pub fn stop_all(&mut self) {
         self.queue.clear();
         for r in self.runs.values() {
             r.stop();
         }
+    }
+
+    /// Take over a follower made elsewhere (by [`RebuildRun::attach`] on a worker, as it reads the
+    /// disk) for the build another process runs on its project. It counts as working here (it
+    /// takes a place, and [`stop`](Self::stop) pauses it), but this set never started it and
+    /// dropping it never stops it. A project this set is already building or has queued is
+    /// refused (the follower is dropped, which leaves that build alone).
+    pub fn adopt(&mut self, run: RebuildRun) -> Result<(), ToolError> {
+        if self.is_busy(&run.root) {
+            return Err(
+                ToolError::new(ErrorCode::BadInput, "This project is already building here.").with_remediation("Add to it while it works, or stop it first.")
+            );
+        }
+        self.runs.insert(run.root.clone(), run);
+        Ok(())
+    }
+
+    /// Runs followed from another process that are still working: closing the app leaves them
+    /// working or pauses them ([`detach_all`](Self::detach_all), [`stop_all`](Self::stop_all)).
+    pub fn followed(&self) -> usize {
+        self.runs.values().filter(|r| r.is_attached() && r.is_running()).count()
+    }
+
+    /// The person chose to keep the runs followed from another process building after this
+    /// window closes ([`RebuildRun::keep_building`]); call it before [`detach_all`](Self::detach_all).
+    pub fn keep_followed(&self) {
+        for r in self.runs.values().filter(|r| r.is_attached() && r.is_running()) {
+            r.keep_building();
+        }
+    }
+
+    /// Forget every run followed from another process, leaving them working (closing the app
+    /// while builds go on elsewhere).
+    pub fn detach_all(&mut self) {
+        self.runs.retain(|_, r| !r.is_attached());
+    }
+}
+
+/// The run has started and owns its request: clear the queued backup of it. A run in another
+/// process (a runner, [`super::runner`]) clears its own once its build has begun (its
+/// [`RebuildRun::start`]): clearing it here, before that process has even started, would lose the
+/// request if it then failed to start.
+fn clear_queued_request(run: &RebuildRun, ws: &Workspace, saved: Option<&queued_request::QueuedRequest>) {
+    if !run.is_attached() {
+        queued_request::finished(ws, saved);
     }
 }
 
@@ -512,6 +566,31 @@ mod tests {
         assert_eq!(set.start(&hub, e.clone(), RunOptions::default()).unwrap(), Started::Queued { position: 2 });
         set.poll(&hub);
         assert_eq!(fake.started(), [a.root.clone(), c.root.clone()], "C goes first");
+        set.stop_all();
+    }
+
+    /// #1970: a project another process is building is refused, not queued: queueing would save
+    /// a waiting status and request over that build's.
+    #[test]
+    fn a_project_building_in_another_process_is_neither_started_nor_queued() {
+        use craft_anything_engine::workspace::build_lock::BuildLock;
+        let d = tempfile::tempdir().unwrap();
+        let ws = |n: &str| Workspace::create(d.path(), n, "A game", TargetRef::None).unwrap();
+        let (a, b) = (ws("A"), ws("B"));
+        let fake = StandIns::new();
+        let hub = hub();
+        let mut set = RunSet::new(1).with_starter(fake.starter());
+        let elsewhere = BuildLock::take(&b).unwrap().expect("free");
+        let before = Workspace::open(&b.root).unwrap().manifest.status;
+        assert_eq!(set.start(&hub, b.clone(), RunOptions::default()).unwrap_err().message, BUILDING_ELSEWHERE, "with a place free");
+        set.start(&hub, a.clone(), RunOptions::default()).unwrap();
+        let follow_up = RunOptions { message: Some("make it blue".into()), ..RunOptions::default() };
+        assert_eq!(set.start(&hub, b.clone(), follow_up).unwrap_err().message, BUILDING_ELSEWHERE, "and with none");
+        assert!(fake.started() == [a.root.clone()] && set.position(&b.root).is_none());
+        assert_eq!(Workspace::open(&b.root).unwrap().manifest.status, before, "its status is the other build's");
+        assert!(!b.root.join("inbox/queued-request.json").exists(), "and no request was saved for it");
+        drop(elsewhere);
+        assert_eq!(set.start(&hub, b.clone(), RunOptions::default()).unwrap(), Started::Queued { position: 1 }, "free again");
         set.stop_all();
     }
 

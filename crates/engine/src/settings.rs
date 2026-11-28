@@ -164,6 +164,26 @@ pub struct BuildSettings {
     /// when the original has them too. Off by default: then only what the build makes worse
     /// than the original is flagged.
     pub a11y_floor: bool,
+    /// The app runs each build in a process of its own (the command line's runner), so it goes on
+    /// when the app closes, crashes or is replaced, and shows again when the app opens (#1970).
+    /// Off, builds run inside the app and stop with it. Read when the app starts.
+    pub own_process: bool,
+    /// What closing the app does to builds still working in their own process.
+    pub on_close: OnClose,
+}
+
+/// What closing the app does to builds still working in their own process
+/// ([`BuildSettings::on_close`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OnClose {
+    /// Ask each time.
+    #[default]
+    Ask,
+    /// Leave them building; they show again when the app opens.
+    Keep,
+    /// Pause them, as their Pause button does.
+    Pause,
 }
 
 impl Default for BuildSettings {
@@ -176,6 +196,8 @@ impl Default for BuildSettings {
             picture_good_enough: None,
             parallel: 2,
             a11y_floor: false,
+            own_process: true,
+            on_close: OnClose::Ask,
         }
     }
 }
@@ -666,6 +688,20 @@ auto_mode = true
         .unwrap();
         assert_eq!(old.build, BuildSettings::default());
         assert_eq!(old.build.picture_good_enough, None, "picture likeness is only reported unless set");
+        assert!(old.build.own_process, "builds outlive the app unless turned off");
+        assert_eq!(old.build.on_close, OnClose::Ask);
+    }
+
+    #[test]
+    fn what_closing_does_to_a_build_is_kept_by_name() {
+        let s: Settings = toml::from_str("[build]\nown_process = false\non_close = \"keep\"\n").unwrap();
+        assert!(!s.build.own_process);
+        assert_eq!(s.build.on_close, OnClose::Keep);
+        let back = toml::to_string(&s).unwrap();
+        assert!(back.contains("on_close = \"keep\""), "{back}");
+        let pause: Settings = toml::from_str("[build]\non_close = \"pause\"\n").unwrap();
+        assert_eq!(pause.build.on_close, OnClose::Pause);
+        assert!(toml::from_str::<Settings>("[build]\non_close = \"later\"\n").is_err(), "an unknown choice isn't taken for one");
     }
 
     use super::*;

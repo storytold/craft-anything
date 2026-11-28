@@ -165,6 +165,9 @@ const ACTIONS: &[Action] = &[
 #[rustfmt::skip]
 const PLUMBING: &[(&str, &str)] = &[
     ("show_update_outcome_on_start", "native startup queues the previous helper result for the first window frame; no document action"),
+    ("use_runner_builds", "startup: builds run in the CLI's own `rebuild-run` runner, which is the headless side"),
+    ("close_requested", "the window's close request; a CLI build already outlives its terminal"),
+    ("close_with", "the close dialog's answer; `build.on_close` in config.toml is the headless side"),
     ("load_agent_model_catalog", "worker dispatch shared by the model picker and its reload action"),
     ("check_backend_keys", "a worker that fills the saved-key status rows"),
     ("stuck_banner", "draws what the lock watchdog found; `sync::problems` and its log are the headless side"),

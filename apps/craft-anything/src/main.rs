@@ -149,6 +149,8 @@ fn main() -> eframe::Result {
                 log::info!("window open");
                 CraftApp::setup_context(&cc.egui_ctx);
                 let mut app = CraftApp::new(engine, hub);
+                // Builds run in a process of their own, so they outlive the window (#1970).
+                app.use_runner_builds();
                 app.show_update_outcome_on_start();
                 // The window is built hidden and its first frame is drawn afterwards, where a graphics
                 // driver may still crash: the mark stays until frames have been shown (#74).

@@ -16,7 +16,7 @@ serde_json = { workspace = true }
 log = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
-process-wrap = { version = "10", default-features = false, features = ["std", "process-group", "job-object", "kill-on-drop", "creation-flags"] }
+process-wrap = { version = "10", default-features = false, features = ["std", "process-group", "process-session", "job-object", "kill-on-drop", "creation-flags"] }
 # Process capture under a pseudo-terminal (safe public APIs; we write no unsafe).
 portable-pty = "0.9"
 vt100 = "0.16"

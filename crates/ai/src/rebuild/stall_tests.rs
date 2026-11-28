@@ -126,7 +126,19 @@ impl ChatModel for Busy {
 /// One run of the build (a request, or "Try again" when `message` is `None`), with a builder
 /// that keeps changing files and a check that never passes.
 fn run_busy_builder(ws: &mut Workspace, seen: &Arc<Mutex<usize>>, message: Option<&str>) -> ToolError {
+    run_busy_builder_with(ws, seen, message, |_| {}).0
+}
+
+/// [`run_busy_builder`], with the worker set up by `prepare` first; `max_rounds` is 6. The
+/// worker comes back with the error, to look at after the run.
+pub(super) fn run_busy_builder_with(
+    ws: &mut Workspace,
+    seen: &Arc<Mutex<usize>>,
+    message: Option<&str>,
+    prepare: impl FnOnce(&mut Worker),
+) -> (ToolError, Worker) {
     let mut worker = check_worker(ws, false);
+    prepare(&mut worker);
     let model = Busy { app: ws.app_dir(), turn: 0, seen: Arc::clone(seen) };
     let slot =
         ModelSlot { name: "Busy".into(), model: Box::new(model), local: true, effort: None, max_turns: 10, context_tokens: 0, tools: Default::default() };
@@ -145,7 +157,8 @@ fn run_busy_builder(ws: &mut Workspace, seen: &Arc<Mutex<usize>>, message: Optio
     let mut kinds = KindRegistry::built_in();
     kinds.register(Arc::new(NeverBuilt));
     let opts = RunOptions { message: message.map(str::to_string), continuing: message.is_none(), kinds, max_rounds: 6, ..RunOptions::default() };
-    worker.run(ws, entry, Some(api), None, super::super::KeptHistory::default(), &opts).unwrap_err()
+    let error = worker.run(ws, entry, Some(api), None, super::super::KeptHistory::default(), &opts).unwrap_err();
+    (error, worker)
 }
 
 #[test]

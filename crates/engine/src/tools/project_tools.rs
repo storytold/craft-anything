@@ -281,6 +281,10 @@ fn project_delete(_ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolE
         return Err(ToolError::invalid("Deleting a project can't be undone.").with_remediation("Pass confirm: true to delete it."));
     }
     let ws = open(&p.project)?;
+    // Whichever process builds it: this one, another window or the command line.
+    if crate::workspace::build_lock::held(&ws.root) {
+        return Err(ToolError::invalid("This project is building.").with_remediation("Pause or stop its build first, then delete the project."));
+    }
     let kept = ws.manifest.app_in_root || !ws.manifest.start_files.is_empty();
     ws.delete()?;
     Ok(ToolOutput::Value(json!({"deleted": p.project, "your_files_kept": kept})))
@@ -766,6 +770,22 @@ mod tests {
         let again = call("project_inbox_answer", json!({"project": ws.root, "id": q, "choice": "Red"}));
         assert!(again.is_err(), "a question is answered once");
         assert!(call("project_show", json!({"project": d.path().join("nope")})).is_err());
+    }
+
+    /// #1970: a build in any process holds its project's lock, and deleting waits for it to end.
+    #[test]
+    fn a_project_is_not_deleted_while_a_build_holds_it() {
+        let d = tempfile::tempdir().unwrap();
+        let ws = Workspace::create(d.path(), "Notes", "A notes app", TargetRef::None).unwrap();
+        let e = Engine::new(crate::testing::session());
+        let delete = || e.call("project_delete", json!({"project": ws.root, "confirm": true}), CallOptions::new(Caller::Cli));
+        let lock = crate::workspace::build_lock::BuildLock::take(&ws).unwrap().expect("free");
+        let err = delete().unwrap_err();
+        assert!(err.message.contains("building"), "{err:?}");
+        assert!(ws.root.join(crate::workspace::MANIFEST).is_file(), "nothing was deleted");
+        drop(lock);
+        delete().unwrap();
+        assert!(!ws.root.join(crate::workspace::MANIFEST).exists());
     }
 
     /// An unreadable usage.json is said to be unknown, never shown as zeros.

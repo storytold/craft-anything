@@ -1216,6 +1216,15 @@ fn builds(app: &mut CraftApp, ui: &mut Ui) {
     row(ui, "Builds at once", "How many projects may build at the same time. More wait their turn.", |ui| {
         changed |= number(ui, &mut b.parallel, 1..=8, "", "");
     });
+    row(ui, "When closing during a build", "A build runs on its own, so it can keep going after Craft Anything closes.", |ui| {
+        use craft_anything_engine::settings::OnClose;
+        const CHOICES: [OnClose; 3] = [OnClose::Ask, OnClose::Keep, OnClose::Pause];
+        let sel = CHOICES.iter().position(|c| *c == b.on_close).unwrap_or(0);
+        if let Some(choice) = widgets::segmented(ui, &["Ask", "Keep building", "Pause"], sel, theme::ControlSize::Medium).and_then(|i| CHOICES.get(i)) {
+            b.on_close = *choice;
+            changed = true;
+        }
+    });
     ui.add_space(theme::space::SM);
     if let Some(bytes) = app.pinned_copy_bytes {
         row(ui, "Pinned builds", "Size", |ui| {

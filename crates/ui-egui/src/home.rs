@@ -177,6 +177,7 @@ pub fn modals(app: &mut CraftApp, ctx: &egui::Context) {
                 Modal::Pin => crate::pins::pin_modal(app, ui, &mut close),
                 Modal::PinRename(root, id) => crate::pins::rename_modal(app, ui, root, *id, &mut close),
                 Modal::PinDelete(root, id) => crate::pins::delete_modal(app, ui, root, *id, &mut close),
+                Modal::CloseDuringBuild { dont_ask } => close_during_build(app, ui, *dont_ask, &mut close),
                 Modal::About => {
                     ui.label(theme::heading("Craft Anything", theme::SECTION));
                     ui.label(RichText::new(format!("{} {}", tr("Version"), env!("CARGO_PKG_VERSION"))).color(t.text_dim));
@@ -192,6 +193,46 @@ pub fn modals(app: &mut CraftApp, ctx: &egui::Context) {
     } else if close {
         app.state.modal = None;
     }
+}
+
+/// Closing the window while builds run in their own process (#1970): keep them building, pause
+/// them, or don't close.
+fn close_during_build(app: &mut CraftApp, ui: &mut Ui, dont_ask: bool, close: &mut bool) {
+    let t = Tokens::get(ui.ctx());
+    ui.horizontal(|ui| {
+        let (rect, _) = ui.allocate_exact_size(Vec2::splat(40.0), egui::Sense::hover());
+        ui.painter().rect_filled(rect, t.radius, t.accent_soft);
+        icons::paint(ui, rect, "hammer", theme::icon::LG, t.accent_ink);
+        ui.label(theme::heading(tr("A build is still working"), theme::SECTION));
+    });
+    ui.add_space(theme::space::SM);
+    ui.add(
+        egui::Label::new(
+            RichText::new(tr(
+                "Keep building in the background, or pause it? A build in the background keeps using your AI, and shows here again when you open Craft Anything.",
+            ))
+            .color(t.text_dim),
+        )
+        .wrap(),
+    );
+    ui.add_space(theme::space::SM);
+    let mut remember = dont_ask;
+    if widgets::toggle(ui, &mut remember, "Don't ask again").changed() {
+        app.state.modal = Some(Modal::CloseDuringBuild { dont_ask: remember });
+    }
+    ui.add_space(theme::space::MD);
+    ui.horizontal(|ui| {
+        use craft_anything_engine::settings::OnClose;
+        if widgets::primary(ui, "Keep building").clicked() {
+            app.close_with(ui.ctx(), OnClose::Keep, remember);
+        }
+        if widgets::secondary(ui, None, "Pause").clicked() {
+            app.close_with(ui.ctx(), OnClose::Pause, remember);
+        }
+        if widgets::secondary(ui, None, "Cancel").clicked() {
+            *close = true;
+        }
+    });
 }
 
 /// Close the dialog without choosing (Esc, a click outside). With nothing downloading, the

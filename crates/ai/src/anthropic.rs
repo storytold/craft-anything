@@ -352,10 +352,11 @@ impl StreamState {
     }
 }
 
-impl ChatModel for Anthropic {
-    fn turn(&mut self, req: &TurnRequest<'_>, on_delta: &mut dyn FnMut(Delta), stop: &Stop) -> Result<TurnResult, ToolError> {
+impl Anthropic {
+    /// One streamed request; a stop ends it at once in every phase ([`http::post_json_stoppable`]).
+    fn stream(&self, req: &TurnRequest<'_>, on_delta: &mut dyn FnMut(Delta), stop: &Stop) -> Result<TurnResult, ToolError> {
         let agent = http::stream_agent(self.stream_limit);
-        let reader = http::post_json(&agent, "Anthropic", &self.url("messages"), &self.headers(), &self.body(req))?;
+        let reader = http::post_json_stoppable(agent, "Anthropic", &self.url("messages"), self.headers(), self.body(req), stop)?;
         let mut state = StreamState::default();
         http::parse_sse(reader, |ev| {
             stop.check()?;
@@ -364,6 +365,13 @@ impl ChatModel for Anthropic {
         })?;
         stop.check()?;
         state.finish(&self.model)
+    }
+}
+
+impl ChatModel for Anthropic {
+    fn turn(&mut self, req: &TurnRequest<'_>, on_delta: &mut dyn FnMut(Delta), stop: &Stop) -> Result<TurnResult, ToolError> {
+        let result = self.stream(req, on_delta, stop);
+        http::stop_wins(stop, result)
     }
 
     fn model(&self) -> String {

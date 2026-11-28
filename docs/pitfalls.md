@@ -123,6 +123,14 @@ cleanup. Use a guarded Rust parent instead of shell syntax, and stop before asse
 Its child must inherit the watched group/job: another `Process` or `Launch` creates a separate
 Unix group and would no longer test the ancestor's shutdown.
 
+**A test waited to see a state that was already over.** A runner test asked for a pause before
+the runner began, then waited to see its build "begun" (the lock held and the started record
+there). The pause reaches the runner as it begins, so on CI's Linux the build had begun, paused
+and let the project go between two 50 ms looks, and the test failed there every time while it
+passed on Windows and under WSL2. Don't wait to observe a state the thing under test is free to
+leave: wait for what it leaves behind (the run's end and its result), and note a process to
+clean up only if it is seen.
+
 **An isolated PATH still assumed system utilities lived in `/bin`.** The remote setup fixture
 linked `mkdir`, `chmod` and `mv` there, so a host with utilities elsewhere got dangling links.
 Resolve fixture utilities on the host, make their paths absolute, then populate the private PATH.
@@ -228,6 +236,10 @@ and then on Linux with "Text file busy": another test thread was starting a chil
 and the child still held the new file open for writing. Starting a program goes through
 `process::spawn_retrying`, which tries a busy file again for a moment; don't add a sleep to a test
 instead.
+The retry itself then broke the detached runner on Linux: process-wrap adds a wrapper's setup to
+the command on every `spawn()`, so the second try ran `setsid` twice in one child and failed with
+EPERM ("permission denied") for a staged CLI copy that was only busy. Build the command and its
+wrappers again inside the retry closure, never once outside it.
 
 **Proving a refactor changed nothing.** Unit tests that check substrings can miss changed prompts.
 For a refactor that must keep output identical, dump the outputs for every combination before and
@@ -806,6 +818,15 @@ even when the destination name is valid. Keep the temporary file in the destinat
 but exclude the destination component before creating a candidate, including case and trailing
 dot/space aliases. Probe a supported long name in tests instead of assuming a fixed filename limit.
 
+**A file lock that outlived its owner in a program being started.** On Unix a program another
+thread is starting holds a copy of every open file until it runs (between fork and exec), and a
+`flock` lasts until its last copy closes, so dropping a lock's `File` doesn't end the lock at that
+moment. The build lock and the staged CLI's in-use hold were written and tested on Windows; on
+Linux the staged-copy test failed once because a released hold still kept an old copy from
+cleanup (likely also why an investigation lock test failed once there). Unlock explicitly
+before the file closes (`file.unlock()` in `Drop`, and after a look), and test with a
+`try_clone()` of the file kept open, which is what a starting program has.
+
 **Two writers to one file.** The app and the rebuild run both wrote `feed.json`. Give each persisted
 file one owner; when another writer is unavoidable (an answer given from the CLI while a run is
 going), merge what's on disk before saving instead of overwriting it.
@@ -825,6 +846,13 @@ can hold shutdown behind a tool for hours. Try it once; if busy, durably defer o
 and recover them at startup against the latest committed AI table, rather than racing a live writer.
 After a successful full exit save, discard an older deferred snapshot so startup cannot replay it
 over the newer app settings.
+
+**"Not running here" read as "not running".** The app called a project whose saved status said
+Building "stopped part-way" whenever it had no run of its own for it, so a build started from the
+command line showed Continue, and Continue started a second builder in the same folder, which
+also took the first one's waiting notes as it started. Who runs something is a fact the system
+can check: the run holds an OS lock for its life (`workspace::build_lock`), released however its
+process ends, and a run takes it before touching anything else in the project (#1970).
 
 **Preflight checked a different transport.** An explicit OpenCode selection bypassed ACP, but
 builder preflight still checked ACP's helper and the native adapter never supplied the MCP server.

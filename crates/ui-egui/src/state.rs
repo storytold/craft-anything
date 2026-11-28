@@ -391,6 +391,11 @@ pub enum Modal {
     PinRename(PathBuf, u32),
     /// Remove a pin? (Its copy can't be brought back.)
     PinDelete(PathBuf, u32),
+    /// The window is closing while builds run in their own process: keep them building or pause
+    /// them? (`dont_ask`: the answer becomes the `build.on_close` setting.)
+    CloseDuringBuild {
+        dont_ask: bool,
+    },
 }
 
 /// The command palette.

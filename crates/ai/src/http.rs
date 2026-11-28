@@ -1,5 +1,6 @@
 //! HTTP plumbing: one ureq agent (rustls), JSON POST with streamed responses, and an SSE parser.
 
+use crate::model::Stop;
 use craft_anything_evidence::{ErrorCode, ToolError};
 use craft_anything_platform::retry;
 use serde_json::Value;
@@ -249,6 +250,128 @@ pub fn post_json(agent: &ureq::Agent, what: &str, url: &str, headers: &[(&str, S
         return Err(error);
     }
     Ok(Box::new(resp.into_body().into_reader()))
+}
+
+/// How often a model request waiting on its server looks at its stop.
+const STOP_POLL: Duration = Duration::from_millis(100);
+/// Body pieces queued between a request's thread and its reader, so a reader that lags behind a
+/// fast stream holds a bounded amount in memory.
+const QUEUED_PIECES: usize = 16;
+/// Most bytes in one queued piece.
+const PIECE: usize = 16 * 1024;
+
+/// What a request's thread hands its reader.
+enum Piece {
+    /// The answer started (2xx), or why it didn't.
+    Started(Result<(), ToolError>),
+    Bytes(Vec<u8>),
+    Broke(std::io::Error),
+}
+
+/// [`post_json`] that a stop ends at once, while it connects, while it waits for the answer to
+/// start and while the answer streams: ureq's calls block, and a blocked call sees nothing until a
+/// byte or its own time limit comes (five minutes for the first byte), so a paused build stayed
+/// "Pausing…" that long (#1970). The request runs on a thread of its own and hands its body over a
+/// bounded queue; this side waits on the queue and looks at `stop` every [`STOP_POLL`].
+///
+/// A stop gives the request up: the thread's next hand-over finds no reader and it ends, closing
+/// the connection. A thread blocked on a silent server ends when the agent's own limits run out
+/// (connect 15 s, then the first byte and the body within `timeout_secs`, or 5 min and 1 h unless
+/// set), never later, so a stopped request never leaves a thread behind for good.
+pub fn post_json_stoppable(
+    agent: ureq::Agent,
+    what: &str,
+    url: &str,
+    headers: Vec<(&'static str, String)>,
+    body: Value,
+    stop: &Stop,
+) -> Result<StoppableBody, ToolError> {
+    // A stop that came before the request (a paced wait, a retry) sends nothing.
+    stop.check()?;
+    let (send, pieces) = std::sync::mpsc::sync_channel::<Piece>(QUEUED_PIECES);
+    let (label, address) = (what.to_string(), url.to_string());
+    std::thread::Builder::new()
+        .name("model-request".into())
+        .spawn(move || {
+            let mut reader = match post_json(&agent, &label, &address, &headers, &body) {
+                Ok(reader) => reader,
+                Err(e) => {
+                    let _ = send.send(Piece::Started(Err(e)));
+                    return;
+                }
+            };
+            if send.send(Piece::Started(Ok(()))).is_err() {
+                return;
+            }
+            let mut buf = vec![0u8; PIECE];
+            loop {
+                let piece = match reader.read(&mut buf) {
+                    Ok(0) => return,
+                    Ok(n) => Piece::Bytes(buf.get(..n).unwrap_or_default().to_vec()),
+                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(e) => Piece::Broke(e),
+                };
+                let broke = matches!(piece, Piece::Broke(_));
+                // No reader: the turn was stopped. Dropping the reader closes the connection.
+                if send.send(piece).is_err() || broke {
+                    return;
+                }
+            }
+        })
+        .map_err(|e| ToolError::internal(format!("Couldn't start the request to {what}: {e}")))?;
+    loop {
+        match pieces.recv_timeout(STOP_POLL) {
+            Ok(Piece::Started(started)) => {
+                started?;
+                break;
+            }
+            Ok(_) => return Err(ToolError::internal("The request's answer came before it started.")),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => stop.check()?,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return Err(ToolError::internal("The request ended without an answer.")),
+        }
+    }
+    Ok(StoppableBody { pieces, stop: stop.clone(), held: Vec::new(), at: 0 })
+}
+
+/// The body of a [`post_json_stoppable`] answer. A read waiting for the next bytes fails as soon as
+/// the stop is set; the turn reading it then ends as a stopped turn ([`stop_wins`]).
+pub struct StoppableBody {
+    pieces: std::sync::mpsc::Receiver<Piece>,
+    stop: Stop,
+    held: Vec<u8>,
+    at: usize,
+}
+
+impl Read for StoppableBody {
+    fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+        loop {
+            let mut rest = self.held.get(self.at..).unwrap_or_default();
+            if !rest.is_empty() {
+                let n = rest.read(out)?;
+                self.at = self.at.saturating_add(n);
+                return Ok(n);
+            }
+            if self.stop.is_stopped() {
+                return Err(std::io::Error::other("the turn was stopped"));
+            }
+            match self.pieces.recv_timeout(STOP_POLL) {
+                Ok(Piece::Bytes(bytes)) => {
+                    self.held = bytes;
+                    self.at = 0;
+                }
+                Ok(Piece::Broke(e)) => return Err(e),
+                Ok(Piece::Started(_)) | Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return Ok(0),
+            }
+        }
+    }
+}
+
+/// A turn that was stopped ends as a stopped turn, whatever its request said on the way out (a
+/// read given up on reads as a broken stream): never as a failure that another backend or a retry
+/// would take up.
+pub fn stop_wins<T>(stop: &Stop, result: Result<T, ToolError>) -> Result<T, ToolError> {
+    if stop.is_stopped() { Err(ToolError::cancelled()) } else { result }
 }
 
 /// How many times a GET cut short by a signal is tried in all.
