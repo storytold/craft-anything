@@ -1667,9 +1667,11 @@ pub struct CompareScreenshotsParams {
     #[serde(default)]
     pub tolerance: u8,
     /// Compare the area both images share (top-left) when their sizes differ, and add a coarse
-    /// `layout_similarity` (0..1, share of 16 px tiles with matching mean colour) and a
-    /// `perceptual_similarity` (0..1, mean SSIM of brightness: edges, text, texture). Use it to
-    /// compare a rebuild with the original page, whose heights rarely match exactly.
+    /// `layout_similarity` (0..1, share of 16 px tiles with matching mean colour), a
+    /// `perceptual_similarity` (0..1, mean SSIM of brightness: edges, text, texture), each full
+    /// image's `foreground` tile share (`{before, after}`, 0..1) and `after_blank` (true when
+    /// `before` has foreground content and `after` has next to none). Use it to compare a rebuild
+    /// with the original page, whose heights rarely match exactly.
     #[serde(default)]
     pub common_area: bool,
     /// With common_area: a noise-<width>.png mask from web_site_capture ({path} or {base64});
@@ -1686,6 +1688,11 @@ fn web_pixels_compare(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, To
     let mut img_a = web_common::decode_png(&a)?;
     let mut img_b = web_common::decode_png(&b)?;
     let sizes = json!({"before": {"width": img_a.width, "height": img_a.height}, "after": {"width": img_b.width, "height": img_b.height}});
+    let foreground = p.common_area.then(|| {
+        let before = web_common::foreground_share(&img_a);
+        let after = web_common::foreground_share(&img_b);
+        (before, after, web_common::after_is_blank(before, after))
+    });
     if p.common_area {
         let (w, h) = (img_a.width.min(img_b.width), img_a.height.min(img_b.height));
         img_a = web_common::crop(&img_a, w, h);
@@ -1698,20 +1705,28 @@ fn web_pixels_compare(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, To
         let sim = web_common::block_similarity_masked(&img_a, &img_b, 16, 24, mask.as_ref());
         o.insert("layout_similarity".into(), json!(sim));
         o.insert("perceptual_similarity".into(), json!(web_common::perceptual_similarity_masked(&img_a, &img_b, mask.as_ref())));
+        if let Some((before_fg, after_fg, after_blank)) = foreground {
+            o.insert("foreground".into(), json!({"before": before_fg, "after": after_fg}));
+            o.insert("after_blank".into(), json!(after_blank));
+        }
         o.insert("sizes".into(), sizes);
         if let Some(m) = &mask {
             o.insert("ignored_tiles".into(), json!(m.count()));
         }
     }
     let summary = if let Some(sim) = diff.get("layout_similarity").and_then(Value::as_f64) {
-        format!(
+        let mut s = format!(
             "Over the shared {}×{} area the layout is {:.0}% alike and the detail {:.0}% ({} pixel(s) differ exactly).",
             img_a.width,
             img_a.height,
             sim * 100.0,
             diff.get("perceptual_similarity").and_then(Value::as_f64).unwrap_or(0.0) * 100.0,
             diff["differing_pixels"]
-        )
+        );
+        if foreground.is_some_and(|(_, _, blank)| blank) {
+            s.push_str(" The after image is blank (almost no foreground content compared with the before image).");
+        }
+        s
     } else if diff["comparable"] == false {
         "The two screenshots have different dimensions and cannot be compared pixel by pixel.".to_string()
     } else if diff["identical"] == true {

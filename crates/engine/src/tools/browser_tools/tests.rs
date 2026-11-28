@@ -707,6 +707,78 @@ fn screenshot_and_compare() {
 }
 
 #[test]
+fn web_pixels_compare_reports_blankness_without_rescaling_likeness() {
+    use crate::tools::web_common::{Image, encode_png};
+    use base64::Engine as _;
+
+    let b64 = |img: &Image| base64::engine::general_purpose::STANDARD.encode(encode_png(img).unwrap());
+    let solid = |w: u32, h: u32, rgb: [u8; 3]| {
+        let rgba: Vec<u8> = (0..(w as usize * h as usize)).flat_map(|_| [rgb[0], rgb[1], rgb[2], 255]).collect();
+        Image { width: w, height: h, rgba }
+    };
+    let fill = |img: &mut Image, x0: u32, y0: u32, rw: u32, rh: u32, rgb: [u8; 3]| {
+        for y in y0..(y0 + rh).min(img.height) {
+            for x in x0..(x0 + rw).min(img.width) {
+                let o = ((y as usize) * (img.width as usize) + x as usize) * 4;
+                img.rgba[o..o + 4].copy_from_slice(&[rgb[0], rgb[1], rgb[2], 255]);
+            }
+        }
+    };
+
+    let make_page = |height: u32, header_h: u32, sections: u32| {
+        let mut img = solid(720, height, [255, 255, 255]);
+        fill(&mut img, 0, 0, 720, header_h, [20, 26, 38]);
+        for i in 0..sections {
+            let y = header_h + 40 + i * 240;
+            fill(&mut img, 60, y, 600, 150, [238, 242, 248]);
+            fill(&mut img, 84, y + 24, 240, 24, [24, 30, 44]);
+            fill(&mut img, 84, y + 96, 140, 32, [31, 136, 61]);
+        }
+        img
+    };
+
+    let original = make_page(1450, 64, 5);
+    let shorter_faithful = make_page(1250, 64, 5);
+    let taller_header = make_page(1520, 136, 5);
+    let missing_section = make_page(1210, 64, 4);
+    let blank_white = solid(720, 900, [255, 255, 255]);
+
+    let e = Engine::new(crate::testing::session());
+    let cmp = |a: &Image, b: &Image| {
+        call(&e, "web_pixels_compare", json!({"before": {"base64": b64(a)}, "after": {"base64": b64(b)}, "common_area": true, "tolerance": 24})).unwrap()
+    };
+
+    // Faithful build whose total height differs keeps its unscaled shared-area likeness score.
+    let res_shorter = cmp(&original, &shorter_faithful);
+    assert!(
+        res_shorter["result"]["layout_similarity"].as_f64().unwrap() > 0.99 && res_shorter["result"]["perceptual_similarity"].as_f64().unwrap() > 0.99,
+        "height difference must not rescale layout/perceptual likeness: {}",
+        res_shorter["result"]
+    );
+    assert_eq!(res_shorter["result"]["after_blank"], false);
+    assert!(res_shorter["result"]["foreground"]["before"].as_f64().unwrap() > 0.30);
+    assert!(res_shorter["result"]["foreground"]["after"].as_f64().unwrap() > 0.30);
+
+    // Real rebuilds with a much taller header (+72 px) or a missing section are not blank.
+    for (label, img) in [("taller header", &taller_header), ("missing section", &missing_section)] {
+        let res = cmp(&original, img);
+        assert_eq!(res["result"]["after_blank"], false, "{label}: {}", res["result"]);
+        assert!(res["result"]["foreground"]["after"].as_f64().unwrap() > 0.30, "{label}");
+    }
+
+    // Blank page against a real page sets typed after_blank = true and notes it in the summary,
+    // without altering the underlying likeness fields.
+    let res_blank = cmp(&original, &blank_white);
+    assert_eq!(res_blank["result"]["after_blank"], true, "{}", res_blank["result"]);
+    assert_eq!(res_blank["result"]["foreground"]["after"].as_f64().unwrap(), 0.0);
+    assert!(res_blank["summary"].as_str().unwrap().contains("blank"), "{}", res_blank["summary"]);
+
+    // Blank original against blank build is not reported as blank.
+    let res_both_blank = cmp(&blank_white, &blank_white);
+    assert_eq!(res_both_blank["result"]["after_blank"], false);
+}
+
+#[test]
 fn no_endpoint_no_launch_is_provider_unavailable() {
     // Empty engine store and no endpoint: every browser tool must refuse with a clear remediation.
     let e = Engine::new(crate::testing::session());

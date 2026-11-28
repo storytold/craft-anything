@@ -1077,6 +1077,113 @@ pub fn block_similarity_masked(a: &Image, b: &Image, block: u32, threshold: u8, 
     if counted == 0 { 1.0 } else { same as f64 / counted as f64 }
 }
 
+/// Minimum share of foreground tiles an original image must have to count as non-blank (1%).
+pub const ORIGINAL_FOREGROUND_MIN: f64 = 0.01;
+/// Maximum share of foreground tiles a build may have and still be judged blank (0.5%).
+pub const BLANK_FOREGROUND_MAX: f64 = 0.005;
+/// A build must also have less than this fraction of the original's foreground to be judged blank,
+/// so a very sparse original does not falsely mark a slightly sparser rebuild as blank.
+const BLANK_RELATIVE_MAX: f64 = 0.15;
+/// Tile size used when measuring a picture's foreground content share.
+const FOREGROUND_TILE: u32 = 16;
+
+/// Dominant RGB colour of `img`, quantized into 32 bins per channel (width 8) with deterministic
+/// tie-breaking, returning the exact mean RGB of the largest bin.
+fn dominant_rgb(img: &Image) -> [f64; 3] {
+    if img.width == 0 || img.height == 0 {
+        return [0.0; 3];
+    }
+    let pixels = u64::from(img.width) * u64::from(img.height);
+    let step = ((pixels / 200_000) as f64).sqrt().ceil().max(1.0) as u32;
+    let mut bins: std::collections::BTreeMap<(u8, u8, u8), (u64, [u64; 3])> = std::collections::BTreeMap::new();
+    let mut y = 0u32;
+    while y < img.height {
+        let mut x = 0u32;
+        while x < img.width {
+            let o = ((y as usize) * (img.width as usize) + x as usize) * 4;
+            if let Some(px) = img.rgba.get(o..o + 3) {
+                let key = (px[0] >> 3, px[1] >> 3, px[2] >> 3);
+                let entry = bins.entry(key).or_insert((0, [0; 3]));
+                entry.0 += 1;
+                entry.1[0] += u64::from(px[0]);
+                entry.1[1] += u64::from(px[1]);
+                entry.1[2] += u64::from(px[2]);
+            }
+            x = x.saturating_add(step);
+        }
+        y = y.saturating_add(step);
+    }
+    let mut best = (0u64, [0u64; 3]);
+    for (_, (count, sum)) in bins {
+        if count > best.0 {
+            best = (count, sum);
+        }
+    }
+    if best.0 == 0 {
+        return [0.0; 3];
+    }
+    let n = best.0 as f64;
+    [best.1[0] as f64 / n, best.1[1] as f64 / n, best.1[2] as f64 / n]
+}
+
+/// Share of `16×16` tiles in `img` that carry visible foreground content (`0.0..=1.0`).
+///
+/// Estimates `img`'s dominant background colour and counts a tile as foreground when its mean RGB
+/// departs from that background by more than 8 per channel (cards, panels, banners, images) or at
+/// least 1/32 of its pixels depart by more than 16 per channel (text strokes, hairline borders,
+/// icons). Uniform flat pictures of any colour score `0.0`.
+pub fn foreground_share(img: &Image) -> f64 {
+    if img.width == 0 || img.height == 0 {
+        return 0.0;
+    }
+    let bg = dominant_rgb(img);
+    let bg_u8 = [bg[0].round().clamp(0.0, 255.0) as u8, bg[1].round().clamp(0.0, 255.0) as u8, bg[2].round().clamp(0.0, 255.0) as u8];
+    let (cols, rows) = (img.width.div_ceil(FOREGROUND_TILE), img.height.div_ceil(FOREGROUND_TILE));
+    let (mut fg_tiles, mut total_tiles) = (0u64, 0u64);
+    for by in 0..rows {
+        let y0 = by * FOREGROUND_TILE;
+        let y1 = y0.saturating_add(FOREGROUND_TILE).min(img.height);
+        for bx in 0..cols {
+            let x0 = bx * FOREGROUND_TILE;
+            let x1 = x0.saturating_add(FOREGROUND_TILE).min(img.width);
+            let mut sum = [0u64; 3];
+            let mut fg_pixels = 0u64;
+            let mut n = 0u64;
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    let o = ((y as usize) * (img.width as usize) + x as usize) * 4;
+                    if let Some(px) = img.rgba.get(o..o + 3) {
+                        sum[0] += u64::from(px[0]);
+                        sum[1] += u64::from(px[1]);
+                        sum[2] += u64::from(px[2]);
+                        let px_diff = px[0].abs_diff(bg_u8[0]).max(px[1].abs_diff(bg_u8[1])).max(px[2].abs_diff(bg_u8[2]));
+                        if px_diff > 16 {
+                            fg_pixels += 1;
+                        }
+                        n += 1;
+                    }
+                }
+            }
+            if n == 0 {
+                continue;
+            }
+            total_tiles += 1;
+            let nf = n as f64;
+            let mean_diff = (sum[0] as f64 / nf - bg[0]).abs().max((sum[1] as f64 / nf - bg[1]).abs()).max((sum[2] as f64 / nf - bg[2]).abs());
+            if mean_diff > 8.0 || fg_pixels.saturating_mul(32) >= n {
+                fg_tiles += 1;
+            }
+        }
+    }
+    if total_tiles == 0 { 0.0 } else { fg_tiles as f64 / total_tiles as f64 }
+}
+
+/// Whether `after` is effectively blank compared with a non-blank `before` image, given each
+/// image's [`foreground_share`].
+pub fn after_is_blank(before_foreground: f64, after_foreground: f64) -> bool {
+    before_foreground >= ORIGINAL_FOREGROUND_MIN && after_foreground < BLANK_FOREGROUND_MAX && after_foreground < before_foreground * BLANK_RELATIVE_MAX
+}
+
 /// `img` as an 8-bit RGBA PNG.
 pub fn encode_png(img: &Image) -> Result<Vec<u8>, ToolError> {
     let mut out = Vec::new();
@@ -1674,6 +1781,95 @@ mod tests {
         assert_eq!(perceptual_similarity(&stripes, &img(100, 120, &|_, _| 0)), 0.0, "different sizes");
         let big = img(2000, 40, &|x, _| (x % 256) as u8);
         assert!(perceptual_similarity(&big, &big) > 0.999, "shrunk before comparing");
+    }
+
+    #[test]
+    fn foreground_share_and_after_is_blank_separate_blank_pages_from_real_rebuilds() {
+        let solid = |w: u32, h: u32, rgb: [u8; 3]| Image {
+            width: w,
+            height: h,
+            rgba: (0..(w as usize * h as usize)).flat_map(|_| [rgb[0], rgb[1], rgb[2], 255]).collect(),
+        };
+        let fill = |img: &mut Image, x0: u32, y0: u32, rw: u32, rh: u32, rgb: [u8; 3]| {
+            for y in y0..(y0 + rh).min(img.height) {
+                for x in x0..(x0 + rw).min(img.width) {
+                    let o = ((y as usize) * (img.width as usize) + x as usize) * 4;
+                    img.rgba[o..o + 4].copy_from_slice(&[rgb[0], rgb[1], rgb[2], 255]);
+                }
+            }
+        };
+
+        // Empty and flat single-colour pictures of any colour score 0.0.
+        assert_eq!(foreground_share(&Image { width: 0, height: 0, rgba: Vec::new() }), 0.0);
+        for bg in [[255, 255, 255], [0, 0, 0], [10, 11, 12], [240, 240, 242]] {
+            assert_eq!(foreground_share(&solid(720, 450, bg)), 0.0, "flat {bg:?}");
+        }
+
+        // Subtle ±2 uniform background noise still counts as blank.
+        let noisy_blank = Image {
+            width: 320,
+            height: 240,
+            rgba: (0..240u32)
+                .flat_map(|y| {
+                    (0..320u32).flat_map(move |x| {
+                        let v = if (x + y) % 2 == 0 { 253 } else { 255 };
+                        [v, v, v, 255]
+                    })
+                })
+                .collect(),
+        };
+        assert_eq!(foreground_share(&noisy_blank), 0.0, "subtle background dithering is still blank");
+
+        // Sparse light sign-in page (white background, subtle #f6f8fa card, thin borders, dark icon, green button).
+        let mut login = solid(1440, 900, [255, 255, 255]);
+        fill(&mut login, 696, 40, 48, 48, [31, 35, 40]);
+        fill(&mut login, 566, 140, 308, 240, [246, 248, 250]);
+        fill(&mut login, 582, 180, 276, 32, [255, 255, 255]);
+        fill(&mut login, 582, 180, 276, 1, [208, 215, 222]);
+        fill(&mut login, 582, 310, 276, 32, [31, 136, 61]);
+        let login_fg = foreground_share(&login);
+        let blank_white_fg = foreground_share(&solid(1440, 900, [255, 255, 255]));
+        let blank_black_fg = foreground_share(&solid(1440, 900, [0, 0, 0]));
+        assert!(login_fg > ORIGINAL_FOREGROUND_MIN, "sparse login page has real foreground: {login_fg}");
+        assert!(after_is_blank(login_fg, blank_white_fg), "blank white is blank against login");
+        assert!(after_is_blank(login_fg, blank_black_fg), "blank black is blank against login");
+        assert!(!after_is_blank(login_fg, login_fg), "matching login page is not blank");
+
+        // A blank page with a tiny 16x16 broken-image speck is still blank against a real page.
+        let mut tiny_speck = solid(1440, 900, [255, 255, 255]);
+        fill(&mut tiny_speck, 8, 8, 16, 16, [80, 80, 80]);
+        assert!(after_is_blank(login_fg, foreground_share(&tiny_speck)), "tiny speck on empty viewport is still blank");
+
+        // Thin dark text strokes on white (no filled card) still register as real foreground content.
+        let mut text_only = solid(1440, 900, [255, 255, 255]);
+        for row in 0..8u32 {
+            fill(&mut text_only, 420, 120 + row * 28, 600, 2, [34, 34, 34]);
+        }
+        let text_fg = foreground_share(&text_only);
+        assert!(text_fg > ORIGINAL_FOREGROUND_MIN, "thin text strokes register as foreground: {text_fg}");
+        assert!(after_is_blank(text_fg, blank_white_fg));
+        assert!(!after_is_blank(text_fg, text_fg));
+
+        // Dark-themed page (#0a0b0c) with subtle dark cards (#141518) and white headlines:
+        // blank dominant-colour page is blank, while a shorter build or a missing section is not.
+        let mut dark = solid(720, 1600, [10, 11, 12]);
+        for i in 0..5u32 {
+            fill(&mut dark, 40, 40 + i * 300, 640, 200, [20, 21, 24]);
+            fill(&mut dark, 64, 64 + i * 300, 320, 24, [240, 242, 245]);
+        }
+        let missing_section = crop(&dark, 720, 1250);
+        let dark_fg = foreground_share(&dark);
+        assert!(after_is_blank(dark_fg, foreground_share(&solid(720, 900, [10, 11, 12]))));
+        assert!(!after_is_blank(dark_fg, foreground_share(&missing_section)), "missing section still has real foreground");
+
+        // A blank original never marks a blank build as blank.
+        assert!(!after_is_blank(blank_white_fg, blank_white_fg));
+        assert!(!after_is_blank(blank_white_fg, blank_black_fg));
+
+        // 50/50 two-tone page stays high regardless of which colour wins the dominant bin.
+        let mut split = solid(400, 200, [20, 24, 30]);
+        fill(&mut split, 0, 0, 400, 100, [245, 245, 245]);
+        assert!(foreground_share(&split) > 0.40);
     }
 }
 

@@ -3354,10 +3354,15 @@ fn a_build_attach_closes_a_target_opened_in_another_project() {
 pub(crate) fn check_worker(ws: &Workspace, deep: bool) -> Worker {
     let mut s = craft_anything_engine::testing::session();
     s.settings.deep_mode = deep;
+    check_worker_with_engine(ws, Arc::new(Engine::new(s)))
+}
+
+/// A worker over `engine` and the workspace's feed, for check tests (including live browser runs).
+pub(crate) fn check_worker_with_engine(ws: &Workspace, engine: Arc<Engine>) -> Worker {
     let (tx, _rx) = std::sync::mpsc::channel();
     Worker {
         wake: Default::default(),
-        engine: Arc::new(Engine::new(s)),
+        engine,
         tx,
         stop: CancelToken::default(),
         preview: Arc::default(),

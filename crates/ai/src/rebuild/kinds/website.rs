@@ -233,10 +233,17 @@ impl TargetKind for WebsiteKind {
                 "Check {}: compared with the original, your build looks {s:.0}% alike ({}). The check measured your build at each width the same way as the original: compare checks/round-{}/capture.json (and routes/<page>/capture.json for other pages) with capture/capture.json, fix the layout and section order and anything missing first, then the padding, items per row, sizes, colours and fonts the check names at each width with the exact values it gives, add any missing headings or words it lists, build it again, and reply with 1-2 plain sentences on what you changed.",
                 check.round, check.note, check.round
             ),
-            None => format!(
-                "Check {}: {}\n\nFix this in app/, build again until it succeeds, and reply with 1-2 plain sentences on what you changed.",
-                check.round, check.note
-            ),
+            None => {
+                let shots = if sees_pictures && !check.artifacts.is_empty() {
+                    format!(" Your screenshots are in checks/round-{}/; the original's are in capture/.", check.round)
+                } else {
+                    String::new()
+                };
+                format!(
+                    "Check {}: {}{shots}\n\nFix this in app/, build again until it succeeds, and reply with 1-2 plain sentences on what you changed.",
+                    check.round, check.note
+                )
+            }
         }
     }
 }
@@ -695,13 +702,73 @@ fn read_json(path: &Path) -> Option<Value> {
     std::fs::read(path).ok().and_then(|b| serde_json::from_slice(&b).ok())
 }
 
-/// A picture of the build against the original's, in percent: (likeness, layout, detail), then
-/// the two heights in px.
-type Likeness = (f64, f64, f64, u64, u64);
+/// One screenshot pair compared by `web_pixels_compare`: the likeness score in percent (the mean
+/// of layout and detail, unchanged), the two heights in px, each full picture's foreground tile
+/// share (`0..=1`), and whether the build is blank against a non-blank original.
+#[derive(Debug, Clone, PartialEq)]
+struct PictureLikeness {
+    score: f64,
+    layout: f64,
+    detail: f64,
+    before_height: u64,
+    after_height: u64,
+    before_foreground: Option<f64>,
+    after_foreground: Option<f64>,
+    blank: bool,
+}
+
+/// Derive a typed [`PictureLikeness`] from a `web_pixels_compare` result. Leaves the likeness
+/// score unchanged (`(layout + detail) * 50`) and reads blankness as its own typed fact.
+fn likeness_from_compare(res: &Value) -> Option<PictureLikeness> {
+    let layout = res.get("layout_similarity").and_then(Value::as_f64)?;
+    // Layout alone is generous to mostly empty pages; detail (SSIM) sees text and edges.
+    let detail = res.get("perceptual_similarity").and_then(Value::as_f64).unwrap_or(layout);
+    let h = |k: &str| res.pointer(&format!("/sizes/{k}/height")).and_then(Value::as_u64).unwrap_or(0);
+    let fg = |k: &str| res.pointer(&format!("/foreground/{k}")).and_then(Value::as_f64);
+    let (before_foreground, after_foreground) = (fg("before"), fg("after"));
+    let blank = res.get("after_blank").and_then(Value::as_bool).unwrap_or_else(
+        || matches!((before_foreground, after_foreground), (Some(b), Some(a)) if craft_anything_engine::tools::web_common::after_is_blank(b, a)),
+    );
+    Some(PictureLikeness {
+        score: (layout + detail) * 50.0,
+        layout: layout * 100.0,
+        detail: detail * 100.0,
+        before_height: h("before"),
+        after_height: h("after"),
+        before_foreground,
+        after_foreground,
+        blank,
+    })
+}
+
+fn fmt_foreground(share: f64) -> String {
+    if share > 0.0 && share < 0.005 { "<1%".to_string() } else { format!("{:.0}%", share * 100.0) }
+}
+
+/// Claim that `page` is not blank when the original has foreground content at any compared width.
+/// Returns `None` when the original has no measurable foreground content (or legacy compare
+/// results omit foreground measurements).
+fn blank_page_claim(page: &str, per_width: &[(u32, PictureLikeness)]) -> Option<Claim> {
+    use craft_anything_engine::tools::web_common::ORIGINAL_FOREGROUND_MIN;
+    let original_has_content = per_width.iter().any(|(_, p)| p.blank || p.before_foreground.is_some_and(|fg| fg >= ORIGINAL_FOREGROUND_MIN));
+    if !original_has_content {
+        return None;
+    }
+    let blank_widths: Vec<String> = per_width
+        .iter()
+        .filter(|(_, p)| p.blank)
+        .map(|(w, p)| match (p.after_foreground, p.before_foreground) {
+            (Some(after), Some(before)) => format!("{w} px ({} foreground vs {} in the original)", fmt_foreground(after), fmt_foreground(before)),
+            _ => format!("{w} px"),
+        })
+        .collect();
+    let detail = if blank_widths.is_empty() { String::new() } else { format!("the page is blank at {}", blank_widths.join(", ")) };
+    Some(Claim::new(format!("{page} isn't blank"), blank_widths.is_empty(), detail))
+}
 
 /// Compare the build's picture with the original's. None when either picture is missing or they
 /// couldn't be compared.
-fn picture_likeness(cx: &CheckCx, original: &Path, built: &Path) -> Result<Option<Likeness>, ToolError> {
+fn picture_likeness(cx: &CheckCx, original: &Path, built: &Path) -> Result<Option<PictureLikeness>, ToolError> {
     if !(original.is_file() && built.is_file()) {
         return Ok(None);
     }
@@ -716,11 +783,7 @@ fn picture_likeness(cx: &CheckCx, original: &Path, built: &Path) -> Result<Optio
     let r = cx.call("web_pixels_compare", params)?;
     let v = r.to_json();
     let res = v.get("result").cloned().unwrap_or(Value::Null);
-    let Some(layout) = res.get("layout_similarity").and_then(Value::as_f64) else { return Ok(None) };
-    // Layout alone is generous to mostly empty pages; detail (SSIM) sees text and edges.
-    let detail = res.get("perceptual_similarity").and_then(Value::as_f64).unwrap_or(layout);
-    let h = |k: &str| res.pointer(&format!("/sizes/{k}/height")).and_then(Value::as_u64).unwrap_or(0);
-    Ok(Some(((layout + detail) * 50.0, layout * 100.0, detail * 100.0, h("before"), h("after"))))
+    Ok(likeness_from_compare(&res))
 }
 
 /// Open the build's menus, pop-ups and tabs the way the study opened the original's in `dir`
@@ -754,7 +817,7 @@ fn states_note(cx: &CheckCx, base: &str, out: &Path, dir: &str, unknowns: &mut V
         };
         claims.push(Claim::new(format!("{name} opens in the build at {width} px"), b.is_some(), "no such control opens"));
         parts.push(match (b, likeness) {
-            (_, Some((score, ..))) => format!("{name} {score:.0}% alike"),
+            (_, Some(p)) => format!("{name} {:.0}% alike", p.score),
             (Some(_), None) => {
                 unknowns.push(format!("{name} at {width} px couldn't be compared"));
                 format!("{name} couldn't be compared")
@@ -765,10 +828,102 @@ fn states_note(cx: &CheckCx, base: &str, out: &Path, dir: &str, unknowns: &mut V
     Ok(Some(format!("opened menus and pop-ups at {width} px: {}", parts.join(", "))))
 }
 
+/// One page's comparison inputs for [`VisualSummary::record_page`].
+struct ComparedPage<'a> {
+    name: &'a str,
+    dir: &'a str,
+    page: &'a str,
+    multi_page: bool,
+    per_width: &'a [(u32, PictureLikeness)],
+    original_capture: Option<&'a Value>,
+    built_capture: Option<&'a Value>,
+}
+
+/// Accumulates per-page screenshot comparisons and claims for [`WebVisualCheck`].
+#[derive(Default)]
+struct VisualSummary {
+    scores: Vec<f64>,
+    likeness: Vec<PageLikeness>,
+    notes: Vec<String>,
+    claims: Vec<Claim>,
+    blank_pages: Vec<String>,
+}
+
+impl VisualSummary {
+    fn record_page(&mut self, compared: &ComparedPage<'_>) {
+        if compared.per_width.is_empty() {
+            self.notes.push(format!("{}: couldn't be compared", compared.name));
+            return;
+        }
+        let score = compared.per_width.iter().map(|(_, p)| p.score).sum::<f64>() / compared.per_width.len() as f64;
+        self.scores.push(score);
+        self.likeness.push(PageLikeness { name: compared.name.to_string(), dir: compared.dir.to_string(), similarity: score });
+        if let Some(claim) = blank_page_claim(compared.page, compared.per_width) {
+            if !claim.passed {
+                self.blank_pages.push(format!("{}: {}", compared.page, claim.detail));
+            }
+            self.claims.push(claim);
+        }
+        let widths = compared
+            .per_width
+            .iter()
+            .map(|(w, p)| {
+                let blank = if p.blank { "; the page is blank" } else { "" };
+                format!(
+                    "{w} px: {:.0}% alike (layout {:.0}%, detail {:.0}%; page height {} vs {} px{blank})",
+                    p.score, p.layout, p.detail, p.before_height, p.after_height
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        // The page's words, parts and measured design too: a build can look alike and still
+        // miss words, or get the padding, colours and fonts wrong at some width.
+        let text = match (compared.original_capture, compared.built_capture) {
+            (Some(o), Some(b)) => {
+                self.claims.extend(page_claims(compared.page, o, b));
+                [text_likeness(o, b).map(|t| t.note()), structure_likeness(o, b).map(|s| s.note())]
+                    .into_iter()
+                    .flatten()
+                    .chain(design_notes(o, b))
+                    .chain(health_notes(o, b))
+                    .map(|n| format!("; {n}"))
+                    .collect::<String>()
+            }
+            _ => String::new(),
+        };
+        self.notes.push(if !compared.multi_page { format!("{widths}{text}") } else { format!("{}: {score:.0}% ({widths}{text})", compared.name) });
+    }
+
+    fn finish(mut self, id: &str, round: u32, artifacts: Vec<PathBuf>, unknowns: Vec<String>) -> CheckResult {
+        if self.scores.is_empty() {
+            return CheckResult::new(id, round, false, "The build couldn't be compared with the original.");
+        }
+        let failed: Vec<String> = self.claims.iter().filter(|c| !c.passed).map(|c| format!("{} ({})", c.title, c.detail)).collect();
+        if !failed.is_empty() {
+            self.notes.push(format!("{} of {} claims don't hold yet: {}", failed.len(), self.claims.len(), failed.join("; ")));
+        }
+        if !unknowns.is_empty() {
+            self.notes.push(format!("not compared, so this can't pass yet: {}", unknowns.join(", ")));
+        }
+        if !self.blank_pages.is_empty() {
+            self.notes.insert(0, format!("{}.", self.blank_pages.join("; ")));
+        }
+        let passed = self.blank_pages.is_empty();
+        let avg = self.scores.iter().sum::<f64>() / self.scores.len() as f64;
+        // A blank page fails with its own reason instead of scoring as a likeness.
+        let similarity = passed.then_some(avg);
+        // One page needs no list; with several, each one's likeness is kept for the project page.
+        let pages = if passed && self.likeness.len() > 1 { self.likeness } else { Vec::new() };
+        CheckResult { similarity, artifacts, pages, unknowns, claims: self.claims, ..CheckResult::new(id, round, passed, self.notes.join(" | ")) }
+    }
+}
+
 /// Serve the built site on loopback, capture it like the original, and compare screenshots at
 /// each width. The likeness is the mean of layout (tile colours) and detail (SSIM of brightness).
-/// The note adds the text, the page structure and the opened menus and pop-ups; they guide the
-/// builder but don't change the score.
+/// A page whose build has next to no foreground content against a non-blank original fails the
+/// check with a blank-page claim and reason, whatever the score says. The note adds the text, the
+/// page structure and the opened menus and pop-ups; they guide the builder but don't change the
+/// score.
 pub struct WebVisualCheck;
 
 /// What the check says when there is no site to look at: the places `site_dir` accepts, in the
@@ -806,12 +961,9 @@ impl Check for WebVisualCheck {
             let url = format!("{}{}", base.trim_end_matches('/'), r.path);
             pages.push((r.path.clone(), format!("routes/{}", r.slug), url));
         }
-        let mut scores = Vec::new();
-        let mut likeness = Vec::new();
-        let mut notes = Vec::new();
+        let mut summary = VisualSummary::default();
         let mut artifacts = Vec::new();
         let mut unknowns = Vec::new();
-        let mut claims = Vec::new();
         for (name, dir, url) in &pages {
             let (original, built) = if dir.is_empty() { (ws.capture_dir(), out.clone()) } else { (ws.capture_dir().join(dir), out.join(dir)) };
             // web_site_capture creates the page's own folder (it must not exist yet) inside one
@@ -824,13 +976,13 @@ impl Check for WebVisualCheck {
             // The floor judges the build alone, so it holds even where the original can't be compared.
             let page = if dir.is_empty() { "The start page".to_string() } else { name.clone() };
             let built_capture = read_json(&built.join("capture.json"));
-            claims.extend(built_capture.as_ref().and_then(|b| super::a11y_floor::floor_claim(&page, b, &settings)));
+            summary.claims.extend(built_capture.as_ref().and_then(|b| super::a11y_floor::floor_claim(&page, b, &settings)));
             let mut per_width = Vec::new();
             for &w in &widths {
                 let (a, b) = (original.join(format!("screenshot-{w}.png")), built.join(format!("screenshot-{w}.png")));
                 match picture_likeness(cx, &a, &b)? {
-                    Some((s, l, d, hb, ha)) => {
-                        per_width.push((w, s, l, d, hb, ha));
+                    Some(p) => {
+                        per_width.push((w, p));
                         artifacts.extend(b.strip_prefix(&ws.root).ok().map(Path::to_path_buf));
                     }
                     // A width the original was never pictured at is outside what was studied;
@@ -839,52 +991,24 @@ impl Check for WebVisualCheck {
                     None => {}
                 }
             }
-            if per_width.is_empty() {
-                notes.push(format!("{name}: couldn't be compared"));
-                continue;
-            }
-            let score = per_width.iter().map(|p| p.1).sum::<f64>() / per_width.len() as f64;
-            scores.push(score);
-            likeness.push(PageLikeness { name: name.clone(), dir: dir.clone(), similarity: score });
-            let widths = per_width
-                .iter()
-                .map(|(w, s, l, d, hb, ha)| format!("{w} px: {s:.0}% alike (layout {l:.0}%, detail {d:.0}%; page height {hb} vs {ha} px)"))
-                .collect::<Vec<_>>()
-                .join("; ");
-            // The page's words, parts and measured design too: a build can look alike and still
-            // miss words, or get the padding, colours and fonts wrong at some width.
-            let text = match (read_json(&original.join("capture.json")), built_capture) {
-                (Some(o), Some(b)) => {
-                    claims.extend(page_claims(&page, &o, &b));
-                    [text_likeness(&o, &b).map(|t| t.note()), structure_likeness(&o, &b).map(|s| s.note())]
-                        .into_iter()
-                        .flatten()
-                        .chain(design_notes(&o, &b))
-                        .chain(health_notes(&o, &b))
-                        .map(|n| format!("; {n}"))
-                        .collect::<String>()
-                }
-                _ => String::new(),
-            };
-            notes.push(if pages.len() == 1 { format!("{widths}{text}") } else { format!("{name}: {score:.0}% ({widths}{text})") });
+            let original_capture = read_json(&original.join("capture.json"));
+            summary.record_page(&ComparedPage {
+                name,
+                dir,
+                page: &page,
+                multi_page: pages.len() > 1,
+                per_width: &per_width,
+                original_capture: original_capture.as_ref(),
+                built_capture: built_capture.as_ref(),
+            });
         }
-        if scores.is_empty() {
-            return Ok(CheckResult::new(self.id(), round, false, "The build couldn't be compared with the original."));
+        if summary.scores.is_empty() {
+            return Ok(summary.finish(self.id(), round, artifacts, unknowns));
         }
         for dir in state_dirs(&ws.capture_dir()) {
-            notes.extend(states_note(cx, &base, &out, &dir, &mut unknowns, &mut claims)?);
+            summary.notes.extend(states_note(cx, &base, &out, &dir, &mut unknowns, &mut summary.claims)?);
         }
-        let failed: Vec<String> = claims.iter().filter(|c| !c.passed).map(|c| format!("{} ({})", c.title, c.detail)).collect();
-        if !failed.is_empty() {
-            notes.push(format!("{} of {} claims don't hold yet: {}", failed.len(), claims.len(), failed.join("; ")));
-        }
-        if !unknowns.is_empty() {
-            notes.push(format!("not compared, so this can't pass yet: {}", unknowns.join(", ")));
-        }
-        let avg = scores.iter().sum::<f64>() / scores.len() as f64;
-        // One page needs no list; with several, each one's likeness is kept for the project page.
-        let pages = if likeness.len() > 1 { likeness } else { Vec::new() };
-        Ok(CheckResult { similarity: Some(avg), artifacts, pages, unknowns, claims, ..CheckResult::new(self.id(), round, true, notes.join(" | ")) })
+        Ok(summary.finish(self.id(), round, artifacts, unknowns))
     }
 }
 
@@ -936,5 +1060,277 @@ mod tests {
         assert_eq!(site_dir(d.path()), Some(d.path().to_path_buf()), "a plain page");
         std::fs::write(d.path().join("package.json"), "{}").unwrap();
         assert_eq!(site_dir(d.path()), None, "a page beside a manifest is not a built site");
+    }
+
+    /// #2422: likeness scores keep their meaning across height differences, taller headers and
+    /// missing sections, while a blank build fails the website check with a typed claim and reason
+    /// whatever its raw likeness score says.
+    #[test]
+    fn blank_pages_fail_with_typed_claim_while_real_rebuilds_keep_their_likeness_score() {
+        use craft_anything_engine::tools::web_common::{Image, encode_png};
+
+        let solid = |w: u32, h: u32, rgb: [u8; 3]| Image {
+            width: w,
+            height: h,
+            rgba: (0..(w as usize * h as usize)).flat_map(|_| [rgb[0], rgb[1], rgb[2], 255]).collect(),
+        };
+        let fill = |img: &mut Image, x0: u32, y0: u32, rw: u32, rh: u32, rgb: [u8; 3]| {
+            for y in y0..(y0 + rh).min(img.height) {
+                for x in x0..(x0 + rw).min(img.width) {
+                    let o = ((y as usize) * (img.width as usize) + x as usize) * 4;
+                    img.rgba[o..o + 4].copy_from_slice(&[rgb[0], rgb[1], rgb[2], 255]);
+                }
+            }
+        };
+
+        let d = tempfile::tempdir().unwrap();
+        let ws = Workspace::create(d.path(), "Site", "Clone it", TargetRef::Website { url: "https://example.com".into() }).unwrap();
+        let worker = crate::rebuild::tests::check_worker(&ws, false);
+        let cx = CheckCx { worker: &worker, ws: &ws, round: 1, until: None };
+
+        let write_png = |name: &str, img: &Image| {
+            let p = d.path().join(name);
+            std::fs::write(&p, encode_png(img).unwrap()).unwrap();
+            p
+        };
+        let check_one = |per_width: &[(u32, PictureLikeness)]| {
+            let mut s = VisualSummary::default();
+            s.record_page(&ComparedPage {
+                name: "start page",
+                dir: "",
+                page: "The start page",
+                multi_page: false,
+                per_width,
+                original_capture: None,
+                built_capture: None,
+            });
+            s.finish(CheckResult::WEB_VISUAL, 1, vec![PathBuf::from("checks/round-1/screenshot-1440.png")], Vec::new())
+        };
+
+        // 1. Sparse light sign-in page (mostly white) vs blank white build: raw likeness is near
+        // 90%+, yet the check fails with a typed blank-page claim and does not score as a likeness.
+        let mut login = solid(1440, 900, [255, 255, 255]);
+        fill(&mut login, 696, 40, 48, 48, [31, 35, 40]);
+        fill(&mut login, 566, 140, 308, 240, [246, 248, 250]);
+        fill(&mut login, 582, 310, 276, 32, [31, 136, 61]);
+        let login_orig = write_png("login-orig.png", &login);
+        let blank_white = write_png("blank-white.png", &solid(1440, 900, [255, 255, 255]));
+        let blank_cmp = picture_likeness(&cx, &login_orig, &blank_white).unwrap().unwrap();
+        assert!(blank_cmp.score > 80.0, "underlying likeness scale is untouched: {}", blank_cmp.score);
+        assert!(blank_cmp.blank, "typed blankness fact catches blank white build");
+
+        let blank_res = check_one(&[(1440, blank_cmp)]);
+        assert!(!blank_res.passed && !blank_res.good(90.0) && !blank_res.good(0.0), "{blank_res:?}");
+        assert_eq!(blank_res.similarity, None, "blank page must not report a likeness score");
+        let blank_claim = blank_res.claims.iter().find(|c| c.title == "The start page isn't blank").expect("blankness claim");
+        assert!(!blank_claim.passed && blank_claim.detail.contains("the page is blank"), "{blank_claim:?}");
+        assert!(blank_res.note.contains("the page is blank"), "{}", blank_res.note);
+        let refine_msg = WebsiteKind.refine(&blank_res, true);
+        assert!(refine_msg.contains("the page is blank") && !refine_msg.contains("looks") && refine_msg.contains("checks/round-1/"), "{refine_msg}");
+
+        // 2. Tall multi-section page (5800 px) vs real rebuilds:
+        //    - faithful shorter build (5000 px): likeness stays near 100%, never capped near 86%.
+        //    - taller header (+80 px pushing sections down): not flagged as blank, passes check.
+        //    - missing section (4 of 5 sections): not flagged as blank, passes check.
+        let make_site = |height: u32, header_h: u32, sections: u32| {
+            let mut img = solid(720, height, [255, 255, 255]);
+            fill(&mut img, 0, 0, 720, header_h, [20, 26, 38]);
+            for i in 0..sections {
+                let y = header_h + 60 + i * 520;
+                fill(&mut img, 48, y, 624, 340, [238, 242, 248]);
+                fill(&mut img, 72, y + 36, 300, 32, [24, 30, 44]);
+                fill(&mut img, 72, y + 240, 160, 40, [31, 136, 61]);
+            }
+            img
+        };
+        let orig_site = write_png("site-orig.png", &make_site(2900, 64, 5));
+        let shorter_site = write_png("site-shorter.png", &make_site(2500, 64, 5));
+        let taller_hdr = write_png("site-taller-header.png", &make_site(2980, 144, 5));
+        let missing_sec = write_png("site-missing-section.png", &make_site(2380, 64, 4));
+        let blank_dark = write_png("site-blank-dark.png", &solid(720, 900, [10, 11, 12]));
+
+        let shorter_cmp = picture_likeness(&cx, &orig_site, &shorter_site).unwrap().unwrap();
+        assert!(!shorter_cmp.blank && shorter_cmp.score > 95.0, "shorter faithful build keeps Ready-range likeness: {shorter_cmp:?}");
+        let shorter_res = check_one(&[(1440, shorter_cmp)]);
+        assert!(shorter_res.passed && shorter_res.good(90.0), "{shorter_res:?}");
+        assert!(shorter_res.claims.iter().any(|c| c.title == "The start page isn't blank" && c.passed));
+
+        for (label, path) in [("taller header", &taller_hdr), ("missing section", &missing_sec)] {
+            let cmp = picture_likeness(&cx, &orig_site, path).unwrap().unwrap();
+            assert!(!cmp.blank, "{label} is a real rebuild, not blank: {cmp:?}");
+            let res = check_one(&[(1440, cmp)]);
+            assert!(res.passed && res.similarity.is_some(), "{label}: {res:?}");
+        }
+
+        // Single-width blank (e.g. broken mobile layout at 390 px while 1440 px renders) fails and names 390 px.
+        let ok_desktop = picture_likeness(&cx, &orig_site, &shorter_site).unwrap().unwrap();
+        let blank_mobile = picture_likeness(&cx, &orig_site, &blank_dark).unwrap().unwrap();
+        let mobile_blank_res = check_one(&[(1440, ok_desktop.clone()), (390, blank_mobile.clone())]);
+        assert!(!mobile_blank_res.passed && mobile_blank_res.similarity.is_none());
+        let mobile_claim = mobile_blank_res.claims.iter().find(|c| c.title == "The start page isn't blank").unwrap();
+        assert!(!mobile_claim.passed && mobile_claim.detail.contains("390 px") && !mobile_claim.detail.contains("1440 px"), "{mobile_claim:?}");
+
+        // Multi-page site where the start page renders fine and /about is blank fails and names /about.
+        let mut multi = VisualSummary::default();
+        multi.record_page(&ComparedPage {
+            name: "start page",
+            dir: "",
+            page: "The start page",
+            multi_page: true,
+            per_width: &[(1440, ok_desktop)],
+            original_capture: None,
+            built_capture: None,
+        });
+        multi.record_page(&ComparedPage {
+            name: "/about",
+            dir: "routes/about",
+            page: "/about",
+            multi_page: true,
+            per_width: &[(1440, blank_mobile)],
+            original_capture: None,
+            built_capture: None,
+        });
+        let multi_res = multi.finish(CheckResult::WEB_VISUAL, 1, Vec::new(), Vec::new());
+        assert!(!multi_res.passed && multi_res.similarity.is_none(), "{multi_res:?}");
+        assert!(multi_res.claims.iter().any(|c| c.title == "The start page isn't blank" && c.passed));
+        assert!(multi_res.claims.iter().any(|c| c.title == "/about isn't blank" && !c.passed && c.detail.contains("the page is blank")));
+
+        // Dark-themed original (#0a0b0c) vs a blank page of its own dominant colour fails too.
+        let mut dark_site = solid(720, 1200, [10, 11, 12]);
+        for i in 0..4u32 {
+            fill(&mut dark_site, 40, 40 + i * 280, 640, 180, [20, 21, 24]);
+            fill(&mut dark_site, 64, 64 + i * 280, 280, 24, [240, 242, 245]);
+        }
+        let dark_orig = write_png("dark-orig.png", &dark_site);
+        let dark_blank_cmp = picture_likeness(&cx, &dark_orig, &blank_dark).unwrap().unwrap();
+        assert!(dark_blank_cmp.blank, "dominant dark blank page must be flagged: {dark_blank_cmp:?}");
+        let dark_blank_res = check_one(&[(1440, dark_blank_cmp)]);
+        assert!(!dark_blank_res.passed && dark_blank_res.similarity.is_none());
+
+        // Blank original never falsely marks a blank build as blank.
+        let both_blank = picture_likeness(&cx, &blank_white, &blank_white).unwrap().unwrap();
+        assert!(!both_blank.blank);
+        let both_blank_res = check_one(&[(1440, both_blank)]);
+        assert!(both_blank_res.passed && both_blank_res.claims.is_empty(), "{both_blank_res:?}");
+
+        // Legacy compare result without foreground/after_blank still computes (layout + detail) * 50.
+        let legacy = json!({"layout_similarity": 0.8, "perceptual_similarity": 0.6, "sizes": {"before": {"height": 1000}, "after": {"height": 1000}}});
+        let legacy_cmp = likeness_from_compare(&legacy).unwrap();
+        assert!((legacy_cmp.score - 70.0).abs() < 1e-9 && !legacy_cmp.blank, "{legacy_cmp:?}");
+    }
+
+    /// Live end-to-end check against real Chromium captures of HTML rebuilds (faithful, taller
+    /// header, missing section, and blank page). Needs a Chromium-based browser (`--ignored`).
+    #[test]
+    #[ignore]
+    fn live_web_visual_check_handles_real_rebuilds_and_fails_blank_pages() {
+        let html = |header_px: u32, sections: usize| -> String {
+            let cards: String = (0..sections)
+                .map(|i| {
+                    format!(
+                        r#"<section style="max-width:960px;margin:32px auto;padding:40px;background:#f3f5f8;border:1px solid #d0d7de;border-radius:8px">
+<h2>Section {}</h2><p>Measured product copy and feature explanation for rebuild verification.</p>
+<button style="background:#1f883d;color:#fff;border:0;padding:10px 18px;border-radius:6px">Continue</button></section>"#,
+                        i + 1
+                    )
+                })
+                .collect();
+            format!(
+                r#"<!doctype html><html lang="en"><body style="margin:0;background:#fff;color:#1f2328;font-family:sans-serif">
+<header style="height:{header_px}px;background:#141a26;color:#fff;display:flex;align-items:center;padding:0 32px"><nav>Home · Pricing · Docs</nav></header>
+<main>{cards}</main>
+<footer style="padding:32px;background:#141a26;color:#cbd5e1;text-align:center">Footer</footer></body></html>"#
+            )
+        };
+
+        let capture_site = |dir: &Path, body: &str| {
+            let site = dir.join("site");
+            std::fs::create_dir_all(&site).unwrap();
+            std::fs::write(site.join("index.html"), body).unwrap();
+            let server = serve_dir(&site).unwrap();
+            let e = Engine::new(craft_anything_engine::testing::live_session());
+            let cli = || CallOptions::new(Caller::Cli).with_consent(craft_anything_engine::Consent::Granted);
+            e.call("web_site_open", json!({"url": server.url()}), cli()).unwrap();
+            let out = dir.join("capture");
+            e.call("web_site_capture", json!({"output_directory": out.display().to_string(), "widths": [1440, 390]}), cli()).unwrap();
+            let _ = e.call("web_site_close", json!({}), cli());
+            out
+        };
+
+        let orig_dir = tempfile::tempdir().unwrap();
+        let captured = capture_site(orig_dir.path(), &html(64, 5));
+
+        let run_case = |built_html: &str| -> CheckResult {
+            let d = tempfile::tempdir().unwrap();
+            let ws = Workspace::create(d.path(), "Site", "Clone it", TargetRef::Website { url: "https://example.com".into() }).unwrap();
+            std::fs::create_dir_all(ws.capture_dir()).unwrap();
+            for entry in std::fs::read_dir(&captured).unwrap().flatten() {
+                if entry.file_type().unwrap().is_file() {
+                    std::fs::copy(entry.path(), ws.capture_dir().join(entry.file_name())).unwrap();
+                }
+            }
+            std::fs::create_dir_all(ws.app_dir()).unwrap();
+            std::fs::write(ws.app_dir().join("index.html"), built_html).unwrap();
+            let mut session = craft_anything_engine::testing::live_session();
+            session.settings.build.web_widths = vec![1440, 390];
+            let engine = Arc::new(Engine::new(session));
+            let worker = crate::rebuild::tests::check_worker_with_engine(&ws, engine);
+            let mut cx = CheckCx { worker: &worker, ws: &ws, round: 1, until: None };
+            WebVisualCheck.run(&mut cx).unwrap()
+        };
+
+        let faithful = run_case(&html(64, 5));
+        assert!(faithful.passed && faithful.good(90.0), "faithful rebuild reaches Ready: {faithful:?}");
+
+        let taller = run_case(&html(144, 5));
+        assert!(taller.passed && taller.similarity.is_some(), "taller header (+80 px) is not blank: {taller:?}");
+        assert!(taller.claims.iter().any(|c| c.title == "The start page isn't blank" && c.passed), "{taller:?}");
+
+        let missing = run_case(&html(64, 4));
+        assert!(missing.passed && missing.similarity.is_some(), "missing section is not blank: {missing:?}");
+        assert!(missing.claims.iter().any(|c| c.title == "The start page isn't blank" && c.passed), "{missing:?}");
+
+        let blank = run_case("<!doctype html><html lang=\"en\"><body style=\"margin:0;background:#fff\"></body></html>");
+        assert!(!blank.passed && !blank.good(0.0) && blank.similarity.is_none(), "blank page fails without scoring as likeness: {blank:?}");
+        assert!(blank.claims.iter().any(|c| c.title == "The start page isn't blank" && !c.passed && c.detail.contains("the page is blank")), "{blank:?}");
+
+        // Sparse light sign-in page (like github.com/login): a blank white page has high raw
+        // likeness, yet fails the website check with the typed blank-page claim.
+        let login_html = r#"<!doctype html><html lang="en"><body style="margin:0;background:#fff;font-family:sans-serif;display:flex;flex-direction:column;align-items:center;padding-top:48px">
+<div style="width:48px;height:48px;border-radius:24px;background:#1f2328"></div>
+<h1 style="font-size:24px;font-weight:400;margin:16px 0">Sign in</h1>
+<form style="width:308px;padding:16px;background:#f6f8fa;border:1px solid #d0d7de;border-radius:6px;display:flex;flex-direction:column;gap:12px">
+<label>Username<input style="width:100%;height:32px;border:1px solid #d0d7de;border-radius:6px;background:#fff"></label>
+<label>Password<input type="password" style="width:100%;height:32px;border:1px solid #d0d7de;border-radius:6px;background:#fff"></label>
+<button style="height:34px;background:#1f883d;color:#fff;border:0;border-radius:6px">Sign in</button>
+</form></body></html>"#;
+        let login_dir = tempfile::tempdir().unwrap();
+        let captured_login = capture_site(login_dir.path(), login_html);
+        let run_login = |built_html: &str| -> CheckResult {
+            let d = tempfile::tempdir().unwrap();
+            let ws = Workspace::create(d.path(), "Login", "Clone it", TargetRef::Website { url: "https://example.com/login".into() }).unwrap();
+            std::fs::create_dir_all(ws.capture_dir()).unwrap();
+            for entry in std::fs::read_dir(&captured_login).unwrap().flatten() {
+                if entry.file_type().unwrap().is_file() {
+                    std::fs::copy(entry.path(), ws.capture_dir().join(entry.file_name())).unwrap();
+                }
+            }
+            std::fs::create_dir_all(ws.app_dir()).unwrap();
+            std::fs::write(ws.app_dir().join("index.html"), built_html).unwrap();
+            let mut session = craft_anything_engine::testing::live_session();
+            session.settings.build.web_widths = vec![1440, 390];
+            let engine = Arc::new(Engine::new(session));
+            let worker = crate::rebuild::tests::check_worker_with_engine(&ws, engine);
+            let mut cx = CheckCx { worker: &worker, ws: &ws, round: 1, until: None };
+            WebVisualCheck.run(&mut cx).unwrap()
+        };
+        let login_same = run_login(login_html);
+        assert!(login_same.passed && login_same.good(90.0), "matching sparse login reaches Ready: {login_same:?}");
+        let login_blank = run_login("<!doctype html><html lang=\"en\"><body style=\"margin:0;background:#fff\"></body></html>");
+        assert!(!login_blank.passed && login_blank.similarity.is_none(), "blank white against sparse login must fail: {login_blank:?}");
+        assert!(
+            login_blank.claims.iter().any(|c| c.title == "The start page isn't blank" && !c.passed && c.detail.contains("the page is blank")),
+            "{login_blank:?}"
+        );
     }
 }
