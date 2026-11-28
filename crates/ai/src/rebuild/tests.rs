@@ -1614,7 +1614,7 @@ fn website_kind_compares_only_when_there_is_an_original() {
     let site = Workspace::create(d.path(), "Site", "Clone it", TargetRef::Website { url: "https://example.com".into() }).unwrap();
     let scratch = Workspace::create(d.path(), "Page", "A landing page", TargetRef::None).unwrap();
     let ids = |ws: &Workspace| kinds::WebsiteKind.checks(ws).iter().map(|c| c.id()).collect::<Vec<_>>();
-    assert_eq!(ids(&site), [CheckResult::WEB_VISUAL]);
+    assert_eq!(ids(&site), [CheckResult::WEB_VISUAL, "web-behaviour"]);
     assert_eq!(ids(&scratch), [CheckResult::BUILD]);
 }
 
@@ -3388,9 +3388,10 @@ fn console_study_keeps_two_real_observations_for_each_input() {
     )
     .unwrap();
     std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
-    let ws = Workspace::create(d.path(), "Counter", "Rebuild this console tool", TargetRef::Local { path: program.clone() }).unwrap();
+    let mut ws = Workspace::create(d.path(), "Counter", "Rebuild this console tool", TargetRef::Local { path: program.clone() }).unwrap();
     let worker = check_worker(&ws, true);
-    worker.capture_runs(&program, &ws.capture_dir()).unwrap();
+    let capture = ws.capture_dir();
+    worker.capture_runs(&mut ws, &program, &capture).unwrap();
     let records = kinds::runs::captured(&ws);
     assert_eq!(records.len(), kinds::runs::CASES.len());
     assert_eq!(std::fs::read_to_string(d.path().join("run-count.txt")).unwrap().trim(), "6");
@@ -3596,15 +3597,15 @@ impl TargetKind for LaterChecks {
     }
 }
 
-/// The app's sheet only.
-const APP_SHEET_ONLY: LaterChecks = LaterChecks(&AppKind, 3);
+/// The app's sheet only. The two behaviour checks sit before it, so it is the fifth.
+const APP_SHEET_ONLY: LaterChecks = LaterChecks(&AppKind, 5);
 
 #[test]
 fn apps_keep_the_sheet_only_when_deep_mode_decompiles_a_program() {
     let d = tempfile::tempdir().unwrap();
     let prog = Workspace::create(d.path(), "Tool", "Rebuild this app", TargetRef::Local { path: d.path().join("tool.exe") }).unwrap();
     let ids = AppKind.checks(&prog).iter().map(|c| c.id()).collect::<Vec<_>>();
-    assert_eq!(ids, ["build", "app-runs", "app-screenshot", "mechanics"]);
+    assert_eq!(ids, ["build", "app-runs", "console-behaviour", "native-behaviour", "app-screenshot", "mechanics"]);
     assert!(brief(&prog, "app", true, false, None, false, None).contains(kinds::mechanics::MECHANICS_CONTRACT));
     assert!(!brief(&prog, "app", false, false, None, false, None).contains("app/mechanics.json"), "Clean room doesn't ask for it");
 
@@ -3623,7 +3624,7 @@ fn games_are_asked_for_the_sheet_checks_read() {
     let d = tempfile::tempdir().unwrap();
     let ws = Workspace::create(d.path(), "Arena", "Recreate this game", TargetRef::Local { path: d.path().to_path_buf() }).unwrap();
     let ids = |ws: &Workspace| GameKind.checks(ws).iter().map(|c| c.id()).collect::<Vec<_>>();
-    assert_eq!(ids(&ws), ["build", "app-screenshot", "game-self-test", "mechanics", "credits"]);
+    assert_eq!(ids(&ws), ["build", "app-screenshot", "game-self-test", "mechanics", "game-mechanics", "credits"]);
     let b = brief(&ws, "game", false, false, None, false, None);
     assert!(b.contains("app/mechanics.json") && b.contains(kinds::mechanics::MECHANICS_CONTRACT), "{b}");
     let web = Workspace::create(d.path(), "Web game", "A game of this site", TargetRef::Website { url: "https://example.com".into() }).unwrap();

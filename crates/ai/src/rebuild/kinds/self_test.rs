@@ -38,6 +38,14 @@ impl Check for SelfTestCheck {
             }
         };
         let artifacts = file.strip_prefix(&cx.ws.root).ok().map(Path::to_path_buf).filter(|_| file.is_file()).into_iter().collect();
+        // With a comparison recorded, the self-test's steps are corroboration rather than the
+        // verdict: a step the build says works is not evidence that it does, so it does not hold
+        // the check up. A step the build says failed still does: a build that says it cannot move
+        // has not been rebuilt.
+        let measured = cx.ws.manifest.script.is_some();
+        let claims = if measured { claims.into_iter().filter(|c| !c.passed).collect() } else { claims };
+        let note =
+            if measured { format!("{note} This is the build's own account of how it plays; the comparison with the original is what decides.") } else { note };
         Ok(CheckResult { artifacts, claims, ..CheckResult::new(self.id(), round, passed, note) })
     }
 }

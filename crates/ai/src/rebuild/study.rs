@@ -92,6 +92,8 @@ impl Worker {
                     }
                 }
                 self.capture_routes(ws, &url, &widths)?;
+                // The behaviour oracle: what the page does, driven through its own controls.
+                self.record_web_behaviour(ws, &url)?;
                 if deep {
                     self.how_it_works(ws, &url)?;
                 }
@@ -160,6 +162,12 @@ impl Worker {
                     notes.push_str("\n## JavaScript application\n\n");
                     notes.push_str(&describe(&out));
                 }
+                // The behaviour oracle: the controls the original's window shows, and the
+                // numbers its own code uses.
+                self.record_game_mechanics(ws, &program, kind, deep)?;
+                if self.engine.session().settings.runtime_study {
+                    self.record_native_behaviour(ws, &program, deep)?;
+                }
                 let capture = ws.capture_dir();
                 std::fs::create_dir_all(&capture).map_err(|e| ToolError::io(capture.display(), e))?;
                 let runtime = self.engine.session().settings.runtime_study;
@@ -167,7 +175,7 @@ impl Worker {
                 if runtime && may_start(&program) && kinds::runs::is_console(&program) {
                     // A console program draws no window: run it with each input instead.
                     self.step(ws, Step::Study, Status::Inspecting, "Running it with a few inputs to see what it prints…")?;
-                    if let Some(section) = self.capture_runs(&program, &capture)? {
+                    if let Some(section) = self.capture_runs(ws, &program, &capture)? {
                         notes.push_str(&section);
                         console = true;
                     }
@@ -250,6 +258,89 @@ impl Worker {
             notes.push_str(&self.picture_window(ws, path, &capture)?);
         }
         craft_anything_engine::project::write_atomic(&capture.join("README.md"), notes.as_bytes())
+    }
+
+    /// Record what the original's page does: drive it through its own controls and keep the
+    /// session, so the build is compared with it.
+    fn record_web_behaviour(&mut self, ws: &mut Workspace, url: &str) -> Result<(), ToolError> {
+        let target = TargetRef::Website { url: url.to_string() };
+        let call = |tool: &str, params: Value| self.call(tool, params);
+        let context = crate::rebuild::oracle_console::original_context(&call, &target, true);
+        let oracles = crate::rebuild::oracles::Oracles::built_in();
+        let Some(oracle) = oracles.by_id(crate::rebuild::oracle_web::ORACLE_ID) else { return Ok(()) };
+        match oracle.record(&context) {
+            Ok(Some(script)) => {
+                ws.manifest.script = Some(script);
+            }
+            Ok(None) => {}
+            Err(e) => {
+                log::warn!("the original's page could not be driven: {}", e.message);
+            }
+        }
+        Ok(())
+    }
+
+    /// Record what the original's window shows: start it, read its controls, close it.
+    ///
+    /// Everything is seen from outside, the way a person watching the program would see it, so
+    /// this works in Clean room too.
+    fn record_native_behaviour(&mut self, ws: &mut Workspace, program: &Path, deep: bool) -> Result<(), ToolError> {
+        if !program.is_file() {
+            return Ok(());
+        }
+        let target = TargetRef::Local { path: program.to_path_buf() };
+        let call = |tool: &str, params: Value| self.call(tool, params);
+        let context = crate::rebuild::oracle_console::original_context(&call, &target, deep);
+        let oracles = crate::rebuild::oracles::Oracles::built_in();
+        let Some(oracle) = oracles.by_id(crate::rebuild::oracle_native::ORACLE_ID) else { return Ok(()) };
+        match oracle.record(&context) {
+            Ok(Some(script)) => {
+                ws.manifest.script = Some(script);
+            }
+            Ok(None) => {}
+            Err(e) => {
+                log::warn!("the original's window could not be read: {}", e.message);
+            }
+        }
+        Ok(())
+    }
+
+    /// Record the numbers the original's own code uses, so the build's mechanics sheet can be
+    /// measured against them instead of believed.
+    ///
+    /// Only a game is measured, and only in Deep mode: the numbers come from its decompiled
+    /// code. Without them the sheet stays unverified, as it says it is.
+    fn record_game_mechanics(&mut self, ws: &mut Workspace, program: &Path, kind: &dyn kinds::TargetKind, deep: bool) -> Result<(), ToolError> {
+        if kind.id() != kinds::GameKind::ID {
+            return Ok(());
+        }
+        // A sheet with values to compare is the point; without one there is nothing to read.
+        let Ok(sheet) = craft_anything_engine::mechanics::read(&ws.mechanics_path()) else { return Ok(()) };
+        if sheet.values.is_empty() {
+            return Ok(());
+        }
+        if !program.is_file() {
+            return Ok(());
+        }
+        let target = TargetRef::Local { path: program.to_path_buf() };
+        let call = |tool: &str, params: Value| self.call(tool, params);
+        let mut context = crate::rebuild::oracle_console::original_context(&call, &target, deep);
+        // The sheet is the vocabulary both sides speak, so the recording knows what the numbers
+        // are called.
+        let named = crate::rebuild::oracle_game::TheSheet(sheet);
+        context = context.with_sheet(&named);
+        let oracles = crate::rebuild::oracles::Oracles::built_in();
+        let Some(oracle) = oracles.by_id(crate::rebuild::oracle_game::ORACLE_ID) else { return Ok(()) };
+        match oracle.record(&context) {
+            Ok(Some(script)) => {
+                ws.manifest.script = Some(script);
+            }
+            Ok(None) => {}
+            Err(e) => {
+                log::warn!("the original's numbers could not be read: {}", e.message);
+            }
+        }
+        Ok(())
     }
 
     /// Runtime study (Settings): start the program once and picture its window into capture/, for

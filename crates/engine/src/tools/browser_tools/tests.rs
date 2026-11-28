@@ -186,6 +186,8 @@ fn serve_ws(stream: &mut TcpStream, dialog_answered: Arc<AtomicBool>, dialog: bo
                 ]}
             ]}}),
             "DOM.querySelector" => json!({"nodeId": 42}),
+            // The element's own attributes, so a read can tell a password field.
+            "DOM.describeNode" => json!({"node": {"nodeId": 42, "attributes": ["type", "password"]}}),
             "DOM.getBoxModel" => json!({"model": {"content": [0, 0, 10, 0, 10, 10, 0, 10]}}),
             "Page.getFrameTree" => json!({"frameTree": {"frame": {"url": "https://app.test/"}, "childFrames": []}}),
             "Page.getResourceTree" => json!({"frameTree": {"frame": {"url": "https://app.test/"}, "resources": [
@@ -447,6 +449,33 @@ fn walkthrough_steps_find_elements_by_role_test_id_or_css() {
     assert!(v["result"]["steps"][0]["error"].as_str().unwrap().contains("no button named \"Log out\""), "{}", v["result"]["steps"][0]);
     let v = run(json!([{"kind": "click", "selector": "a", "role": "button", "name": "Sign in"}]));
     assert!(v["result"]["steps"][0]["error"].as_str().unwrap().contains("exactly one"), "{}", v["result"]["steps"][0]);
+}
+
+/// A password field's value is never read.
+///
+/// The accessibility tree reports a password field as an ordinary text box and masks its value
+/// with one bullet per character, but the element itself holds the real thing. The element's
+/// own type is what is honoured, so a read refuses it outright.
+#[test]
+fn a_read_refuses_a_password_field() {
+    let (url, _) = fake_cdp();
+    let e = Engine::new(crate::testing::session());
+    let v = e
+        .call(
+            "web_walkthrough_record",
+            json!({
+                "cdp_endpoint": url,
+                "actions": [{"kind": "read", "selector": "#password"}],
+            }),
+            CallOptions::new(Caller::Mcp).with_consent(crate::Consent::Granted),
+        )
+        .map(|o| o.to_json())
+        .unwrap();
+    let step = &v["result"]["steps"][0];
+    assert_eq!(step["status"], "error", "{step}");
+    assert!(step["error"].as_str().unwrap_or_default().contains("password"), "{step}");
+    // And no value was kept.
+    assert!(step.get("value").is_none() || step["value"].is_null(), "{step}");
 }
 
 #[test]

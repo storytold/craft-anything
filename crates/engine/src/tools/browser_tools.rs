@@ -121,7 +121,7 @@ pub fn specs() -> Vec<ToolSpec> {
         spec(
             "web_walkthrough_record",
             "Run a scripted web session",
-            "Run a scripted browser session (goto/click/fill/press/select/wait; elements by CSS selector, test_id, or role and accessible name; optional step_id per step) over CDP, attaching to a loopback endpoint or launching a located Chromium. A fixed environment (viewport, locale, time zone, colour scheme, reduced motion, service workers; 1280x720, en-US, UTC, light by default) makes runs repeatable. Captures per-step network request outlines and optional screenshots; keep_bodies can also keep request/response bodies and header values (off by default, credentials and declared secrets redacted). storage can start the run with cookies and local/session storage (values treated as secrets). capture records screenshot, DOM, accessibility tree, history and storage key names after each step and/or at the end. capture.events records console, page errors, WebSockets, frames, workers, popups and (blocked) downloads, each tagged with its step. Executes page interactions and accesses the network, so it needs your approval; declared secrets are redacted in every encoding and bodies are reduced to outlines.",
+            "Run a scripted browser session (goto/click/fill/press/select/read/wait; elements by CSS selector, test_id, or role and accessible name; optional step_id per step). `read` says what a control holds without changing it, and a password field's value is never read over CDP, attaching to a loopback endpoint or launching a located Chromium. A fixed environment (viewport, locale, time zone, colour scheme, reduced motion, service workers; 1280x720, en-US, UTC, light by default) makes runs repeatable. Captures per-step network request outlines and optional screenshots; keep_bodies can also keep request/response bodies and header values (off by default, credentials and declared secrets redacted). storage can start the run with cookies and local/session storage (values treated as secrets). capture records screenshot, DOM, accessibility tree, history and storage key names after each step and/or at the end. capture.events records console, page errors, WebSockets, frames, workers, popups and (blocked) downloads, each tagged with its step. Executes page interactions and accesses the network, so it needs your approval; declared secrets are redacted in every encoding and bodies are reduced to outlines.",
             "Drive a website through a few steps and record what it does, with your permission.",
             Toolset::Browser,
             Effects::EVIDENCE.union(Effects::EXECUTES_FOREIGN_CODE).union(Effects::ACCESSES_NETWORK).union(Effects::LAUNCHES_PROCESS),
@@ -837,6 +837,17 @@ fn collect_storage_keys(client: &mut CdpClient, origins: &std::collections::BTre
     json!({"areas": out, "note": "key names only; values are never read"})
 }
 
+/// Whether a node's value is the mask a protected field is reported with.
+///
+/// Chrome reports a password field as an ordinary text box, with no mark in the tree to tell it
+/// apart, and reports its value as one bullet per character. The bullets are the password's
+/// length, which is the password's length and not the password, and a length is still worth
+/// keeping out of a recorded file. The tree does not say which fields are protected; the
+/// page's own markup does, and that is where the protection is applied.
+fn is_masked(value: &Value) -> bool {
+    value.as_str().is_some_and(|v| !v.is_empty() && v.chars().all(|c| c == '•'))
+}
+
 fn collect_accessibility(client: &mut CdpClient, dl: &Deadline) -> Value {
     let _ = client.call("Accessibility.enable", json!({}), None, dl);
     match client.call("Accessibility.getFullAXTree", json!({}), None, dl) {
@@ -848,9 +859,18 @@ fn collect_accessibility(client: &mut CdpClient, dl: &Deadline) -> Value {
                 .flatten()
                 .take(5000)
                 .map(|n| {
+                    // What the control holds. A choice that rewrites a field's value shows here
+                    // and nowhere else: the markup keeps the attribute a field was written with,
+                    // not the one it holds now.
+                    //
+                    // A protected field's value is never kept: Chrome reports it as one bullet
+                    // per character, and that is the password's length.
+                    let value = n.get("value").and_then(|r| r.get("value")).cloned().unwrap_or(Value::Null);
+                    let value = if is_masked(&value) { Value::Null } else { value };
                     json!({
                         "role": n.get("role").and_then(|r| r.get("value")).cloned().unwrap_or(Value::Null),
                         "name": n.get("name").and_then(|r| r.get("value")).cloned().unwrap_or(Value::Null),
+                        "value": value,
                     })
                 })
                 .collect();
@@ -1775,6 +1795,15 @@ pub enum WalkthroughAction {
         at: Locator,
         value: String,
     },
+    /// Read what a control holds, leaving it as it is.
+    ///
+    /// A control another control rewrites is read rather than filled: the choice decides what
+    /// it holds, so typing into it would not be the same behaviour. The value is kept on the
+    /// step, so a build that holds something else is told apart from one that holds the same.
+    Read {
+        #[serde(flatten)]
+        at: Locator,
+    },
     Wait {
         ms: u64,
     },
@@ -2385,6 +2414,11 @@ fn web_walkthrough_record(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput
         if let Err(e) = &outcome {
             step["error"] = json!(e.message);
         }
+        // What a read step read. A build that holds something else is told apart from one that
+        // holds the same.
+        if let Ok(Some(value)) = &outcome {
+            step["value"] = json!(secrets.text(value));
+        }
         // Current URL after the step.
         if let Ok(hist) = client.call("Page.getNavigationHistory", json!({}), None, &step_dl) {
             let idx = hist.get("currentIndex").and_then(Value::as_u64).unwrap_or(0) as usize;
@@ -2501,11 +2535,35 @@ fn action_name(a: &WalkthroughAction) -> &'static str {
         WalkthroughAction::Fill { .. } => "fill",
         WalkthroughAction::Press { .. } => "press",
         WalkthroughAction::Select { .. } => "select",
+        WalkthroughAction::Read { .. } => "read",
         WalkthroughAction::Wait { .. } => "wait",
     }
 }
 
-fn run_action(client: &mut CdpClient, action: &WalkthroughAction, secrets: &mut Secrets, dl: &Deadline) -> Result<(), ToolError> {
+/// Whether an element is a protected field, whose value is never read.
+///
+/// The accessibility tree reports a password field as an ordinary text box and masks its value
+/// with one bullet per character. The element itself says what it is, and that is what is
+/// honoured: a password's value is never read, never recorded, and never compared.
+fn is_protected_element(client: &mut CdpClient, node: u64, dl: &Deadline) -> Result<bool, ToolError> {
+    let described = client.call("DOM.describeNode", json!({"nodeId": node}), None, dl)?;
+    let attributes = described.pointer("/node/attributes").and_then(Value::as_array).cloned().unwrap_or_default();
+    let mut type_ = String::new();
+    let mut i = 0;
+    while i + 1 < attributes.len() {
+        if attributes[i].as_str() == Some("type") {
+            type_ = attributes[i + 1].as_str().unwrap_or_default().to_lowercase();
+        }
+        i += 2;
+    }
+    Ok(type_ == "password")
+}
+
+/// Run one action, and what it read.
+///
+/// Only a read action returns a value; every other action leaves the page as it found it and
+/// says nothing.
+fn run_action(client: &mut CdpClient, action: &WalkthroughAction, secrets: &mut Secrets, dl: &Deadline) -> Result<Option<String>, ToolError> {
     action.check()?;
     match action {
         WalkthroughAction::Goto { url, wait_ms } => {
@@ -2516,30 +2574,59 @@ fn run_action(client: &mut CdpClient, action: &WalkthroughAction, secrets: &mut 
             }
             let settle = Deadline::new(Duration::from_millis(wait_ms.unwrap_or(1000).min(script_check::MAX_GOTO_WAIT_MS)), crate::tool::CancelToken::default());
             let _ = client.pump_until(&settle);
-            Ok(())
+            Ok(None)
+        }
+        WalkthroughAction::Read { at } => {
+            let node = at.node(client, dl)?;
+            // A protected field's value is never read. The accessibility tree reports it as one
+            // bullet per character, but the element itself holds the real thing, so the
+            // element's own type is what is honoured here.
+            if is_protected_element(client, node, dl)? {
+                return Err(ToolError::new(craft_anything_evidence::ErrorCode::NotFound, "this is a password field, and its value is never read")
+                    .with_remediation("A password field's value is not read, so it cannot be compared. Use a field whose value may be compared."));
+            }
+            let obj = client.call("DOM.resolveNode", json!({"nodeId": node}), None, dl)?;
+            let object_id = obj
+                .pointer("/object/objectId")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ToolError::new(craft_anything_evidence::ErrorCode::ProgramFailed, "could not resolve the element"))?;
+            let read = client.call(
+                "Runtime.callFunctionOn",
+                json!({
+                    "objectId": object_id,
+                    "functionDeclaration": "function(){return this.value === undefined ? '' : String(this.value);}",
+                    "returnByValue": true,
+                }),
+                None,
+                dl,
+            )?;
+            let value = read.pointer("/result/value").and_then(Value::as_str).unwrap_or_default().to_string();
+            // A protected field's value is never kept: the tree reports it as one bullet per
+            // character, and that is the password's length.
+            Ok(Some(if is_masked(&Value::String(value.clone())) { String::new() } else { value }))
         }
         WalkthroughAction::Wait { ms } => {
             let settle = Deadline::new(Duration::from_millis((*ms).min(script_check::MAX_WAIT_MS)), crate::tool::CancelToken::default());
             let _ = client.pump_until(&settle);
-            Ok(())
+            Ok(None)
         }
         WalkthroughAction::Click { at } => {
             let node = at.node(client, dl)?;
             let (x, y) = node_center(client, node, dl)?;
-            click_at(client, x, y, dl)
+            click_at(client, x, y, dl).map(|()| None)
         }
         WalkthroughAction::Fill { at, value } => {
             let node = at.node(client, dl)?;
             client.call("DOM.focus", json!({"nodeId": node}), None, dl)?;
             // Clear then insert the text.
             let _ = client.call("Input.dispatchKeyEvent", json!({"type": "keyDown", "modifiers": 0, "key": "a", "commands": ["selectAll"]}), None, dl);
-            client.call("Input.insertText", json!({"text": value}), None, dl).map(|_| ())
+            client.call("Input.insertText", json!({"text": value}), None, dl).map(|_| None)
         }
         WalkthroughAction::Press { at, key } => {
             let node = at.node(client, dl)?;
             client.call("DOM.focus", json!({"nodeId": node}), None, dl)?;
             client.call("Input.dispatchKeyEvent", json!({"type": "keyDown", "key": key}), None, dl)?;
-            client.call("Input.dispatchKeyEvent", json!({"type": "keyUp", "key": key}), None, dl).map(|_| ())
+            client.call("Input.dispatchKeyEvent", json!({"type": "keyUp", "key": key}), None, dl).map(|_| None)
         }
         WalkthroughAction::Select { at, value } => {
             // Set the <select>'s value via the DOM, then dispatch change — done through focus + typing
@@ -2559,7 +2646,7 @@ fn run_action(client: &mut CdpClient, action: &WalkthroughAction, secrets: &mut 
                     None,
                     dl,
                 )
-                .map(|_| ())
+                .map(|_| None)
         }
     }
 }

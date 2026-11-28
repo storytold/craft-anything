@@ -218,7 +218,11 @@ impl TargetKind for WebsiteKind {
 
     fn checks(&self, ws: &Workspace) -> Vec<Box<dyn Check>> {
         // A site made from a request alone has nothing to compare with: it must build.
-        if matches!(ws.manifest.target, TargetRef::Website { .. }) { vec![Box::new(WebVisualCheck)] } else { vec![Box::new(BuildCheck)] }
+        if matches!(ws.manifest.target, TargetRef::Website { .. }) {
+            vec![Box::new(WebVisualCheck), Box::new(crate::rebuild::oracle_web::WebBehaviourCheck)]
+        } else {
+            vec![Box::new(BuildCheck)]
+        }
     }
 
     fn refine(&self, check: &CheckResult, sees_pictures: bool) -> String {

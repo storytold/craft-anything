@@ -91,9 +91,19 @@ $ways = @{
   select   = @(, @('SelectionItemPattern', 'Select'))
 }
 
-function Act($el, $action) {
+function Act($el, $action, $value) {
   try {
     if ($action -in 'focus', 'raise') { $el.SetFocus(); return 'dispatched' }
+    if ($action -eq 'setvalue') {
+      # Writing a field's value is a value pattern, not an action, as on macOS.
+      $pattern = [System.Windows.Automation.ValuePattern]::Pattern
+      $p = $null
+      if ($el.TryGetCurrentPattern($pattern, [ref]$p)) {
+        $p.SetValue($value)
+        return 'dispatched'
+      }
+      return 'not_supported'
+    }
     if (-not $ways.ContainsKey($action)) { return 'unknown_action' }
     foreach ($way in $ways[$action]) {
       $pattern = ("System.Windows.Automation." + $way[0]) -as [type]
@@ -128,7 +138,9 @@ if ($req.command -eq 'walkthrough') {
     # `AXPress` and `press` are the same action.
     $action = ([string]$s.action).ToLowerInvariant() -replace '^ax', ''
     $el = Find ([string]$s.element)
-    $outcome = if ($null -eq $el) { 'element_not_found' } else { Act $el $action }
+    # The text a step puts into a field, if it has one.
+    $value = if ($s.PSObject.Properties.Name -contains 'value') { [string]$s.value } else { '' }
+    $outcome = if ($null -eq $el) { 'element_not_found' } else { Act $el $action $value }
     $steps.Add([ordered]@{ action = $s.action; element = $s.element; outcome = $outcome })
     Start-Sleep -Milliseconds 400
   }

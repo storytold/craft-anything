@@ -177,6 +177,9 @@ impl TargetKind for GameKind {
         let mut v: Vec<Box<dyn Check>> = vec![Box::new(BuildCheck), Box::new(ScreenshotCheck), Box::new(SelfTestCheck)];
         if !matches!(ws.manifest.target, TargetRef::Website { .. }) {
             v.push(Box::new(MechanicsCheck));
+            // The numbers the original's own code uses, when they were read: the build's sheet
+            // is measured against them instead of believed.
+            v.push(Box::new(crate::rebuild::oracle_game::MechanicsOracleCheck));
             v.push(Box::new(DeepOnly(CreditsCheck)));
         }
         v

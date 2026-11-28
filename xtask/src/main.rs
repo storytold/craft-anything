@@ -9,6 +9,7 @@ mod fmt;
 mod i18n_coverage;
 mod ico;
 mod locks;
+mod native_oracle;
 mod secrets;
 mod source_policy;
 mod status;
@@ -52,6 +53,7 @@ fn main() -> ExitCode {
         Some("version") => version(&root, args.get(1).map(String::as_str), args.get(2).map(String::as_str)),
         Some("pending") => pending(&root, args.iter().any(|a| a == "--count")),
         Some("secrets") => secrets::secrets(&root, args.iter().any(|a| a == "--history")),
+        Some("native-oracle") => native_oracle::run(args.iter().any(|a| a == "--all")),
         Some("ico") => {
             let rest: Vec<&str> = args.iter().skip(1).map(String::as_str).collect();
             ico::run(&rest).map_err(|e| eprintln!("ico: {e}")).is_ok()

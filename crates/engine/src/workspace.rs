@@ -85,11 +85,11 @@ pub const GHIDRA_STOPPED: &str = "ghidra-stopped";
 pub const GHIDRA_STOP_LOCK: &str = "ghidra-stop.lock";
 
 /// The current `craft.json` format version. Bumping it means appending a step to [`MANIFEST_STEPS`].
-pub const MANIFEST_VERSION: u32 = 6;
+pub const MANIFEST_VERSION: u32 = 7;
 
 /// The steps that bring an older `craft.json` forward; step `i` goes from version `i` to `i + 1`.
 const MANIFEST_STEPS: &[versioned::Step<Value>] =
-    &[manifest_v0_to_v1, manifest_v1_to_v2, manifest_v2_to_v3, manifest_v3_to_v4, manifest_v4_to_v5, manifest_v5_to_v6];
+    &[manifest_v0_to_v1, manifest_v1_to_v2, manifest_v2_to_v3, manifest_v3_to_v4, manifest_v4_to_v5, manifest_v5_to_v6, manifest_v6_to_v7];
 const _: () = assert!(MANIFEST_STEPS.len() == MANIFEST_VERSION as usize, "one step per craft.json version");
 
 /// Version 0 (no `version` field) has the same shape as version 1; only the number is new.
@@ -138,6 +138,13 @@ fn manifest_v4_to_v5(doc: &mut Value) -> Result<(), String> {
 /// by default. The number is new so an older build, which would drop it when it saves (and a
 /// Java port's checks could go back to Maven), opens such a project read-only instead.
 fn manifest_v5_to_v6(doc: &mut Value) -> Result<(), String> {
+    if doc.is_object() { Ok(()) } else { Err("the manifest isn't a JSON object".into()) }
+}
+
+/// Version 7 adds the recorded behaviour a build is compared against (`script`). A version-6
+/// manifest has none: it was made before anything was recorded, so the step adds nothing and the
+/// project keeps the checks it had.
+fn manifest_v6_to_v7(doc: &mut Value) -> Result<(), String> {
     if doc.is_object() { Ok(()) } else { Err("the manifest isn't a JSON object".into()) }
 }
 
@@ -442,6 +449,11 @@ pub struct Manifest {
     /// build recorded it (a failed study, or a capture copied in), so a run studies again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capture_deep: Option<bool>,
+    /// The behaviour recorded from the original, which a build is compared against: the script
+    /// and what the original was seen to do. None: nothing was recorded, so no build is judged
+    /// this way.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub script: Option<crate::oracle::Script>,
     /// Kinds of agent action the person allowed for this workspace ("bash:npm", "web_fetch"…).
     #[serde(default)]
     pub allowed_actions: Vec<String>,
@@ -522,6 +534,7 @@ impl Manifest {
             toolchain: None,
             agent_session_deep: None,
             capture_deep: None,
+            script: None,
             allowed_actions: Vec::new(),
             last_reply: String::new(),
             asset_budget_usd: ASSET_BUDGET_USD,
@@ -1893,7 +1906,9 @@ mod tests {
         assert_eq!(Workspace::list(dir.path().parent().unwrap()).iter().filter(|w| w.root == dir.path()).count(), 1, "still listed");
 
         // A newer manifest whose shape this build can't read at all is refused, in plain words.
-        std::fs::write(dir.path().join(MANIFEST), r#"{"version": 7, "name": {"parts": []}}"#).unwrap();
+        // A version this build does not know: the file is newer than this build.
+        let newer_version = MANIFEST_VERSION + 1;
+        std::fs::write(dir.path().join(MANIFEST), format!(r#"{{"version": {newer_version}, "name": {{"parts": []}}}}"#)).unwrap();
         let err = Workspace::open(dir.path()).unwrap_err();
         assert_eq!(err.code, ErrorCode::NotSupported);
         assert!(err.message.contains("newer Craft Anything") && err.remediation.is_some());
@@ -2110,7 +2125,7 @@ mod tests {
         ws.manifest.toolchain = Some("Gradle".into());
         ws.save().unwrap();
         let saved: Value = serde_json::from_slice(&std::fs::read(ws.root.join("craft.json")).unwrap()).unwrap();
-        assert_eq!((saved["version"].as_u64(), saved["toolchain"].as_str()), (Some(6), Some("Gradle")));
+        assert_eq!((saved["version"].as_u64(), saved["toolchain"].as_str()), (Some(MANIFEST_VERSION as u64), Some("Gradle")));
         // A version-5 build reads up to 5, so it opens this one read-only (newer_manifests_open_read_only_and_are_never_overwritten).
         let mut old = saved.clone();
         old["version"] = 5.into();

@@ -15,6 +15,7 @@ pub mod screenshot;
 pub mod self_test;
 pub mod website;
 
+pub use crate::rebuild::oracle_console::ConsoleBehaviourCheck;
 pub use app::{AppKind, RUNS_BRIEF};
 pub use game::{CreditsCheck, GameKind};
 pub use mechanics::MechanicsCheck;
@@ -214,6 +215,14 @@ impl From<&CancelToken> for CheckStop {
 }
 
 impl CheckCx<'_> {
+    /// A context for running one check on its own, as a test does. The run's own checks go
+    /// through [`Worker::run_checks`], which numbers them, stops at the first failure and keeps
+    /// the round's time limit.
+    #[cfg(test)]
+    pub(super) fn for_test<'a>(worker: &'a Worker, ws: &'a Workspace, round: u32) -> CheckCx<'a> {
+        CheckCx { worker, ws, round, until: None }
+    }
+
     /// Run an engine tool (the same ones the builder has).
     pub fn call(&self, tool: &str, params: Value) -> Result<ToolOutput, ToolError> {
         within_limit(self.until, Instant::now())?;

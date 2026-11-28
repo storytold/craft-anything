@@ -13,7 +13,7 @@ pub const RUNS_DIR: &str = "runs";
 pub const CASES: &[(&str, &[&str])] = &[("no arguments", &[]), ("--help", &["--help"]), ("--version", &["--version"])];
 
 /// How long one run may take; a program still running then (waiting for input) is a result too.
-const RUN_MS: u64 = 8_000;
+pub const RUN_MS: u64 = 8_000;
 /// How much of the output's words must match for "prints what the original prints".
 const OUTPUT_ALIKE: f64 = 80.0;
 
@@ -118,11 +118,14 @@ impl Worker {
     /// Run the original console program twice with each input and keep both observations in capture/runs/;
     /// returns the README section, or None (and keeps nothing) when it didn't run like a console
     /// program.
-    pub(in crate::rebuild) fn capture_runs(&self, program: &Path, capture: &Path) -> Result<Option<String>, ToolError> {
+    pub(in crate::rebuild) fn capture_runs(&self, ws: &mut Workspace, program: &Path, capture: &Path) -> Result<Option<String>, ToolError> {
         let dir = capture.join(RUNS_DIR);
         std::fs::create_dir_all(&dir).map_err(|e| ToolError::io(dir.display(), e))?;
         let mut kept = Vec::new();
         let mut records = Vec::new();
+        // The behaviour oracle's script: what the original did, one observation per input.
+        let mut script_steps = Vec::new();
+        let mut script_taken = Vec::new();
         for (name, args) in CASES {
             let args: Vec<String> = args.iter().map(|a| (*a).to_string()).collect();
             let mut params =
@@ -132,7 +135,16 @@ impl Worker {
             }
             match self.call("runtime_walkthrough_record", params.clone()) {
                 Ok(out) => {
-                    let mut record = run_record(name, &args, &result_of(&out));
+                    let result = result_of(&out);
+                    let mut record = run_record(name, &args, &result);
+                    // What the original was seen to do, read through the oracle's probes.
+                    script_steps.push(json!({"case": name, "arguments": args, "step_id": name}));
+                    script_taken.push(craft_anything_engine::oracle::Observation {
+                        oracle: crate::rebuild::oracle_console::ORACLE_ID.into(),
+                        version: craft_anything_engine::oracle::SCRIPT_VERSION,
+                        readings: crate::rebuild::oracle_console::readings(&result, &crate::rebuild::oracle_console::program_names(program, program)),
+                        gaps: Vec::new(),
+                    });
                     match self.call("runtime_walkthrough_record", params) {
                         Ok(repeat) => record["repeat"] = run_record(name, &args, &result_of(&repeat)),
                         Err(e) => log::warn!("repeating {} with {name} failed: {}", program.display(), e.message),
@@ -148,6 +160,10 @@ impl Worker {
         if !kept.is_empty() && !ran_like_console(&records) {
             let _ = std::fs::remove_dir_all(&dir);
             return Ok(None);
+        }
+        // The script, when there is something in it: the build is compared with these.
+        if !script_steps.is_empty() {
+            ws.manifest.script = Some(crate::rebuild::oracle_console::script(script_steps, script_taken));
         }
         Ok(Some(if kept.is_empty() {
             "\n## How it runs\n\nIt's a console program, but running it to see its output didn't work.\n".to_string()

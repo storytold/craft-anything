@@ -29,6 +29,7 @@ const STEP_KINDS: &[StepKind] = &[
     StepKind { name: "fill", locator: true, required: &["value"], optional: &[] },
     StepKind { name: "press", locator: true, required: &["key"], optional: &[] },
     StepKind { name: "select", locator: true, required: &["value"], optional: &[] },
+    StepKind { name: "read", locator: true, required: &[], optional: &[] },
     StepKind { name: "wait", locator: false, required: &["ms"], optional: &[] },
 ];
 
@@ -217,7 +218,9 @@ impl WalkthroughAction {
                 }
             }
             WalkthroughAction::Wait { .. } => Ok(()),
-            WalkthroughAction::Click { at } | WalkthroughAction::Fill { at, .. } | WalkthroughAction::Select { at, .. } => at.check(),
+            WalkthroughAction::Click { at } | WalkthroughAction::Fill { at, .. } | WalkthroughAction::Select { at, .. } | WalkthroughAction::Read { at } => {
+                at.check()
+            }
             WalkthroughAction::Press { at, key } => {
                 at.check()?;
                 if key.is_empty() { Err(StepRefusal::new("bad_key", Some("key"), "press needs a key, like Enter")) } else { Ok(()) }

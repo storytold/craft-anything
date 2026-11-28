@@ -85,6 +85,8 @@ struct Request: Decodable {
 struct Step: Decodable {
     var action: String
     var element: String
+    /// The text to put into a field, for an action that sets one.
+    var value: String?
 }
 
 func attr(_ element: AXUIElement, _ name: String) -> String? {
@@ -204,8 +206,17 @@ case "walkthrough":
         var budget = req.max_nodes ?? 5000
         var outcome = "element_not_found"
         if let target = findElement(app, step.element, &budget) {
-            let result = AXUIElementPerformAction(target, step.action as CFString)
-            outcome = result == .success ? "dispatched" : "failed"
+            if step.action == "AXSetValue" {
+                // Setting a value is an attribute, not an action: AXSetValue is not a standard
+                // accessibility action, so the value is written directly. The value crosses into
+                // the accessibility API as a CFTypeRef, which a Swift string is bridged to.
+                let text: CFTypeRef = (step.value ?? "") as NSString
+                let set = AXUIElementSetAttributeValue(target, kAXValueAttribute as CFString, text)
+                outcome = set == .success ? "dispatched" : "failed"
+            } else {
+                let result = AXUIElementPerformAction(target, step.action as CFString)
+                outcome = result == .success ? "dispatched" : "failed"
+            }
         }
         steps.append(["action": step.action, "element": step.element, "outcome": outcome])
     }

@@ -46,6 +46,25 @@ mod kept_check;
 pub mod kinds;
 mod locate;
 pub mod notes;
+pub mod oracle_console;
+pub mod oracle_game;
+#[cfg(test)]
+mod oracle_game_line;
+#[cfg(test)]
+mod oracle_line;
+pub mod oracle_native;
+#[cfg(test)]
+mod oracle_native_line;
+#[cfg(test)]
+mod oracle_native_live;
+pub mod oracle_web;
+#[cfg(test)]
+mod oracle_web_chain;
+#[cfg(test)]
+mod oracle_web_line;
+#[cfg(test)]
+mod oracle_web_live;
+pub mod oracles;
 mod output;
 pub mod project;
 pub mod question;

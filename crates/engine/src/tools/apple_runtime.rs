@@ -115,10 +115,13 @@ pub struct CaptureUiParams {
 #[serde(deny_unknown_fields)]
 pub struct UiStep {
     /// Accessibility action, e.g. `AXPress` (on Windows also press, expand, collapse, toggle,
-    /// select or focus).
+    /// select or focus). `AXSetValue` puts the step's `value` into a field.
     pub action: String,
     /// Identifier or title path to the element the action targets.
     pub element: String,
+    /// The text to put into the element, for an action that sets one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
 }
 
 fn default_duration_ms() -> u64 {
@@ -505,7 +508,18 @@ mod macos {
 
     pub fn runtime_ui_walkthrough_record(ctx: &mut Ctx<'_>, p: CaptureUiParams) -> Result<ToolOutput, ToolError> {
         let pid = p.pid.ok_or_else(|| ToolError::invalid("pid is required to drive a running app's UI"))?;
-        let steps: Vec<Value> = p.steps.iter().map(|s| json!({"action": s.action, "element": s.element})).collect();
+        let steps: Vec<Value> = p
+            .steps
+            .iter()
+            .map(|s| {
+                let mut step = json!({"action": s.action, "element": s.element});
+                // A step that puts text into a field carries the text.
+                if let Some(value) = &s.value {
+                    step["value"] = json!(value);
+                }
+                step
+            })
+            .collect();
         let request = json!({"command": "walkthrough", "pid": pid, "steps": steps, "max_nodes": p.max_nodes});
         let result = run_helper(ctx, request, p.duration_ms)?;
         let b = EvidenceBuilder::new(
@@ -602,7 +616,18 @@ mod windows {
 
     pub fn runtime_ui_walkthrough_record(ctx: &mut Ctx<'_>, p: CaptureUiParams) -> Result<ToolOutput, ToolError> {
         let pid = p.pid.ok_or_else(|| ToolError::invalid("pid is required to drive a running app's UI"))?;
-        let steps: Vec<Value> = p.steps.iter().map(|s| json!({"action": s.action, "element": s.element})).collect();
+        let steps: Vec<Value> = p
+            .steps
+            .iter()
+            .map(|s| {
+                let mut step = json!({"action": s.action, "element": s.element});
+                // A step that puts text into a field carries the text.
+                if let Some(value) = &s.value {
+                    step["value"] = json!(value);
+                }
+                step
+            })
+            .collect();
         ctx.report(None, format!("Running {} step(s) on process {pid}", steps.len()));
         let request = json!({"command": "walkthrough", "pid": pid, "steps": steps, "max_nodes": p.max_nodes});
         let result = run(ctx, &request, Duration::from_millis(p.duration_ms.saturating_add(10_000)))?;

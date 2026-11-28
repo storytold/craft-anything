@@ -71,6 +71,7 @@ pub mod website_tools;
 // Saved sign-ins for websites, made by the person in a visible window.
 pub mod site_sign_in;
 // A stand-in backend answering a rebuilt front end from a network recording.
+pub mod native_session;
 pub mod standin_tools;
 pub mod window_tools;
 // Asking the person a question, and approving a coding agent's actions, through the inbox.
@@ -134,6 +135,7 @@ pub fn all() -> Vec<crate::ToolSpec> {
     v.extend(pin_tools::specs());
     v.extend(setup_tools::specs());
     v.extend(build_tools::specs());
+    v.extend(native_session::specs());
     v.extend(window_tools::specs());
     v.extend(asset_tools::specs());
     v.extend(electron_runtime_tools::specs());

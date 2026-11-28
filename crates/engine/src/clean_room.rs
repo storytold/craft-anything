@@ -122,6 +122,11 @@ pub const TOOLS: &[&str] = &[
     "web_walkthrough_check",
     // A program watched from outside: its window, the controls on its screen, a recorded run.
     "native_window_capture",
+    // Starting a program and watching its window is a visitor's view: the program is run and
+    // looked at from outside, and nothing inside it is read.
+    "native_program_session_begin",
+    "native_program_session_show",
+    "native_program_session_end",
     "runtime_ui_read",
     "runtime_ui_walkthrough_record",
     "runtime_walkthrough_record",

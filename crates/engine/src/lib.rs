@@ -21,6 +21,7 @@ pub mod feed;
 pub mod inbox;
 pub mod journal;
 pub mod mechanics;
+pub mod oracle;
 pub mod outputs;
 pub mod pins;
 pub mod plugins;
