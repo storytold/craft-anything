@@ -330,7 +330,7 @@ impl AcpCore {
                 continue;
             }
             let Some(sid) = self.session.clone() else {
-                return self.fail(format!("{} started no session", self.agent_name), None);
+                return self.fail(format!("{} started no session", self.agent_name), None, false);
             };
             let params = json!({"sessionId": sid, "configId": id, "value": value});
             return vec![self.request("session/set_config_option", params, Pending::SetConfig)];
@@ -355,7 +355,7 @@ impl AcpCore {
                 if self.resume.is_some() && self.decides {
                     self.resume = None;
                     self.lost = true;
-                    return self.fail(format!("{} can't continue its saved conversation.", self.agent_name), None);
+                    return self.fail(format!("{} can't continue its saved conversation.", self.agent_name), None, false);
                 }
                 let params = json!({"cwd": self.cwd, "mcpServers": self.mcp_servers()});
                 vec![self.request("session/new", params, Pending::NewSession)]
@@ -378,19 +378,19 @@ impl AcpCore {
         }
     }
 
-    fn fail(&mut self, message: String, remediation: Option<String>) -> Vec<Out> {
+    fn fail(&mut self, message: String, remediation: Option<String>, prompt_sent: bool) -> Vec<Out> {
         self.queued.clear();
-        vec![Out::Event(AgentEvent::Error { message, remediation, log: None }), self.turn_done(), Out::TurnEnded]
+        vec![Out::Event(AgentEvent::Error { message, remediation, log: None }), self.turn_done(prompt_sent), Out::TurnEnded]
     }
 
-    fn turn_done(&self) -> Out {
+    fn turn_done(&self, prompt_sent: bool) -> Out {
         // ACP usage updates describe the current context, without a per-turn token split.
-        // Leave usage and cost unknown.
+        // Once a prompt was sent, its usage and cost are unknown.
         Out::Event(AgentEvent::TurnDone {
             backend: self.backend.clone(),
             input_tokens: 0,
             output_tokens: 0,
-            tokens_unknown: true,
+            tokens_unknown: prompt_sent,
             cost_usd: None,
             cost_is_estimate: false,
         })
@@ -408,7 +408,7 @@ impl AcpCore {
                 self.session = None;
                 if self.decides {
                     self.lost = true;
-                    return self.fail(format!("{} can't continue its saved conversation ({text}).", self.agent_name), None);
+                    return self.fail(format!("{} can't continue its saved conversation ({text}).", self.agent_name), None, false);
                 }
                 let params = json!({"cwd": self.cwd, "mcpServers": self.mcp_servers()});
                 return vec![self.request("session/new", params, Pending::NewSession)];
@@ -441,7 +441,7 @@ impl AcpCore {
                 Pending::SetConfig => Some("Choose a model and thinking depth this agent lists, then try again.".into()),
                 Pending::LoadSession | Pending::Prompt => None,
             };
-            return self.fail(format!("{}: {text}", self.agent_name), fix);
+            return self.fail(format!("{}: {text}", self.agent_name), fix, kind == Pending::Prompt);
         }
         let result = msg.get("result").unwrap_or(&Value::Null);
         match kind {
@@ -478,7 +478,7 @@ impl AcpCore {
                     self.session = Some(sid.to_string());
                 }
                 if self.session.is_none() {
-                    return self.fail(format!("{} started no session", self.agent_name), None);
+                    return self.fail(format!("{} started no session", self.agent_name), None, false);
                 }
                 // Ready waits until the queued overrides are applied. Grok's `--model` flag does
                 // not survive `session/new`; the saved default comes back and has to be set here.
@@ -506,7 +506,7 @@ impl AcpCore {
                     Some("refusal") => out.push(Out::Event(AgentEvent::Status { text: format!("{} declined to continue.", self.agent_name) })),
                     _ => {}
                 }
-                out.extend([self.turn_done(), Out::TurnEnded]);
+                out.extend([self.turn_done(true), Out::TurnEnded]);
                 out.extend(self.flush());
                 out
             }
@@ -572,7 +572,7 @@ impl AcpCore {
             out.push(Out::Send(json!({"jsonrpc": "2.0", "method": "session/cancel", "params": {"sessionId": sid}}).to_string()));
         }
         if waiting {
-            out.extend([self.turn_done(), Out::TurnEnded]);
+            out.extend([self.turn_done(false), Out::TurnEnded]);
         }
         out
     }
@@ -947,7 +947,7 @@ impl AcpConversation {
                     backend: self.backend.clone(),
                     input_tokens: 0,
                     output_tokens: 0,
-                    tokens_unknown: true,
+                    tokens_unknown: false,
                     cost_usd: None,
                     cost_is_estimate: false,
                 });
@@ -988,7 +988,7 @@ impl Conversation for AcpConversation {
         // An agent that exits mid-message would otherwise leave the conversation busy forever.
         if self.busy.load(Ordering::SeqCst) && self.proc.as_mut().is_some_and(RunningProcess::is_finished) {
             self.busy.store(false, Ordering::SeqCst);
-            let ready = self.lock().as_ref().is_some_and(|s| s.core.ready);
+            let (ready, prompt_sent) = self.lock().as_ref().map_or((false, false), |s| (s.core.ready, s.core.pending.values().any(|p| *p == Pending::Prompt)));
             self.failure = Some(TurnFailure::new(if ready { FailureKind::Transient } else { FailureKind::Unknown }));
             let tail = self.lock().as_ref().map(|s| s.stderr.iter().cloned().collect::<Vec<_>>().join("\n")).unwrap_or_default();
             events.extend(self.rx.try_iter());
@@ -1018,7 +1018,7 @@ impl Conversation for AcpConversation {
                 backend: self.backend.clone(),
                 input_tokens: 0,
                 output_tokens: 0,
-                tokens_unknown: true,
+                tokens_unknown: prompt_sent,
                 cost_usd: None,
                 cost_is_estimate: false,
             });
@@ -1453,6 +1453,7 @@ printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt
         c.start();
         let failed = c.line(r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32603,"message":"not signed in"}}"#);
         assert!(failed.contains(&Out::TurnEnded));
+        assert!(matches!(events(failed)[..], [AgentEvent::Error { .. }, AgentEvent::TurnDone { tokens_unknown: false, .. }]));
         let again = sent(&c.prompt("Hello"));
         assert_eq!(again[0]["method"], "initialize", "the next message starts the agent's session again");
         let failed = c.line(r#"{"jsonrpc":"2.0","id":2,"error":{"code":-32603,"message":"not signed in"}}"#);
@@ -1460,6 +1461,7 @@ printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt
         c.prompt("Hello");
         let stopped = c.cancel();
         assert!(stopped.contains(&Out::TurnEnded), "Stop ends a message still waiting for the session");
+        assert!(matches!(events(stopped)[..], [AgentEvent::TurnDone { tokens_unknown: false, .. }]));
         assert!(sent(&c.line(r#"{"jsonrpc":"2.0","id":3,"result":{}}"#)).iter().all(|m| m["method"] != "session/prompt"));
     }
 

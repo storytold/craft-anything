@@ -1555,6 +1555,8 @@ Owner: open · Status: in progress
 - [x] Over ACP, say the turn's token count is unknown. The protocol's `usage_update` measures
       context, so it isn't added to per-turn or project token counts.
       — claimed: rudycelekli, branch bugfix/r2.2-acp-unknown-token-usage
+- [x] Keep ACP setup failures and cancellation before a prompt out of unknown usage totals
+      — claimed: rudycelekli, branch bugfix/r2.2-acp-setup-token-count
 - [ ] Devin over ACP: `devin acp` asks the host to `authenticate` (`meta.api_key`) before
       `session/new`, so the backend's stored key is sent — claimed: NibrasAz7, branch
       feature/r2.2-devin-agent
