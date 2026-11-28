@@ -8,7 +8,10 @@ use craft_anything_evidence::{ErrorCode, ToolError};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashSet;
+use std::io::Write as _;
+use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Where the conversation is kept in the project folder.
 pub const FEED_FILE: &str = "feed.json";
@@ -138,10 +141,10 @@ pub fn dismiss_plan(feed: &mut Vec<FeedItem>) -> bool {
 
 /// Fold the plan card in a project's saved conversation (the UI's write, while no run is going).
 pub fn dismiss_plan_saved(ws: &Workspace) -> Result<bool, ToolError> {
-    let mut feed = load(ws);
+    let mut feed = load_for_write(ws);
     let folded = dismiss_plan(&mut feed);
     if folded {
-        save(&ws.root, &feed)?;
+        save(&ws.root, &mut feed)?;
     }
     Ok(folded)
 }
@@ -164,17 +167,112 @@ struct Saved {
     items: Vec<FeedItem>,
 }
 
+/// A writer retains the result of its original read, so a fallback cannot overwrite a file
+/// that becomes readable later. Read-only callers use `load`.
+#[derive(Debug, Clone)]
+pub struct LoadedFeed {
+    items: Vec<FeedItem>,
+    not_loaded: Option<ToolError>,
+    damaged: Option<Vec<u8>>,
+}
+
+impl Deref for LoadedFeed {
+    type Target = Vec<FeedItem>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.items
+    }
+}
+
+impl DerefMut for LoadedFeed {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.items
+    }
+}
+
+const MAX_FEED_BYTES: u64 = 64 * 1024 * 1024;
+const DAMAGED_NOTICE: &str = "This project's saved conversation is damaged. Showing the history kept in the project.";
+const BACKUP_DIR: &str = "feed-recovery";
+static BACKUP_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Absence must be established separately: a dangling symlink is still an existing entry.
+fn read_previous(path: &Path) -> Result<Option<Vec<u8>>, ToolError> {
+    match std::fs::symlink_metadata(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(ToolError::io(path.display(), e)),
+        Ok(_) => {}
+    }
+    craft_anything_platform::fs::read_file_capped(path, MAX_FEED_BYTES).map(Some).map_err(|error| {
+        if error.code == ErrorCode::OverLimit {
+            error.with_remediation("The original is unchanged. Keep a copy before restoring a smaller conversation, then reopen the project.")
+        } else {
+            error
+        }
+    })
+}
+
+/// Parse the bytes once. Inspect the version before converting the already parsed value into
+/// items, including when a future version's items are no longer readable by this build.
+fn decode(bytes: &[u8]) -> Result<Option<Vec<FeedItem>>, ToolError> {
+    let Ok(mut value) = serde_json::from_slice::<Value>(bytes) else { return Ok(None) };
+    if value.is_array() {
+        return Ok(serde_json::from_value(value).ok());
+    }
+    let Some(version) = value.get("version").and_then(Value::as_u64) else { return Ok(None) };
+    if version > u64::from(FEED_VERSION) {
+        return Err(ToolError::unsupported("This project's conversation was saved by a newer Craft Anything, so it isn't changed.")
+            .with_remediation("Update Craft Anything and reopen the project to keep its conversation up to date."));
+    }
+    Ok(serde_json::from_value(value["items"].take()).ok())
+}
+
 /// The feed for a project: what was saved, else rebuilt from its manifest. Questions still
 /// waiting in its inbox are always there.
 pub fn load(ws: &Workspace) -> Vec<FeedItem> {
-    let saved = std::fs::read(ws.root.join(FEED_FILE)).ok().and_then(|b| {
-        serde_json::from_slice::<Saved>(&b)
-            .ok()
-            .filter(|s| s.version <= FEED_VERSION)
-            .map(|s| s.items)
-            .or_else(|| serde_json::from_slice::<Vec<FeedItem>>(&b).ok())
+    load_for_write(ws).items
+}
+
+/// Load a conversation for later edits. A read failure stays read-only until the project is
+/// loaded again. Readable damaged bytes are retained for the required backup before saving.
+pub fn load_for_write(ws: &Workspace) -> LoadedFeed {
+    let loaded = read_previous(&ws.root.join(FEED_FILE)).and_then(|previous| match previous {
+        None => Ok((history(ws), None)),
+        Some(bytes) => match decode(&bytes)? {
+            Some(items) => Ok((items, None)),
+            None => {
+                let mut items = history(ws);
+                items.insert(
+                    0,
+                    FeedItem::Error {
+                        message: DAMAGED_NOTICE.into(),
+                        remediation: Some("The original is unchanged. A complete copy will be kept before saving a new conversation.".into()),
+                        log: None,
+                    },
+                );
+                Ok((items, Some(bytes)))
+            }
+        },
     });
-    let Some(mut feed) = saved else { return history(ws) };
+    let (mut feed, damaged) = match loaded {
+        Ok(loaded) => loaded,
+        Err(error) => {
+            let mut items = history(ws);
+            items.insert(
+                0,
+                FeedItem::Error {
+                    message: format!("This project's conversation couldn't be loaded: {}", error.message),
+                    remediation: Some(
+                        error
+                            .remediation
+                            .clone()
+                            .unwrap_or_else(|| "The original is unchanged. Make it readable, then reopen the project before saving.".into()),
+                    ),
+                    log: None,
+                },
+            );
+            return LoadedFeed { items, not_loaded: Some(error), damaged: None };
+        }
+    };
     // Nothing is streaming any more after a restart.
     for item in &mut feed {
         if let FeedItem::Agent { streaming, .. } = item {
@@ -183,7 +281,7 @@ pub fn load(ws: &Workspace) -> Vec<FeedItem> {
     }
     let shown: HashSet<String> = feed.iter().filter_map(|i| if let FeedItem::Ask { request, .. } = i { Some(request.id.clone()) } else { None }).collect();
     feed.extend(Inbox::new(ws.inbox_dir()).pending().into_iter().filter(|r| !shown.contains(&r.id)).map(|request| FeedItem::Ask { request, answer: None }));
-    feed
+    LoadedFeed { items: feed, not_loaded: None, damaged }
 }
 
 /// A feed rebuilt from what a project saved: the request, the checks, the agent's last words,
@@ -204,33 +302,95 @@ pub fn history(ws: &Workspace) -> Vec<FeedItem> {
 
 /// Write the feed into the project folder (only one that exists; never creates one). A feed
 /// saved by a newer Craft Anything is never written over (docs/file-formats.md).
-pub fn save(root: &Path, feed: &[FeedItem]) -> Result<(), ToolError> {
+pub fn save(root: &Path, feed: &mut LoadedFeed) -> Result<(), ToolError> {
+    if let Some(error) = &feed.not_loaded {
+        return Err(error.clone());
+    }
     if !root.is_dir() {
-        return Ok(());
+        return Err(ToolError::new(ErrorCode::FileError, "The project's folder isn't available, so its conversation wasn't saved."));
     }
-    let newer = std::fs::read(root.join(FEED_FILE))
-        .ok()
-        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-        .and_then(|v| v.get("version").and_then(Value::as_u64))
-        .is_some_and(|v| v > u64::from(FEED_VERSION));
-    if newer {
-        return Err(ToolError::new(ErrorCode::NotSupported, "This project's conversation was saved by a newer Craft Anything, so it isn't changed.")
-            .with_remediation("Update Craft Anything to keep its conversation up to date."));
+    let path = root.join(FEED_FILE);
+    let previous = read_previous(&path)?;
+    if let Some(original) = &feed.damaged
+        && previous.as_deref() != Some(original.as_slice())
+    {
+        return Err(ToolError::new(ErrorCode::FileChanged, "The damaged conversation changed before it could be saved.")
+            .with_remediation("Reopen the project to read the current conversation. Nothing was written."));
     }
-    let json = serde_json::to_vec(&Saved { version: FEED_VERSION, items: feed.to_vec() }).map_err(|e| ToolError::internal(e.to_string()))?;
-    crate::project::write_atomic(&root.join(FEED_FILE), &json)
+    let mut items = feed.items.clone();
+    if let Some(bytes) = previous
+        && decode(&bytes)?.is_none()
+    {
+        let backup = keep_damaged(root, &bytes)?;
+        let notice =
+            FeedItem::Error { message: DAMAGED_NOTICE.into(), remediation: Some(format!("The complete original is kept at {}.", backup.display())), log: None };
+        if let Some(item) = items.iter_mut().find(|item| matches!(item, FeedItem::Error { message, .. } if message == DAMAGED_NOTICE)) {
+            *item = notice;
+        } else {
+            items.insert(0, notice);
+        }
+    }
+    let saved = Saved { version: FEED_VERSION, items };
+    let json = serde_json::to_vec(&saved).map_err(|e| ToolError::internal(e.to_string()))?;
+    if json.len() as u64 > MAX_FEED_BYTES {
+        return Err(ToolError::new(ErrorCode::OverLimit, "The conversation is too large to save safely. Its saved file is unchanged."));
+    }
+    crate::project::write_atomic(&path, &json)?;
+    feed.items = saved.items;
+    feed.damaged = None;
+    Ok(())
+}
+
+/// Keep one new, private copy. These are personal recovery files: never overwrite or delete an
+/// existing entry, including a partial copy left by a failed write.
+fn keep_damaged(root: &Path, bytes: &[u8]) -> Result<PathBuf, ToolError> {
+    let dir = root.join(BACKUP_DIR);
+    match std::fs::create_dir(&dir) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            if !std::fs::symlink_metadata(&dir).map_err(|e| ToolError::io(dir.display(), e))?.is_dir() {
+                return Err(ToolError::invalid(format!("{} is not a recovery folder", dir.display())));
+            }
+        }
+        Err(error) => return Err(ToolError::io(dir.display(), error)),
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600);
+    }
+    for _ in 0..64 {
+        let id = BACKUP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let path = dir.join(format!("feed-{}-{id}.json", std::process::id()));
+        let mut file = match options.open(&path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(ToolError::io(path.display(), error)),
+        };
+        file.write_all(bytes).and_then(|()| file.sync_all()).map_err(|e| {
+            ToolError::io(path.display(), e).with_remediation("The original conversation is unchanged. The incomplete copy is kept at the reported path.")
+        })?;
+        #[cfg(unix)]
+        for parent in [&dir, root] {
+            std::fs::File::open(parent).and_then(|file| file.sync_all()).map_err(|e| ToolError::io(parent.display(), e))?;
+        }
+        return Ok(path);
+    }
+    Err(ToolError::new(ErrorCode::FileError, "Couldn't reserve a new conversation recovery copy. The original is unchanged."))
 }
 
 /// Record an answer given while no run is going (straight into the saved feed). `request` is the
 /// question, taken before it was answered: one the saved conversation doesn't have yet (posted
 /// from outside a run) is added with its answer, rather than lost once it stops waiting (#176).
 pub fn record_answer(ws: &Workspace, request: &Request, shown: &str) -> Result<(), ToolError> {
-    let mut feed = load(ws);
+    let mut feed = load_for_write(ws);
     if !feed.iter().any(|i| matches!(i, FeedItem::Ask { request: r, .. } if r.id == request.id)) {
         feed.push(FeedItem::Ask { request: request.clone(), answer: None });
     }
     answered(&mut feed, &request.id, shown);
-    save(&ws.root, &feed)
+    save(&ws.root, &mut feed)
 }
 
 #[cfg(test)]
@@ -238,6 +398,101 @@ mod tests {
     use super::*;
     use crate::inbox::RequestKind;
     use crate::workspace::TargetRef;
+
+    // Existing format fixtures seed a writable value directly. Production writers retain load state.
+    fn save(root: &Path, items: &[FeedItem]) -> Result<(), ToolError> {
+        super::save(root, &mut LoadedFeed { items: items.to_vec(), not_loaded: None, damaged: None })
+    }
+
+    #[test]
+    fn an_unreadable_feed_stays_read_only_after_it_is_repaired() {
+        let d = tempfile::tempdir().unwrap();
+        let ws = Workspace::create(d.path(), "x", "Fallback", TargetRef::None).unwrap();
+        let path = ws.root.join(FEED_FILE);
+        std::fs::create_dir(&path).unwrap();
+        let mut loaded = load_for_write(&ws);
+        std::fs::remove_dir(&path).unwrap();
+        let repaired = br#"{"version":5,"items":[{"User":"Keep this conversation"}]}"#;
+        std::fs::write(&path, repaired).unwrap();
+        loaded.push(FeedItem::Paused);
+        assert!(super::save(&ws.root, &mut loaded).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), repaired);
+    }
+
+    #[test]
+    fn damaged_bytes_are_kept_and_the_copy_is_reported_before_replacement() {
+        let d = tempfile::tempdir().unwrap();
+        let ws = Workspace::create(d.path(), "x", "Fallback", TargetRef::None).unwrap();
+        let path = ws.root.join(FEED_FILE);
+        let original = b"{\"version\":5,\"items\":[\xff\x00";
+        std::fs::write(&path, original).unwrap();
+        let dir = ws.root.join(BACKUP_DIR);
+        std::fs::create_dir(&dir).unwrap();
+        let personal = dir.join("personal-notes.txt");
+        std::fs::write(&personal, "Keep my notes").unwrap();
+        let mut loaded = load_for_write(&ws);
+        loaded.push(FeedItem::Paused);
+        super::save(&ws.root, &mut loaded).unwrap();
+        let backup = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().path()).find(|p| p != &personal).unwrap();
+        assert_eq!(std::fs::read(&backup).unwrap(), original);
+        assert_eq!(std::fs::read_to_string(&personal).unwrap(), "Keep my notes");
+        assert!(
+            load(&ws).iter().any(|item| matches!(item, FeedItem::Error { remediation: Some(message), .. } if message.contains(&backup.display().to_string())))
+        );
+        super::save(&ws.root, &mut loaded).unwrap();
+        assert_eq!(std::fs::read_dir(dir).unwrap().count(), 2, "ordinary saves do not make more backups");
+    }
+
+    #[test]
+    fn a_failed_backup_does_not_replace_the_source_or_claim_success() {
+        let d = tempfile::tempdir().unwrap();
+        let ws = Workspace::create(d.path(), "x", "Fallback", TargetRef::None).unwrap();
+        let path = ws.root.join(FEED_FILE);
+        let original = b"broken bytes";
+        std::fs::write(&path, original).unwrap();
+        let blocked = ws.root.join(BACKUP_DIR);
+        std::fs::write(&blocked, "An existing personal file").unwrap();
+        let mut loaded = load_for_write(&ws);
+        let before = loaded.items.clone();
+        assert!(super::save(&ws.root, &mut loaded).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        assert_eq!(loaded.items, before);
+        assert_eq!(std::fs::read_to_string(&blocked).unwrap(), "An existing personal file");
+        std::fs::remove_file(blocked).unwrap();
+        super::save(&ws.root, &mut loaded).unwrap();
+        assert_ne!(std::fs::read(path).unwrap(), original);
+    }
+
+    #[test]
+    fn a_damaged_feed_replaced_elsewhere_must_be_loaded_again() {
+        let d = tempfile::tempdir().unwrap();
+        let ws = Workspace::create(d.path(), "x", "Fallback", TargetRef::None).unwrap();
+        let path = ws.root.join(FEED_FILE);
+        std::fs::write(&path, "damaged").unwrap();
+        let mut loaded = load_for_write(&ws);
+        let repaired = br#"[{"User":"Recovered elsewhere"}]"#;
+        std::fs::write(&path, repaired).unwrap();
+        assert_eq!(super::save(&ws.root, &mut loaded).unwrap_err().code, ErrorCode::FileChanged);
+        assert_eq!(std::fs::read(path).unwrap(), repaired);
+        assert!(!ws.root.join(BACKUP_DIR).exists());
+    }
+
+    #[test]
+    fn oversized_and_newer_feeds_cannot_be_replaced_by_fallback_history() {
+        let d = tempfile::tempdir().unwrap();
+        let ws = Workspace::create(d.path(), "x", "Fallback", TargetRef::None).unwrap();
+        let path = ws.root.join(FEED_FILE);
+        std::fs::File::create(&path).unwrap().set_len(MAX_FEED_BYTES + 1).unwrap();
+        let mut loaded = load_for_write(&ws);
+        assert_eq!(super::save(&ws.root, &mut loaded).unwrap_err().code, ErrorCode::OverLimit);
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), MAX_FEED_BYTES + 1);
+        let future = br#"{"version":999,"items":{"future":"shape"}}"#;
+        std::fs::write(&path, future).unwrap();
+        let mut loaded = load_for_write(&ws);
+        assert_eq!(super::save(&ws.root, &mut loaded).unwrap_err().code, ErrorCode::NotSupported);
+        assert_eq!(std::fs::read(path).unwrap(), future);
+        assert!(!ws.root.join(BACKUP_DIR).exists());
+    }
 
     #[test]
     fn file_formats_doc_lists_current_manifest_and_feed_versions() {

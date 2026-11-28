@@ -1831,6 +1831,10 @@ Owner: maintainers · Status: in progress
 ### R2.9 Everyday use: typing, projects, settings
 Owner: maintainers · Status: in progress
 Gaps found while using the app for real projects.
+- [x] Keep a damaged saved conversation before replacing it, and keep a writer read-only when
+      its original read failed. Bound saved-feed reads and show where the unchanged original
+      was kept. First part split from PR #2183; background display reads remain a follow-up
+      — claimed: Afloat16, branch bugfix/r2.9-damaged-feed-preservation-20261128
 - [x] The headless app the UI tests use builds its engine with `Session::new` (`ui-egui`'s
       `demo::engine`), not the isolated test session, so a UI test that reaches a tool which
       saves, or looks for an installed program, touches the real config folder and finds what

@@ -2901,7 +2901,10 @@ mod tests {
         .unwrap();
         ws.manifest.stack = "Godot".into();
         ws.save().unwrap();
-        craft_anything_ai::rebuild::feed::save(&ws.root, &[FeedItem::User(UserItem::Text("earlier message".into()))]).unwrap();
+        let mut original = craft_anything_ai::rebuild::feed::load_for_write(&ws);
+        original.clear();
+        original.push(FeedItem::User(UserItem::Text("earlier message".into())));
+        craft_anything_ai::rebuild::feed::save(&ws.root, &mut original).unwrap();
         let mut app = crate::demo::app(crate::demo::engine(craft_anything_engine::Mode::Beginner, true));
         let local = BackendConfig {
             name: "Local".into(),

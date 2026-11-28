@@ -442,12 +442,15 @@ fn a_projects_conversation_and_place_come_back_after_a_restart() {
 
     // One session: a conversation on the project, then the app closes.
     let mut first = demo::app(demo::engine(Mode::Beginner, true));
-    first.open_workspace(ws);
+    first.open_workspace(ws.clone());
     first.state.feed.push(FeedItem::User(UserItem::Text("Make it faster".into())));
     first.state.feed.push(FeedItem::Agent { text: "Done: the snake moves faster now.".into(), streaming: true });
     // A run keeps the feed in the project folder (here, as one would have).
     let root = first.workspace.as_ref().unwrap().root.clone();
-    craft_anything_ai::rebuild::feed::save(&root, &first.state.feed).unwrap();
+    let mut saved = craft_anything_ai::rebuild::feed::load_for_write(&ws);
+    saved.clear();
+    saved.extend(first.state.feed.clone());
+    craft_anything_ai::rebuild::feed::save(&root, &mut saved).unwrap();
     let mut storage = Mem(Default::default());
     eframe::App::save(&mut first, &mut storage);
 

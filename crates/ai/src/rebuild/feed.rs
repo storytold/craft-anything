@@ -119,7 +119,7 @@ pub fn plan_from(input: &Value) -> Option<Vec<PlanStep>> {
 /// changes and at once when the run ends.
 pub(super) struct FeedLog {
     root: PathBuf,
-    feed: Vec<FeedItem>,
+    feed: LoadedFeed,
     saved_at: Option<std::time::Instant>,
     activity: Arc<Activity>,
     log: ActivityFile,
@@ -128,7 +128,7 @@ pub(super) struct FeedLog {
 impl FeedLog {
     pub(super) fn open(ws: &Workspace) -> FeedLog {
         let activity = Arc::new(Activity::new(vec![ws.app_dir(), ws.root.clone()]));
-        FeedLog { root: ws.root.clone(), feed: load(ws), saved_at: None, activity, log: ActivityFile::new(&ws.root) }
+        FeedLog { root: ws.root.clone(), feed: load_for_write(ws), saved_at: None, activity, log: ActivityFile::new(&ws.root) }
     }
 
     pub(super) fn activity(&self) -> Arc<Activity> {
@@ -169,8 +169,13 @@ impl FeedLog {
                 }
             }
         }
-        if let Err(e) = save(&self.root, &self.feed) {
+        if let Err(e) = save(&self.root, &mut self.feed) {
             log::warn!("couldn't save the project's feed: {}", e.message);
+            if !self.feed.iter().any(|item| matches!(item, FeedItem::Error { message, .. } if message == &e.message)) {
+                // Keep the latest run event last: a persistence notice does not explain a
+                // later build failure, which `apply(Finished)` must still report.
+                self.feed.insert(0, FeedItem::Error { message: e.message, remediation: e.remediation, log: None });
+            }
         }
         self.saved_at = Some(std::time::Instant::now());
     }
@@ -179,6 +184,27 @@ impl FeedLog {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_run_cannot_overwrite_a_feed_it_failed_to_load() {
+        let d = tempfile::tempdir().unwrap();
+        let ws = Workspace::create(d.path(), "x", "Fallback", TargetRef::None).unwrap();
+        let path = ws.root.join(FEED_FILE);
+        std::fs::create_dir(&path).unwrap();
+        let mut log = FeedLog::open(&ws);
+        std::fs::remove_dir(&path).unwrap();
+        let repaired = br#"[{"User":"Recovered elsewhere"}]"#;
+        std::fs::write(&path, repaired).unwrap();
+        log.push(FeedItem::Paused);
+        log.record(&RunEvent::Finished { ok: false, message: "A separate build failure".into(), paused: false });
+        assert_eq!(std::fs::read(&path).unwrap(), repaired);
+        assert!(log.items().iter().any(|item| matches!(item, FeedItem::Paused)));
+        assert!(log.items().iter().any(|item| matches!(item, FeedItem::Error { remediation: Some(_), .. })), "the read failure keeps its recovery guidance");
+        assert!(
+            matches!(log.items().last(), Some(FeedItem::Error { message, .. }) if message == "A separate build failure"),
+            "a save notice does not explain the build's failure"
+        );
+    }
 
     #[test]
     fn every_event_counts_as_activity() {

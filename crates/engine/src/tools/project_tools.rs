@@ -386,9 +386,9 @@ fn project_build_finish(_ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput,
     let p: FinishParams = parse_params(params)?;
     let mut ws = open(&p.project)?;
     ws.set_status(Status::Ready, CALLED_DONE)?;
-    let mut items = feed::load(&ws);
+    let mut items = feed::load_for_write(&ws);
     items.push(feed::FeedItem::Step { step: Step::Done, text: CALLED_DONE.into() });
-    feed::save(&ws.root, &items)?;
+    feed::save(&ws.root, &mut items)?;
     Ok(ToolOutput::Value(json!({"project": ws.root, "status": ws.manifest.status})))
 }
 
@@ -822,11 +822,13 @@ mod tests {
     /// it folded anything.
     #[test]
     fn a_plan_is_folded_by_its_tool_and_says_whether_it_did() {
-        use crate::feed::{FeedItem, PlanStep, UserItem, save, visible_plan};
+        use crate::feed::{FeedItem, PlanStep, load_for_write, save, visible_plan};
         let d = tempfile::tempdir().unwrap();
         let ws = Workspace::create(d.path(), "Game", "A game", TargetRef::None).unwrap();
         let steps = vec![PlanStep { text: "Lay out".into(), doing: "Laying out".into(), status: crate::feed::PlanStatus::Todo }];
-        save(&ws.root, &[FeedItem::User(UserItem::Text("A game".into())), FeedItem::Plan(steps)]).unwrap();
+        let mut items = load_for_write(&ws);
+        items.push(FeedItem::Plan(steps));
+        save(&ws.root, &mut items).unwrap();
         let e = Engine::new(crate::testing::session());
         let fold = || e.call("project_plan_fold", json!({"project": ws.root}), CallOptions::new(Caller::Cli)).map(|o| o.to_json()["result"]["folded"].clone());
         assert_eq!(fold().unwrap(), true);

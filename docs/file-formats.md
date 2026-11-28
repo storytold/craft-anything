@@ -66,6 +66,21 @@ The state must be a regular file of at most 256 MiB. Broken, unrecognised and ne
 refused before files are written. The generated schema is
 [`pseudocode-export.schema.json`](schemas/pseudocode-export.schema.json).
 
+## Damaged project conversations
+
+`feed.json` reads accept regular files up to 64 MiB. Missing files use the project's manifest
+history. An unreadable, oversized or newer file stays untouched: the writer keeps that failed
+read and cannot save fallback history over it, even if the file becomes readable during a run.
+Reopening the project starts a new read.
+
+Readable bytes that are not a supported feed use the manifest history with a notice. Before
+replacing them, a save creates a new file in the project's `feed-recovery/` folder, writes the
+exact original bytes and syncs the copy (and, on Unix, its parent folders). It neither replaces
+nor deletes existing recovery files. The saved notice names the complete copy; a failed copy
+leaves `feed.json` unchanged and reports the failure. If those damaged bytes changed since the
+writer loaded them, saving asks the person to reopen instead. Ordinary later saves do not make
+new copies. These changes keep feed version 5 and its existing item shape.
+
 ## Newer files
 
 Craft Anything does not migrate newer files backward when reading them. What happens when saving
