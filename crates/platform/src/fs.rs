@@ -1,5 +1,5 @@
 //! File safety: bounded regular-file reads and atomic writes (temp file, fsync, rename),
-//! optionally private (0600 on Unix).
+//! optionally private (0600 on Unix), and whether copies in a folder can clone.
 
 use craft_anything_evidence::{ErrorCode, ToolError};
 use std::io::{Read as _, Write as _};
@@ -180,9 +180,39 @@ pub fn backup_once(from: &Path, to: &Path) -> Result<bool, ToolError> {
     Ok(true)
 }
 
+/// Whether a copy made in `dir` can be a clone that shares its blocks with the original until one
+/// of them is written to (APFS, Btrfs, XFS, ReFS), found by cloning a scratch file there, which is
+/// removed. False where `dir` can't be written to.
+pub fn clones_in(dir: &Path) -> bool {
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let (from, to) = (dir.join(format!(".clone-probe-{}-{n}", std::process::id())), dir.join(format!(".clone-probe-{}-{n}-copy", std::process::id())));
+    let cloned = std::fs::write(&from, b"probe").is_ok() && reflink_copy::reflink(&from, &to).is_ok();
+    for p in [&from, &to] {
+        if let Err(e) = std::fs::remove_file(p)
+            && e.kind() != std::io::ErrorKind::NotFound
+        {
+            log::debug!("couldn't remove {}: {e}", p.display());
+        }
+    }
+    cloned
+}
+
+/// Copy `from` to `to` as a clone where the file system can make one, otherwise as a plain copy.
+pub fn clone_or_copy(from: &Path, to: &Path) -> std::io::Result<()> {
+    reflink_copy::reflink_or_copy(from, to).map(|_| ())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_clone_probe_leaves_nothing_behind() {
+        let dir = tempfile::tempdir().unwrap();
+        clones_in(dir.path());
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+        assert!(!clones_in(&dir.path().join("missing")));
+    }
 
     #[test]
     fn atomic_write_replaces_and_private_is_0600() {

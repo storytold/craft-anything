@@ -2496,8 +2496,14 @@ to the project next.
       `copied_shared_bytes` on `Pin`, counted when a `Light` pin's file couldn't be linked, and said
       in a toast with the size (`a_shared_file_that_cannot_be_linked_is_counted_as_copied`)
       — in PR #220
-- [ ] Pins of one project sharing with each other, so a third frozen copy of the same assets
-      takes no more space
+- [x] Pins of one project sharing with each other, so a third frozen copy of the same assets
+      takes no more space: a media file with the same size and SHA-256 as one in an earlier frozen
+      pin is copied from that pin's file, only where copies clone (APFS; Btrfs, XFS, ReFS: probed
+      with a scratch clone in `pinned/`), and each frozen pin keeps a file of its own
+      (`a_pins_equal_media_are_copied_from_an_earlier_frozen_pin`,
+      `frozen_pins_of_one_project_keep_their_own_files`) — in PR #2240
+- [ ] Frozen pins sharing their media where copying doesn't clone (ext4, NTFS), without a write
+      through one pin reaching another; and a pin's size counting what it shares that way
 - [x] Pin a website (a frozen copy of the built site, each served on its own port): a pin copies
       the built site alone (a light one shares its media), and opening it serves that copy on a
       free loopback port of its own until it's closed; a served pin isn't removed
