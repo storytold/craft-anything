@@ -2880,6 +2880,8 @@ Owner: open · Status: in progress
       — claimed: Plastic-time, branch bugfix/r3.12-js-app-file-localhost-dot-folders
 - [x] Preserve webpack factory parameter names when direct eval can read them.
       — claimed: Plastic-time, branch bugfix/r3.12-js-eval-param-renaming-1115
+- [x] Decode Swift same-type generic requirements as `A == B` / `A.X == B` instead of rejecting them as unsupported requirement kinds.
+      — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-same-type-req
 - [x] Preserve void zero expressions when a with statement can dynamically resolve undefined.
       — claimed: Plastic-time, branch bugfix/r3.12-with-void-1116
 - [x] Keep sequence splitting from introducing JavaScript strict-mode directives.

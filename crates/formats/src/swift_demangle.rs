@@ -1252,6 +1252,22 @@ impl<'a> D<'a> {
         self.max_param = Some(self.max_param.map_or(idx, |m| m.max(idx)));
     }
 
+    /// Whether an associated type name is on top of the stack: an identifier, optionally with the
+    /// protocol that declares it above it.
+    fn assoc_name_on_top(&self) -> bool {
+        matches!(self.stack.as_slice(), [.., N::Ident(_)] | [.., N::Ident(_), N::Nominal { kind: 'P', .. }])
+    }
+
+    /// An associated type name, written `Swift.Sequence.Element` when its protocol qualifies it.
+    fn pop_assoc_name(&mut self) -> R<String> {
+        let proto = self.pop_if(|n| matches!(n, N::Nominal { kind: 'P', .. }));
+        let name = self.pop_name()?;
+        Ok(match proto {
+            Some(p) => format!("{}.{name}", path(&p, 0)),
+            None => name,
+        })
+    }
+
     /// The name of a declaration: an identifier, an operator, or a private name built by `LL`.
     fn pop_decl_name(&mut self) -> R<String> {
         match self.pop()? {
@@ -1561,14 +1577,31 @@ impl<'a> D<'a> {
                 _ => Err("unsupported associated type".into()),
             },
             b'R' => {
-                let (param, idx) = match self.next()? {
-                    b'z' => ("A".to_string(), 0),
-                    b'_' => ("B".into(), 1),
+                let kind = self.next()?;
+                // `RS` is a same-type requirement whose left operand is
+                // supplied on the stack, not a following parameter marker.
+                if kind == b'S' {
+                    let left = self.pop_type()?;
+                    let right = self.pop_type()?;
+                    if matches!(left, N::Global { .. }) || matches!(right, N::Global { .. }) {
+                        return Err("expected a type".into());
+                    }
+                    let text = format!("{} == {}", render(&left, 0), render(&right, 0));
+                    return self.push(N::Requirement(text));
+                }
+                // A leading `s`/`t`/`T` turns `R` into a same-type
+                // requirement (`A == B` / `A.X == B`); the next byte is then
+                // the parameter marker, as for a conformance requirement.
+                let same_type = matches!(kind, b's' | b't' | b'T');
+                let param_marker = if same_type { self.next()? } else { kind };
+                let (param, depth, idx) = match param_marker {
+                    b'z' => ("A".to_string(), 0, 0),
+                    b'_' => ("B".into(), 0, 1),
                     b'd' => {
                         // Generic type parameter at depth > 0 (`qd…`), as in `Rd…`.
                         let depth = self.index()?.checked_add(1).ok_or("overflow")?;
                         let pidx = self.index()?;
-                        (param_name(depth, pidx), 0)
+                        (param_name(depth, pidx), depth, pidx)
                     }
                     d if d.is_ascii_digit() => {
                         self.pos -= 1;
@@ -1577,13 +1610,56 @@ impl<'a> D<'a> {
                             return Err("requirement index".into());
                         }
                         let i = n.checked_add(2).ok_or("overflow")?;
-                        (param_name(0, i), i)
+                        (param_name(0, i), 0, i)
                     }
                     _ => return Err("unsupported requirement kind".into()),
                 };
-                self.note_param(idx);
+                // Only a depth-0 parameter is one of the signature's own listed parameters.
+                self.note_param(if depth == 0 { idx } else { 0 });
+                let members = if same_type {
+                    let mut ms = Vec::new();
+                    match kind {
+                        b't' => {
+                            if !self.assoc_name_on_top() {
+                                return Err("associated type name for Rt".into());
+                            }
+                            ms.push(self.pop_assoc_name()?);
+                        }
+                        b'T' => {
+                            while self.assoc_name_on_top() || matches!(self.stack.last(), Some(N::FirstMarker)) {
+                                if matches!(self.stack.last(), Some(N::FirstMarker)) {
+                                    let _ = self.stack.pop();
+                                    if !self.assoc_name_on_top() {
+                                        return Err("associated type name for RT".into());
+                                    }
+                                }
+                                ms.push(self.pop_assoc_name()?);
+                            }
+                        }
+                        _ => {}
+                    }
+                    ms.reverse();
+                    if matches!(kind, b't' | b'T') && !ms.is_empty() {
+                        let mut left = N::Param(depth, idx);
+                        for m in &ms {
+                            left = N::Member { base: Box::new(left), name: m.clone() };
+                        }
+                        self.add_sub(&left)?;
+                    }
+                    ms
+                } else {
+                    Vec::new()
+                };
                 let proto = self.pop_type()?;
-                let text = format!("{param}: {}", render(&proto, 0));
+                let text = if same_type {
+                    if members.is_empty() {
+                        format!("{param} == {}", render(&proto, 0))
+                    } else {
+                        format!("{param}.{} == {}", members.join("."), render(&proto, 0))
+                    }
+                } else {
+                    format!("{param}: {}", render(&proto, 0))
+                };
                 self.push(N::Requirement(text))
             }
             b'S' => self.standard(),
