@@ -1060,7 +1060,9 @@ yet, and the quick start is how every new person begins.
 - [x] Vineflower: run it once on a real JAR (no Java on the machine it was written on)
       — claimed: hasnain607, branch docs/r5.7-vineflower-live-run
 - [ ] Verify the 23 unverified adb tools; record results in tool-status.md
+      — claimed: scks1, branch docs/r5.7-android-live-checks
 - [ ] Android locales: try `only_locales` on a real APK (only the test fixture so far)
+      — claimed: scks1, branch docs/r5.7-android-live-checks
 - [ ] Ask LM Studio and a plain llama.cpp server for their context window (R5.4,
       `crate::window`): llama-swap (its list and its `/upstream/` route) and Ollama 0.40.15 were
       asked live; these two probes rest on their documented answers
