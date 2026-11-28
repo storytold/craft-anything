@@ -437,10 +437,23 @@ Every round spends the person's money or quota. One that can't do anything shoul
       A readable record, or one already set aside, is never replaced. Unit tests of the move, the
       tool and the screen's words
       — PR #2212; claimed: rmsff, branch bugfix/r5.3-unreadable-usage-json
-- [ ] A record started again stays `usage.json` version 1, where a missing `restarted` reads as
-      false, so an older build that updates it drops the field and its figures stop showing as
-      "at least …". Make it version 2, with a step that adds `restarted: false` to a version 1
-      file, so an older build refuses the record instead (`USAGE_VERSION`; #2212 review)
+- [x] A record started again stayed `usage.json` version 1, so an older build that updated it
+      dropped `restarted` and its figures stopped showing as "at least …". It is now version 2
+      (`USAGE_VERSION`, `USAGE_STEPS`): the step adds `restarted: false` to a version 1 file that
+      lacks it and keeps a `restarted: true` already written, and an older build refuses the
+      record as newer. Unit test of the step, the save and a newer record (#2212 review)
+      — #2493; claimed: rmsff, branch bugfix/r5.3-usage-reset-follow-up
+- [x] A reset that stopped after setting the record aside (a failed write, or the process ending
+      after the hard link) left the same record in both files, and trying again was refused until
+      the person moved the file. A retry now carries on when `usage.unreadable.json` has the same
+      bytes as `usage.json`. Unit test of the retry (#2212 review)
+      — #2493; claimed: rmsff, branch bugfix/r5.3-usage-reset-follow-up
+- [x] On a drive without hard links, a reset checked that no record was set aside and then
+      renamed `usage.json` over the name, so a second Craft Anything resetting in between could
+      replace the set-aside record. It now creates `usage.unreadable.json` only where nothing is
+      (`create_new`), copies the record into it and then replaces `usage.json`. Unit test with
+      linking made to fail (#2212 review)
+      — #2493; claimed: rmsff, branch bugfix/r5.3-usage-reset-follow-up
 - [x] Show what the last run used next to Try again. `usage.json` keeps project totals only
       (time, tokens, `cost_usd`, `api_billed_usd`); the activity log has each turn's tokens but
       no cost, since a resumed agent's figure can't be tied to one turn (`activity.rs`). Show
