@@ -6,7 +6,7 @@ use craft_anything_evidence::{ErrorCode, ToolError};
 use serde_json::{Value, json};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 fn call(e: &Engine, id: &str, p: Value) -> Result<Value, ToolError> {
@@ -25,6 +25,13 @@ fn fake_cdp() -> (String, Arc<AtomicBool>) {
 /// Like [`fake_cdp`], with an optional `Page.javascriptDialogOpening` on Page.enable.
 /// The third flag is set when the client answers it with `Page.handleJavaScriptDialog`.
 fn fake_cdp_with_dialogs(dialog: bool) -> (String, Arc<AtomicBool>, Arc<AtomicBool>) {
+    let (url, ws_seen, answered, _) = fake_cdp_recording(dialog);
+    (url, ws_seen, answered)
+}
+
+/// Like [`fake_cdp_with_dialogs`], and also hands back the node the lookup chose, so a test can
+/// tell which of several answers was taken.
+fn fake_cdp_recording(dialog: bool) -> (String, Arc<AtomicBool>, Arc<AtomicBool>, Arc<Mutex<String>>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     let url = format!("http://127.0.0.1:{port}");
@@ -32,15 +39,18 @@ fn fake_cdp_with_dialogs(dialog: bool) -> (String, Arc<AtomicBool>, Arc<AtomicBo
     let ws_seen2 = ws_seen.clone();
     let dialog_answered = Arc::new(AtomicBool::new(false));
     let dialog_answered2 = dialog_answered.clone();
+    let chosen = Arc::new(Mutex::new(String::new()));
+    let chosen2 = chosen.clone();
     std::thread::spawn(move || {
         for s in listener.incoming() {
             let Ok(stream) = s else { break };
             let seen = ws_seen2.clone();
             let answered = dialog_answered2.clone();
-            std::thread::spawn(move || serve(stream, port, seen, answered, dialog));
+            let picked = chosen2.clone();
+            std::thread::spawn(move || serve(stream, port, seen, answered, dialog, picked));
         }
     });
-    (url, ws_seen, dialog_answered)
+    (url, ws_seen, dialog_answered, chosen)
 }
 
 fn read_headers(stream: &mut TcpStream) -> (String, Vec<(String, String)>) {
@@ -69,7 +79,14 @@ fn http_json(stream: &mut TcpStream, body: &str) {
     let _ = stream.write_all(resp.as_bytes());
 }
 
-fn serve(mut stream: TcpStream, port: u16, ws_seen: Arc<AtomicBool>, dialog_answered: Arc<AtomicBool>, dialog: bool) {
+fn serve(
+    mut stream: TcpStream,
+    port: u16,
+    ws_seen: Arc<AtomicBool>,
+    dialog_answered: Arc<AtomicBool>,
+    dialog: bool,
+    chosen: Arc<Mutex<String>>,
+) {
     let (request_line, headers) = read_headers(&mut stream);
     let path = request_line.split_whitespace().nth(1).unwrap_or("/");
     if path.starts_with("/json/version") {
@@ -97,7 +114,7 @@ fn serve(mut stream: TcpStream, port: u16, ws_seen: Arc<AtomicBool>, dialog_answ
         let accept = ws_accept(&key);
         let resp = format!("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n");
         let _ = stream.write_all(resp.as_bytes());
-        serve_ws(&mut stream, dialog_answered, dialog);
+        serve_ws(&mut stream, dialog_answered, dialog, chosen.clone());
         ws_seen.store(true, Ordering::Relaxed);
         return;
     }
@@ -165,7 +182,7 @@ fn ws_write(stream: &mut TcpStream, text: &str) {
     let _ = stream.write_all(&frame);
 }
 
-fn serve_ws(stream: &mut TcpStream, dialog_answered: Arc<AtomicBool>, dialog: bool) {
+fn serve_ws(stream: &mut TcpStream, dialog_answered: Arc<AtomicBool>, dialog: bool, chosen: Arc<Mutex<String>>) {
     let bundle = craft_anything_testkit::electron::WEBPACK_BUNDLE;
     let mut dialog_sent = false;
     while let Some(msg) = ws_read(stream) {
@@ -207,11 +224,34 @@ fn serve_ws(stream: &mut TcpStream, dialog_answered: Arc<AtomicBool>, dialog: bo
                     (Some("button"), Some("Sign in")) => {
                         json!({"nodes": [{"ignored": true, "backendDOMNodeId": 6}, {"ignored": false, "backendDOMNodeId": 7}]})
                     }
+                    // A search is a ranking, not a filter: it can answer with something close.
+                    // Here it answers with a group, not the combo box that was asked for.
+                    (Some("combobox"), Some("Method")) => {
+                        json!({"nodes": [
+                            {"ignored": false, "backendDOMNodeId": 8, "role": {"value": "group"}},
+                            {"ignored": false, "backendDOMNodeId": 9, "role": {"value": "combobox"}}
+                        ]})
+                    }
                     _ => json!({"nodes": []}),
                 }
             }
-            "DOM.pushNodesByBackendIdsToFrontend" => json!({"nodeIds": [42]}),
-            "DOM.resolveNode" => json!({"object": {"objectId": "node-42"}}),
+            "DOM.pushNodesByBackendIdsToFrontend" => {
+                let asked = req.pointer("/params/backendNodeIds/0").and_then(Value::as_u64).unwrap_or(42);
+                json!({"nodeIds": [asked]})
+            }
+            // The select acts on the node the lookup chose, so the object it was given says
+            // which node that was.
+            "Runtime.callFunctionOn" => {
+                let object = req.pointer("/params/objectId").and_then(Value::as_str).unwrap_or("");
+                *chosen.lock().unwrap() = object.to_string();
+                json!({"result": {"type": "undefined"}})
+            }
+            "DOM.resolveNode" => {
+                // The node that was chosen is told by its id, so a test can tell which of several
+                // answers the lookup picked.
+                let asked = req.pointer("/params/nodeId").and_then(Value::as_u64).unwrap_or(42);
+                json!({"object": {"objectId": format!("node-{asked}")}})
+            }
             "Page.getNavigationHistory" => json!({"currentIndex": 0, "entries": [{"url": format!("https://app.test/home?k={SECRET}")}]}),
             "DOM.getOuterHTML" => json!({"outerHTML": format!("<html><body data-token=\"{SECRET}\">Hi</body></html>")}),
             "Accessibility.getFullAXTree" => json!({"nodes": [{"role": {"value": "button"}, "name": {"value": format!("Pay {SECRET}")}}]}),
@@ -447,6 +487,32 @@ fn walkthrough_steps_find_elements_by_role_test_id_or_css() {
     assert!(v["result"]["steps"][0]["error"].as_str().unwrap().contains("no button named \"Log out\""), "{}", v["result"]["steps"][0]);
     let v = run(json!([{"kind": "click", "selector": "a", "role": "button", "name": "Sign in"}]));
     assert!(v["result"]["steps"][0]["error"].as_str().unwrap().contains("exactly one"), "{}", v["result"]["steps"][0]);
+}
+
+/// A search is a ranking, not a filter: it can answer with a control of another role, and
+/// acting on that does nothing while reporting that it worked. The role of the answer is
+/// checked, so the control that was asked for is the one that is taken.
+#[test]
+fn a_role_lookup_skips_an_answer_of_another_role() {
+    let (url, _, _, chosen) = fake_cdp_recording(false);
+    let e = Engine::new(crate::testing::session());
+    // The fake answers with a group first and the combo box second.
+    let v = e
+        .call(
+            "web_walkthrough_record",
+            json!({
+                "cdp_endpoint": url,
+                "actions": [{"kind": "select", "role": "combobox", "name": "Method", "value": "card"}],
+            }),
+            CallOptions::new(Caller::Mcp).with_consent(crate::Consent::Granted),
+        )
+        .map(|o| o.to_json())
+        .unwrap();
+    let step = &v["result"]["steps"][0];
+    assert_eq!(step["status"], "ok", "{step}");
+    // The node that was acted on is the one with the role that was asked for, not the first
+    // answer, which had another role.
+    assert_eq!(chosen.lock().unwrap().as_str(), "node-9", "the combo box is chosen, not the group");
 }
 
 #[test]

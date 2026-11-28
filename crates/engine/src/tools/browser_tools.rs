@@ -1809,7 +1809,13 @@ impl Locator {
     }
 }
 
-/// The first element in the accessibility tree with this role and exact accessible name.
+/// The element in the accessibility tree with this role and exact accessible name.
+///
+/// The query is a *search*, not a filter: it ranks what it finds by how well it matches and
+/// answers with the best few, which need not be the role that was asked for. A search for a
+/// combo box named "Method" can answer with the group around it, and acting on that does
+/// nothing while reporting that it worked. So the role of each answer is checked, and only a node
+/// that really has it is taken.
 fn role_node(client: &mut CdpClient, role: &str, name: &str, dl: &Deadline) -> Result<u64, ToolError> {
     let doc = client.call("DOM.getDocument", json!({"depth": 0}), None, dl)?;
     let root = doc
@@ -1819,10 +1825,24 @@ fn role_node(client: &mut CdpClient, role: &str, name: &str, dl: &Deadline) -> R
     let _ = client.call("Accessibility.enable", json!({}), None, dl);
     let found = client.call("Accessibility.queryAXTree", json!({"nodeId": root, "accessibleName": name, "role": role}), None, dl)?;
     let missing = || ToolError::new(craft_anything_evidence::ErrorCode::NotFound, format!("no {role} named {name:?} on the page"));
+    let wanted = role.to_lowercase();
     let backend = found
         .get("nodes")
         .and_then(Value::as_array)
-        .and_then(|nodes| nodes.iter().filter(|n| n.get("ignored") != Some(&Value::Bool(true))).find_map(|n| n.get("backendDOMNodeId").and_then(Value::as_u64)))
+        .and_then(|nodes| {
+            nodes
+                .iter()
+                .filter(|n| n.get("ignored") != Some(&Value::Bool(true)))
+                // The role the answer really has. An answer that names a role and it is not the
+                // one asked for is not the control: the search ranks, so it can answer with
+                // something close. An answer that names no role is taken, because the search
+                // was asked for that role anyway.
+                .filter(|n| match n.pointer("/role/value").and_then(Value::as_str) {
+                    Some(r) => r.eq_ignore_ascii_case(&wanted),
+                    None => true,
+                })
+                .find_map(|n| n.get("backendDOMNodeId").and_then(Value::as_u64))
+        })
         .ok_or_else(missing)?;
     let pushed = client.call("DOM.pushNodesByBackendIdsToFrontend", json!({"backendNodeIds": [backend]}), None, dl)?;
     pushed.pointer("/nodeIds/0").and_then(Value::as_u64).filter(|n| *n != 0).ok_or_else(missing)
