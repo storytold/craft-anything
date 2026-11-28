@@ -473,6 +473,13 @@ pub trait Conversation: Send {
     fn session_lost(&self) -> bool {
         false
     }
+    /// The last turn ended cleanly having done nothing: the agent's own token count was zero both
+    /// ways, and it sent no text, tool call or error (#2431). False whenever that isn't known,
+    /// for one: an agent that reports no token count, or a turn that was stopped or failed.
+    /// Cleared when the next turn starts.
+    fn last_turn_empty(&self) -> bool {
+        false
+    }
     /// Drain new events (non-blocking).
     fn poll(&mut self) -> Vec<AgentEvent>;
     fn answer_consent(&mut self, call_id: &str, allow: bool);

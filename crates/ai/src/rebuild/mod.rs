@@ -1067,7 +1067,7 @@ impl Worker {
                 self.step(ws, Step::Build, Status::Building, doing)?;
                 ws.manifest.awaiting_check = false;
                 let language_files = stacks::language_files(&ws.app_dir());
-                let reply = self.turn(ws, agent.as_mut(), &prompt, deep, fresh.take());
+                let reply = self.builder_turn(ws, agent.as_mut(), &prompt, deep, fresh.take(), &mut fingerprints);
                 // Kept even when the turn failed: the conversation is still worth carrying.
                 if let Some(a) = &keeper {
                     self.keep_session(ws, a.as_ref());
@@ -1358,6 +1358,34 @@ impl Worker {
             }
             stop.check()
         })
+    }
+
+    /// One builder turn, sent once more when it did nothing (#2431): the agent ended it cleanly
+    /// with its own count of zero tokens both ways, no text, no tool call, and app/ is as it was.
+    /// What it was sent never reached it, so the same message goes again, once; a second empty
+    /// turn ends the run with a problem that says so, rather than checking a build nobody touched
+    /// as if the request had been carried out. A turn that did anything, was stopped or failed is
+    /// left to [`Self::turn`]; when app/ can't be read, an empty turn isn't sent again.
+    fn builder_turn(
+        &mut self,
+        ws: &mut Workspace,
+        agent: &mut dyn Conversation,
+        prompt: &str,
+        deep: bool,
+        mut fresh: Option<String>,
+        fingerprints: &mut AppFingerprintCache,
+    ) -> Result<String, ToolError> {
+        for attempt in 0..EMPTY_TURN_TRIES {
+            let before = fingerprints.scan(ws, &self.stop).ok();
+            let reply = self.turn(ws, agent, prompt, deep, fresh.take())?;
+            if !agent.last_turn_empty() || before.is_none() || fingerprints.scan(ws, &self.stop).ok() != before {
+                return Ok(reply);
+            }
+            if attempt + 1 < EMPTY_TURN_TRIES {
+                self.emit(RunEvent::Agent(AgentEvent::Status { text: EMPTY_TURN_AGAIN.into() }));
+            }
+        }
+        Err(ToolError::new(ErrorCode::ProgramFailed, EMPTY_TURN).with_remediation(EMPTY_TURN_FIX))
     }
 
     /// Keep the session the agent reported, with the mode it ran in; a lost one leaves neither.
@@ -1714,6 +1742,16 @@ pub const NOT_WORKING_CHECK_LIMIT: u32 = 10;
 
 /// Wrap a check error that prevented verifying the finished build, preserving tool-setup
 /// remediation alongside the "Try again" guidance (#2178).
+/// How many times a builder turn that did nothing is sent (see [`Worker::builder_turn`]).
+const EMPTY_TURN_TRIES: u32 = 2;
+/// Said when a builder turn did nothing and its message goes once more.
+const EMPTY_TURN_AGAIN: &str =
+    "The builder's turn ended at once without doing anything (no tokens, no reply, no tool calls, no file changes). Sending the same message again…";
+/// The run's error when the builder did nothing twice in a row.
+const EMPTY_TURN: &str =
+    "The builder's turn ended twice without doing anything (no tokens, no reply, no tool calls, no file changes), so what it was sent didn't reach it.";
+const EMPTY_TURN_FIX: &str = "Send your message again. If it keeps happening, check that the coding agent answers when run on its own.";
+
 fn unchecked_build_error(e: ToolError) -> ToolError {
     const TRY_AGAIN: &str = "Press Try again to check it again. Nothing needs building again.";
     let remediation = match e.remediation.as_deref().map(str::trim) {

@@ -564,6 +564,13 @@ Local inbox and workspace write failures are not retried using a concurrent back
 retry advice; the original local error is returned.
 A missing saved session starts afresh only when a fresh request is available; otherwise the run
 stops without retrying the unavailable session.
+A builder turn that did nothing (#2431) is sent once more with the same message: the coding agent
+ended it cleanly with its own token count at zero both ways, no text, tool call or error, and
+app/ is unchanged. A second such turn ends the run with a problem in the feed saying the message
+didn't reach the builder, and the untouched build isn't checked. An agent that reports no token
+count, a paused or stopped turn and a failed one (sign-in, limits, a lost session) are never
+taken for one. Covered by scripted Claude Code stand-ins and one full run; why Claude Code
+answered the reporter's turns that way was not found, and no live run was made.
 
 Claude Code's failed or unauthenticated `craft-anything` MCP server in its init event stops the
 owned CLI process. Pending servers and failures in unrelated optional servers do not stop it.

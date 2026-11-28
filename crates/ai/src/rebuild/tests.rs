@@ -7,6 +7,10 @@ mod note_progress;
 #[path = "stall_tests.rs"]
 mod stall;
 
+#[cfg(unix)]
+#[path = "empty_turn_tests.rs"]
+mod empty_turn;
+
 // Helpers that take a built-in kind's id, so each test reads as one line.
 fn kind(id: &str) -> Arc<dyn TargetKind> {
     KindRegistry::built_in().get(id).unwrap()
@@ -2322,6 +2326,43 @@ mod picking_up_a_build {
         assert!(finished.1.contains("craft-anything-cli"), "{finished:?}");
         assert_eq!(prompts_given(&b), 0, "the agent was asked anyway");
         assert!(!studied(&feed::load(&Workspace::open(&ws.root).unwrap())), "it studied first");
+    }
+
+    /// #2431: a follow-up whose builder turns both end at once with 0 tokens in and out is sent
+    /// twice, then ends with a problem in the feed. The untouched build isn't checked, as if the
+    /// request had been carried out.
+    #[test]
+    fn a_follow_up_the_builder_never_received_ends_with_a_problem_in_the_feed() {
+        struct ClaudeLike;
+        impl crate::cli_agents::AgentAdapter for ClaudeLike {
+            fn ids(&self) -> &'static [&'static str] {
+                &["stand-in"]
+            }
+            fn args(&self, cx: &crate::cli_agents::ArgsCx) -> Vec<String> {
+                vec![cx.prompt.to_string()]
+            }
+            fn parse(&self, p: &mut crate::cli_agents::StreamParser, v: &Value) -> Vec<AgentEvent> {
+                crate::cli_agents::AgentAdapter::parse(&crate::cli_agents::adapters::ClaudeCode::default(), p, v)
+            }
+        }
+        let b = bench();
+        let ws = worked_on(&b);
+        let empty = r#"{"type":"result","subtype":"success","is_error":false,"num_turns":1,"result":"","session_id":"s1","usage":{"input_tokens":0,"output_tokens":0}}"#;
+        let agent = b.prompts.parent().unwrap().join("agent.sh");
+        std::fs::write(
+            &agent,
+            format!("#!/bin/sh\nfor last; do :; done\nprintf '%s\\n===\\n' \"$last\" >> '{}'\nprintf '%s\\n' '{empty}'\n", b.prompts.display()),
+        )
+        .unwrap();
+        let mut adapters = crate::cli_agents::AgentAdapters::built_in();
+        adapters.register(Arc::new(ClaudeLike));
+        let (ok, feed) = try_with(&b, &ws, RunOptions { adapters, message: Some("Make the buttons blue".into()), ..RunOptions::default() });
+        assert!(!ok, "{feed:?}");
+        assert_eq!(prompts_given(&b), 2, "sent once more, and only once");
+        assert!(feed.iter().any(|i| matches!(i, feed::FeedItem::Error { message, .. } if message.contains(EMPTY_TURN))), "{feed:?}");
+        let ws = Workspace::open(&ws.root).unwrap();
+        assert!(ws.manifest.checks.is_empty(), "an untouched build isn't checked: {:?}", ws.manifest.checks);
+        assert_eq!(ws.manifest.status, Status::NeedsYou);
     }
 
     #[test]

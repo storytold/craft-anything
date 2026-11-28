@@ -754,6 +754,13 @@ pub struct StreamParser {
     /// Claude Code said the plan's limit refused this turn: which limit (`five_hour`,
     /// `seven_day`…) and when it resets, in Unix seconds.
     pub plan_limit: Option<(String, Option<u64>)>,
+    /// This run's stream carried a token count (`input_tokens`/`output_tokens` were read from it,
+    /// zero or not). An agent that never reports one leaves it false, so its zeros mean "unknown".
+    pub usage_reported: bool,
+    /// The stream showed the agent doing something: text, a tool call or a consent request.
+    pub did_work: bool,
+    /// The stream (stdout or stderr) said something went wrong.
+    pub said_error: bool,
 }
 
 fn short_tool(name: &str) -> String {
@@ -801,13 +808,31 @@ impl StreamParser {
             session_missing: false,
             failure: None,
             plan_limit: None,
+            usage_reported: false,
+            did_work: false,
+            said_error: false,
+        }
+    }
+
+    /// Keep what `events`, parsed from this run's output, say about the turn (see
+    /// [`StreamParser::did_work`] and [`StreamParser::said_error`]).
+    pub fn note(&mut self, events: &[AgentEvent]) {
+        for e in events {
+            match e {
+                AgentEvent::TextDelta { text } => self.did_work |= !text.trim().is_empty(),
+                AgentEvent::ToolStarted { .. } | AgentEvent::ToolFinished { .. } | AgentEvent::ConsentNeeded { .. } => self.did_work = true,
+                AgentEvent::Error { .. } => self.said_error = true,
+                _ => {}
+            }
         }
     }
 
     /// Events for one output line.
     pub fn line(&mut self, line: &str) -> Vec<AgentEvent> {
         if !self.adapter.streams_json() {
-            return vec![AgentEvent::TextDelta { text: format!("{line}\n") }];
+            let events = vec![AgentEvent::TextDelta { text: format!("{line}\n") }];
+            self.note(&events);
+            return events;
         }
         let Ok(v) = serde_json::from_str::<Value>(line.trim()) else {
             // Non-JSON lines (warnings, banners) are shown as status, not answer text.
@@ -815,7 +840,9 @@ impl StreamParser {
             return if t.is_empty() { Vec::new() } else { vec![AgentEvent::Status { text: summary_of(t) }] };
         };
         let adapter = self.adapter.clone();
-        adapter.parse(self, &v)
+        let events = adapter.parse(self, &v);
+        self.note(&events);
+        events
     }
 
     /// A tool call began (adapters call this from `parse`).
@@ -1036,6 +1063,8 @@ pub struct CliConversation {
     /// The last run's saved session wasn't there (see [`Conversation::session_lost`]).
     lost: Arc<AtomicBool>,
     failure: Arc<Mutex<Option<TurnFailure>>>,
+    /// The last run did nothing (see [`Conversation::last_turn_empty`]).
+    empty: Arc<AtomicBool>,
 }
 
 impl CliConversation {
@@ -1054,6 +1083,7 @@ impl CliConversation {
             verified: Arc::default(),
             lost: Arc::default(),
             failure: Arc::default(),
+            empty: Arc::default(),
         }
     }
 
@@ -1073,9 +1103,16 @@ impl CliConversation {
         }
         self.stop.reset();
         self.lost.store(false, Ordering::SeqCst);
+        self.empty.store(false, Ordering::SeqCst);
         *self.failure.lock().unwrap_or_else(PoisonError::into_inner) = None;
         let (spec, tx, stop, busy) = (self.spec.clone(), self.tx.clone(), self.stop.clone(), self.busy.clone());
-        let state = RunState { session: self.session.clone(), verified: self.verified.clone(), lost: self.lost.clone(), failure: self.failure.clone() };
+        let state = RunState {
+            session: self.session.clone(),
+            verified: self.verified.clone(),
+            lost: self.lost.clone(),
+            failure: self.failure.clone(),
+            empty: self.empty.clone(),
+        };
         let text = text.to_string();
         let spawned = std::thread::Builder::new().name("ai-cli".into()).spawn(move || {
             let done = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run_cli(&spec, &text, retry, &tx, &stop, &state))).unwrap_or_else(|_| {
@@ -1134,12 +1171,13 @@ fn remote_command(program: &str, args: Vec<String>, env: &[(&'static str, String
 }
 
 /// The run's shared state: the session it continues and reports, whether the agent's flags were
-/// checked, and whether the session it was to continue was missing.
+/// checked, whether the session it was to continue was missing, and whether the run did nothing.
 struct RunState {
     session: Arc<Mutex<Option<String>>>,
     verified: Arc<Mutex<Option<bool>>>,
     lost: Arc<AtomicBool>,
     failure: Arc<Mutex<Option<TurnFailure>>>,
+    empty: Arc<AtomicBool>,
 }
 
 /// End a turn: take the next message first, then say the turn is done (`send(done)`), since
@@ -1168,7 +1206,7 @@ const RESULT_GRACE: Duration = Duration::from_secs(5);
 /// next message; one it was asked to continue but doesn't have is forgotten and flagged in
 /// `state.lost` before the error that says so is sent.
 fn run_cli(spec: &CliSpec, text: &str, retry: bool, tx: &Sender<AgentEvent>, stop: &Stop, state: &RunState) -> AgentEvent {
-    let RunState { session, verified, lost, failure } = state;
+    let RunState { session, verified, lost, failure, empty } = state;
     let name = spec.config.name.clone();
     let agent = spec.config.model.clone();
     let program = match program_of(&spec.config, &spec.options) {
@@ -1387,6 +1425,7 @@ fn run_cli(spec: &CliSpec, text: &str, retry: bool, tx: &Sender<AgentEvent>, sto
             let mut p = stderr_parser.lock().unwrap_or_else(PoisonError::into_inner);
             let adapter = p.adapter.clone();
             let events = adapter.parse_stderr(&mut p, l);
+            p.note(&events);
             if p.session_missing {
                 stderr_lost.store(true, Ordering::SeqCst);
             }
@@ -1431,6 +1470,24 @@ fn run_cli(spec: &CliSpec, text: &str, retry: bool, tx: &Sender<AgentEvent>, sto
         Ok(out) => !out.success,
         Err(_) => true,
     };
+    // #2431: the agent ended the turn cleanly, but its own count says it read and wrote nothing,
+    // and its stream showed no text, tool call or error. Only typed facts decide it: an agent that
+    // reports no count, a stop, a failure or a missing session never makes a turn empty.
+    let clean_end = match &result {
+        Ok(out) => out.success,
+        Err(_) => ended_after_result,
+    };
+    let did_nothing = clean_end
+        && p.usage_reported
+        && p.input_tokens == 0
+        && p.output_tokens == 0
+        && !p.did_work
+        && !p.said_error
+        && !p.session_missing
+        && p.failure.is_none()
+        && !failed_tools.load(Ordering::SeqCst)
+        && !stop.is_stopped();
+    empty.store(did_nothing, Ordering::SeqCst);
     match result {
         // The protocol already named the required tool server. Stop the owned process without
         // replacing that useful error with the cancellation used to stop it.
@@ -1633,6 +1690,11 @@ impl Conversation for CliConversation {
     /// Set by the last run (see `run_cli`) and cleared when the next message is sent.
     fn session_lost(&self) -> bool {
         self.lost.load(Ordering::SeqCst)
+    }
+
+    /// Set by the last run (see `run_cli`) and cleared when the next message is sent.
+    fn last_turn_empty(&self) -> bool {
+        self.empty.load(Ordering::SeqCst)
     }
 
     /// Runs the message on a thread of its own; a message while one is running is refused with an
@@ -4166,7 +4228,7 @@ echo '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
             let options = BackendOptions { acp: Some(false), command: Some("no-such-copilot-xyz".into()), ..Default::default() };
             let spec = CliSpec::new(config, options, false, None);
             let (sender, receiver) = std::sync::mpsc::channel();
-            let state = RunState { session: Arc::default(), verified: Arc::default(), lost: Arc::default(), failure: Arc::default() };
+            let state = RunState { session: Arc::default(), verified: Arc::default(), lost: Arc::default(), failure: Arc::default(), empty: Arc::default() };
             let done = run_cli(&spec, "hello", false, &sender, &Stop::default(), &state);
             let mut output: Vec<_> = receiver.try_iter().collect();
             output.push(done);
@@ -4203,7 +4265,7 @@ echo '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
             let mut spec = CliSpec::new(config, BackendOptions::default(), false, None);
             spec.adapters.register(Arc::new(AcpOnlyAgent(guidance)));
             let (sender, receiver) = std::sync::mpsc::channel();
-            let state = RunState { session: Arc::default(), verified: Arc::default(), lost: Arc::default(), failure: Arc::default() };
+            let state = RunState { session: Arc::default(), verified: Arc::default(), lost: Arc::default(), failure: Arc::default(), empty: Arc::default() };
             let done = run_cli(&spec, "hello", false, &sender, &Stop::default(), &state);
             let mut output: Vec<_> = receiver.try_iter().collect();
             output.push(done);

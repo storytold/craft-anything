@@ -488,6 +488,18 @@ Every round spends the person's money or quota. One that can't do anything shoul
       started in the person's own folder is told to leave Craft Anything's records alone: tell every
       builder, and say in the error that something else wrote the file and how to go on
       — claimed: youkaicountry, branch bugfix/r5.3-builder-wrote-progress-record
+- [x] A builder turn that did nothing no longer uses up the request without a word (#2431: a
+      Claude Code turn ended at once with "0 tokens in, 0 out" after a new request and after a
+      resume following Pause). A clean turn whose own token count is zero both ways, with no text,
+      tool call, error or change in app/, is sent once more with the same message; a second one
+      ends the run with a problem instead of checking an untouched build. Decided on typed facts
+      (`StreamParser::usage_reported`, `Conversation::last_turn_empty`); an agent that reports no
+      count, a stop and a failed turn are never taken for one. Why Claude Code returned the empty
+      turn was not found: no stale stop, result or consumed note in our code explains it
+      - claimed: ilijachrchev, branch bugfix/2431-empty-builder-turn
+- [ ] Find why Claude Code 2.1.322 (`-p --resume`, Windows) answered #2431's turns with zero
+      usage: keep the stream's `result` line of an empty turn in the failure log so the next
+      report shows its `subtype`, `num_turns` and `result`
 
 ### R5.4 Local models can build
 Owner: open · Status: todo

@@ -623,6 +623,7 @@ impl AgentAdapter for ClaudeCode {
                 p.saw_result = true;
                 p.cost_usd = v.get("total_cost_usd").and_then(Value::as_f64);
                 if let Some(u) = v.get("usage") {
+                    p.usage_reported = true;
                     p.input_tokens = u
                         .get("input_tokens")
                         .and_then(Value::as_u64)
@@ -1063,6 +1064,7 @@ impl AgentAdapter for Codex {
             ("turn.completed", _) => {
                 p.saw_result = true;
                 if let Some(u) = v.get("usage") {
+                    p.usage_reported = true;
                     p.input_tokens = p.input_tokens.saturating_add(u.get("input_tokens").and_then(Value::as_u64).unwrap_or(0));
                     p.output_tokens = p.output_tokens.saturating_add(u.get("output_tokens").and_then(Value::as_u64).unwrap_or(0));
                 }
@@ -1206,6 +1208,7 @@ impl AgentAdapter for GeminiCli {
             "result" => {
                 p.saw_result = true;
                 if let Some(st) = v.get("stats") {
+                    p.usage_reported = true;
                     p.input_tokens = st.get("input_tokens").and_then(Value::as_u64).unwrap_or(0);
                     p.output_tokens = st.get("output_tokens").and_then(Value::as_u64).unwrap_or(0);
                 }
