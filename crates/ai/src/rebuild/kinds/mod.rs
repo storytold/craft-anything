@@ -14,6 +14,7 @@ pub mod runs;
 pub mod screenshot;
 pub mod self_test;
 pub mod website;
+mod website_language;
 
 pub use app::{AppKind, RUNS_BRIEF};
 pub use game::{CreditsCheck, GameKind};
@@ -124,6 +125,16 @@ pub trait TargetKind: Send + Sync {
     /// for what may have changed since the brief: the project's settings as they are now.
     fn follow_up_sections(&self, _cx: &BriefCx) -> Vec<String> {
         Vec::new()
+    }
+    /// Keep explicit requirements from requests reaching the builder, in delivery order. An
+    /// empty slice initializes a legacy project without overwriting a saved later choice.
+    fn record_requests(&self, _ws: &mut Workspace, _requests: &[&str]) -> Result<(), ToolError> {
+        Ok(())
+    }
+    /// The stable order of requests, including notes recovered after a later request was saved.
+    fn record_ordered_requests(&self, ws: &mut Workspace, requests: &[(u64, &str)]) -> Result<(), ToolError> {
+        let texts: Vec<_> = requests.iter().map(|(_, text)| *text).collect();
+        self.record_requests(ws, &texts)
     }
     /// The result can't be photographed from outside, so the builder screenshots its own.
     fn self_screenshots(&self) -> bool {

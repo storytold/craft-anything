@@ -44,13 +44,23 @@ impl Worker {
         ws: &Workspace,
         kind: &dyn TargetKind,
         round: u32,
-        run: impl FnOnce() -> Result<Vec<CheckResult>, ToolError>,
+        run: impl FnOnce(&Workspace) -> Result<Vec<CheckResult>, ToolError>,
     ) -> Result<Vec<CheckResult>, ToolError> {
+        // A running build can outlive another window's language choice. The key and the
+        // checks must read the same saved choice, without discarding this run's other state.
+        let mut current = ws.clone();
+        current.manifest.website_language = Workspace::open(&ws.root)?.manifest.website_language;
+        let ws = &current;
         let extra = {
             let session = self.engine.session();
             // The folder too: a copy of the project has none of the build outputs the round checked.
-            let mut extra =
-                vec![ws.root.display().to_string(), kind.id().to_string(), ws.manifest.stack.clone(), format!("clean_room={}", session.clean_room())];
+            let mut extra = vec![
+                ws.root.display().to_string(),
+                kind.id().to_string(),
+                ws.manifest.stack.clone(),
+                format!("clean_room={}", session.clean_room()),
+                format!("website_language={:?}", ws.manifest.website_language),
+            ];
             extra.extend(plugin_ids(&session, kind));
             extra
         };
@@ -70,7 +80,7 @@ impl Worker {
         }
         // Checks take minutes; the lock isn't held while they run.
         drop(kept);
-        let results = run()?;
+        let results = run(ws)?;
         let mut kept = self.kept_checks.lock().unwrap_or_else(PoisonError::into_inner);
         // Taken after the round: a build writes files of its own that the next scan sees too.
         let after = if all_worked(&results) { ws.check_fingerprint(&mut kept.files, &extra, &self.stop).ok() } else { None };

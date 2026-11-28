@@ -32,6 +32,35 @@ use std::sync::PoisonError;
 pub mod progress;
 
 pub const MANIFEST: &str = "craft.json";
+/// A stable lock beside the atomically replaced manifest, shared by cooperating writers.
+const MANIFEST_LOCK: &str = "craft-manifest.lock";
+
+struct ManifestLock(std::fs::File);
+
+impl Drop for ManifestLock {
+    fn drop(&mut self) {
+        // Release explicitly even if a child process inherited a copy of the open handle.
+        let _ = self.0.unlock();
+    }
+}
+
+fn lock_manifest(root: &Path, after_attempt: impl FnOnce(bool)) -> Result<ManifestLock, ToolError> {
+    let path = root.join(MANIFEST_LOCK);
+    // Opening this child never creates a missing project directory. Keep the sidecar in place
+    // after unlocking: removing it would let waiting and new writers lock different files.
+    let file = std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(&path).map_err(|e| ToolError::io(path.display(), e))?;
+    match file.try_lock() {
+        Ok(()) => after_attempt(true),
+        Err(std::fs::TryLockError::WouldBlock) => {
+            after_attempt(false);
+            file.lock().map_err(|e| ToolError::io(path.display(), e))?;
+        }
+        Err(std::fs::TryLockError::Error(error)) => {
+            return Err(ToolError::io(path.display(), error));
+        }
+    }
+    Ok(ManifestLock(file))
+}
 
 /// Folders a copy of a project leaves out: what a build makes again, which can be gigabytes.
 const REBUILT: &[&str] = &["node_modules", "target", ".godot", "Library", "Temp", ".venv", "__pycache__", ".next", ".turbo"];
@@ -85,11 +114,11 @@ pub const GHIDRA_STOPPED: &str = "ghidra-stopped";
 pub const GHIDRA_STOP_LOCK: &str = "ghidra-stop.lock";
 
 /// The current `craft.json` format version. Bumping it means appending a step to [`MANIFEST_STEPS`].
-pub const MANIFEST_VERSION: u32 = 6;
+pub const MANIFEST_VERSION: u32 = 8;
 
 /// The steps that bring an older `craft.json` forward; step `i` goes from version `i` to `i + 1`.
 const MANIFEST_STEPS: &[versioned::Step<Value>] =
-    &[manifest_v0_to_v1, manifest_v1_to_v2, manifest_v2_to_v3, manifest_v3_to_v4, manifest_v4_to_v5, manifest_v5_to_v6];
+    &[manifest_v0_to_v1, manifest_v1_to_v2, manifest_v2_to_v3, manifest_v3_to_v4, manifest_v4_to_v5, manifest_v5_to_v6, manifest_v6_to_v7, manifest_v7_to_v8];
 const _: () = assert!(MANIFEST_STEPS.len() == MANIFEST_VERSION as usize, "one step per craft.json version");
 
 /// Version 0 (no `version` field) has the same shape as version 1; only the number is new.
@@ -138,6 +167,18 @@ fn manifest_v4_to_v5(doc: &mut Value) -> Result<(), String> {
 /// by default. The number is new so an older build, which would drop it when it saves (and a
 /// Java port's checks could go back to Maven), opens such a project read-only instead.
 fn manifest_v5_to_v6(doc: &mut Value) -> Result<(), String> {
+    if doc.is_object() { Ok(()) } else { Err("the manifest isn't a JSON object".into()) }
+}
+
+/// Version 7 keeps the person's latest website-language request. Early builds of this change
+/// also wrote it in version 6, so an existing choice is preserved by the migration.
+fn manifest_v6_to_v7(doc: &mut Value) -> Result<(), String> {
+    if doc.is_object() { Ok(()) } else { Err("the manifest isn't a JSON object".into()) }
+}
+
+/// Version 8 keeps request order with the language choice. Existing ids from early version-7
+/// builds are preserved; a choice with no ordering evidence is not assigned an invented id.
+fn manifest_v7_to_v8(doc: &mut Value) -> Result<(), String> {
     if doc.is_object() { Ok(()) } else { Err("the manifest isn't a JSON object".into()) }
 }
 
@@ -400,6 +441,15 @@ impl From<CheckRecord> for CheckResult {
     }
 }
 
+/// The latest explicit language instruction handed to a website's builder. `Original` is kept
+/// explicitly: clearing the field would revive a language named in the initial request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum WebsiteLanguage {
+    Original,
+    Requested { tag: String },
+}
+
 /// A workspace's manifest (`craft.json`): what the person asked for, the target, status and history.
 /// Its schema is published in `docs/schemas/craft.schema.json` (`cargo xtask schemas`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -410,6 +460,13 @@ pub struct Manifest {
     pub name: String,
     /// What the person asked for, in their words.
     pub request: String,
+    /// The person's most recent explicit website-language request, after it reached the builder.
+    /// None predates this record or means no language was explicitly requested.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub website_language: Option<WebsiteLanguage>,
+    /// The latest explicit language request's persistent id, saved with its choice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub website_language_request_id: Option<u64>,
     pub target: TargetRef,
     /// The stack chosen for the build ("React + TypeScript (Vite)", "Rust + Bevy"…).
     #[serde(default)]
@@ -510,6 +567,8 @@ impl Manifest {
             version: MANIFEST_VERSION,
             name: name.trim().to_string(),
             request: request.trim().to_string(),
+            website_language: None,
+            website_language_request_id: None,
             target,
             stack: String::new(),
             status: Status::New,
@@ -558,6 +617,8 @@ impl Manifest {
         self.questions = other.questions;
         self.approvals.clone_from(&other.approvals);
         self.name.clone_from(&other.name);
+        self.website_language.clone_from(&other.website_language);
+        self.website_language_request_id = other.website_language_request_id;
     }
 }
 
@@ -762,6 +823,16 @@ pub fn suggest_name(request: &str, target: &TargetRef) -> String {
 impl Workspace {
     /// Create a new workspace folder under `projects_dir` (a fresh, unique folder).
     pub fn create(projects_dir: &Path, name: &str, request: &str, target: TargetRef) -> Result<Workspace, ToolError> {
+        Self::create_before_publish(projects_dir, name, request, target, |_| {})
+    }
+
+    fn create_before_publish(
+        projects_dir: &Path,
+        name: &str,
+        request: &str,
+        target: TargetRef,
+        before_publish: impl FnOnce(&Self),
+    ) -> Result<Workspace, ToolError> {
         std::fs::create_dir_all(projects_dir).map_err(|e| ToolError::io(projects_dir.display(), e))?;
         let base = slug(name);
         let mut root = projects_dir.join(&base);
@@ -775,7 +846,10 @@ impl Workspace {
             n += 1;
         }
         let ws = Workspace { root, manifest: Manifest::new(name, request, target) };
-        ws.save()?;
+        before_publish(&ws);
+        // This uniquely allocated folder has no published manifest yet. Coordination starts
+        // with later saves; a failed first write must not leave a sidecar that blocks retry.
+        ws.write_manifest(&ws.manifest)?;
         Ok(ws)
     }
 
@@ -816,6 +890,7 @@ impl Workspace {
         copy.save()?;
         let (budget, generate, builder, allowed, questions, approvals) =
             (m.asset_budget_usd, m.generate_assets, m.builder.clone(), m.allowed_actions.clone(), m.questions, m.approvals.clone());
+        let language = Workspace::open(&self.root)?.manifest.website_language;
         copy.set_person(|c| {
             c.asset_budget_usd = budget;
             c.generate_assets = generate;
@@ -823,6 +898,7 @@ impl Workspace {
             c.allowed_actions = allowed;
             c.questions = questions;
             c.approvals = approvals;
+            c.website_language = language;
         })?;
         Ok(copy)
     }
@@ -861,6 +937,17 @@ impl Workspace {
     /// them. A folder that's already a project, or that has something named like a file Craft
     /// Anything keeps there, is refused, so nothing of theirs is ever replaced.
     pub fn create_at(folder: &Path, name: &str, request: &str, target: TargetRef, existing: Option<ExistingFiles>) -> Result<Workspace, ToolError> {
+        Self::create_at_before_publish(folder, name, request, target, existing, |_| {})
+    }
+
+    fn create_at_before_publish(
+        folder: &Path,
+        name: &str,
+        request: &str,
+        target: TargetRef,
+        existing: Option<ExistingFiles>,
+        before_publish: impl FnOnce(&Self),
+    ) -> Result<Workspace, ToolError> {
         let mut manifest = Manifest::new(name, request, target);
         match folder_state(folder)? {
             FolderState::Empty => std::fs::create_dir_all(folder).map_err(|e| ToolError::io(folder.display(), e))?,
@@ -888,7 +975,10 @@ impl Workspace {
             }
         }
         let ws = Workspace { root: folder.to_path_buf(), manifest };
-        ws.save()?;
+        before_publish(&ws);
+        // folder_state/clashes refused an already published project and owned records above.
+        // As in create, a failed initial publication must not add a persistent lock record.
+        ws.write_manifest(&ws.manifest)?;
         Ok(ws)
     }
 
@@ -916,10 +1006,16 @@ impl Workspace {
     /// they are on disk, so a writer holding an older copy (a run that started before the person
     /// raised the budget) can't undo their change.
     pub fn save(&self) -> Result<(), ToolError> {
+        self.save_after_read(|| {})
+    }
+
+    fn save_after_read(&self, after_read: impl FnOnce()) -> Result<(), ToolError> {
+        let _guard = lock_manifest(&self.root, |_| {})?;
         let mut m = self.manifest.clone();
-        if let Ok(disk) = Workspace::open(&self.root) {
-            m.take_person_fields(&disk.manifest);
+        if let Some(disk) = self.saved_person_fields()? {
+            m.take_person_fields(&disk);
         }
+        after_read();
         self.write_manifest(&m)
     }
 
@@ -927,11 +1023,45 @@ impl Workspace {
     /// actions always allowed): start from what's on disk, apply `f` and save. This is the only
     /// way they change.
     pub fn set_person(&mut self, f: impl FnOnce(&mut Manifest)) -> Result<(), ToolError> {
-        if let Ok(disk) = Workspace::open(&self.root) {
-            self.manifest.take_person_fields(&disk.manifest);
+        self.update_person(|m| {
+            f(m);
+            Ok(true)
+        })
+    }
+
+    /// Compare and change person-owned fields while holding the manifest's cross-process lock.
+    /// `f` sees the latest saved person fields; return true to write, or false just to refresh this
+    /// handle. A failed callback or write leaves this handle unchanged. The callback must not
+    /// call another manifest writer for this project while it holds the lock.
+    pub fn update_person(&mut self, f: impl FnOnce(&mut Manifest) -> Result<bool, ToolError>) -> Result<(), ToolError> {
+        self.update_person_after_attempt(f, |_| {})
+    }
+
+    fn update_person_after_attempt(
+        &mut self,
+        f: impl FnOnce(&mut Manifest) -> Result<bool, ToolError>,
+        after_attempt: impl FnOnce(bool),
+    ) -> Result<(), ToolError> {
+        let _guard = lock_manifest(&self.root, after_attempt)?;
+        let mut next = self.manifest.clone();
+        if let Some(disk) = self.saved_person_fields()? {
+            next.take_person_fields(&disk);
         }
-        f(&mut self.manifest);
-        self.write_manifest(&self.manifest)
+        if f(&mut next)? {
+            self.write_manifest(&next)?;
+        }
+        self.manifest = next;
+        Ok(())
+    }
+
+    /// A missing or malformed manifest keeps the existing repair path. An I/O failure does not
+    /// establish that the saved person fields are absent, so neither writer may replace them.
+    fn saved_person_fields(&self) -> Result<Option<Manifest>, ToolError> {
+        match Workspace::open(&self.root) {
+            Ok(disk) => Ok(Some(disk.manifest)),
+            Err(e) if matches!(e.code, ErrorCode::NotFound | ErrorCode::BadInput) => Ok(None),
+            Err(e) => Err(e),
+        }
     }
 
     fn write_manifest(&self, m: &Manifest) -> Result<(), ToolError> {
@@ -1100,6 +1230,7 @@ pub const AGENT_SESSION_FILE: &str = "agent-session.jsonl";
 /// mustn't already have any of them.
 pub const OWN_NAMES: &[&str] = &[
     MANIFEST,
+    MANIFEST_LOCK,
     GHIDRA_STOPPED,
     GHIDRA_STOP_LOCK,
     crate::feed::FEED_FILE,
@@ -1715,6 +1846,190 @@ mod tests {
     }
 
     #[test]
+    fn a_person_update_waits_for_a_save_that_already_read_the_manifest() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut run = Workspace::create(dir.path(), "Site", "A website", TargetRef::None).unwrap();
+        run.manifest.status = Status::Building;
+        run.manifest.note = "Building".into();
+        let root = run.root.clone();
+        let mut person = run.clone();
+        let (read_tx, read_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let (attempt_tx, attempt_rx) = mpsc::channel();
+        let (done_tx, done_rx) = mpsc::channel();
+        // Timeouts only bound cleanup on a broken implementation; ordering comes from channels
+        // and the actual lock attempt, not from a sleep or an elapsed-time expectation.
+        let limit = Duration::from_secs(10);
+        std::thread::scope(|scope| {
+            let saving = scope.spawn(move || {
+                run.save_after_read(|| {
+                    let _ = read_tx.send(());
+                    let _ = release_rx.recv_timeout(limit);
+                })
+            });
+            let reached_read = read_rx.recv_timeout(limit);
+            let changing = scope.spawn(move || {
+                let result = person.update_person_after_attempt(
+                    |m| {
+                        m.name = "My site".into();
+                        m.asset_budget_usd = 20.0;
+                        m.generate_assets = true;
+                        m.website_language = Some(WebsiteLanguage::Requested { tag: "fr".into() });
+                        m.website_language_request_id = Some(73);
+                        Ok(true)
+                    },
+                    |acquired| {
+                        let _ = attempt_tx.send(acquired);
+                    },
+                );
+                let _ = done_tx.send(());
+                result
+            });
+            let attempt = attempt_rx.recv_timeout(limit);
+            // Without the shared lock, let the person's write finish before the paused stale
+            // save resumes. With it, release the save so the waiting edit can read its result.
+            let finished_early = matches!(attempt, Ok(true)).then(|| done_rx.recv_timeout(limit));
+            let _ = release_tx.send(());
+            let saved = saving.join();
+            let changed = changing.join();
+            assert!(reached_read.is_ok(), "the save did not reach its read boundary");
+            assert!(attempt.is_ok(), "the person update did not attempt the manifest lock");
+            assert!(finished_early.is_none_or(|result| result.is_ok()), "the unblocked person update did not finish");
+            saved.unwrap().unwrap();
+            changed.unwrap().unwrap();
+        });
+        let disk = Workspace::open(&root).unwrap().manifest;
+        assert_eq!(disk.name, "My site");
+        assert_eq!((disk.asset_budget_usd, disk.generate_assets), (20.0, true));
+        assert_eq!(disk.website_language, Some(WebsiteLanguage::Requested { tag: "fr".into() }));
+        assert_eq!(disk.website_language_request_id, Some(73));
+        assert_eq!((disk.status, disk.note.as_str()), (Status::Building, "Building"));
+    }
+
+    #[test]
+    fn unreadable_saved_person_fields_stop_both_manifest_writers() {
+        for person_update in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let mut stale = Workspace::create(dir.path(), "Site", "A website", TargetRef::None).unwrap();
+            stale
+                .set_person(|m| {
+                    m.website_language = Some(WebsiteLanguage::Requested { tag: "fr".into() });
+                    m.website_language_request_id = Some(71);
+                })
+                .unwrap();
+            let before = serde_json::to_value(&stale.manifest).unwrap();
+            let mut newer = Workspace::open(&stale.root).unwrap();
+            newer
+                .set_person(|m| {
+                    m.website_language = Some(WebsiteLanguage::Requested { tag: "de".into() });
+                    m.website_language_request_id = Some(80);
+                    m.asset_budget_usd = 20.0;
+                })
+                .unwrap();
+            let path = stale.root.join(MANIFEST);
+            let saved = stale.root.join("saved-manifest.json");
+            let saved_bytes = std::fs::read(&path).unwrap();
+            std::fs::rename(&path, &saved).unwrap();
+            // A directory fails a real file read even when the test runs as root. Restore the
+            // newer file only if the writer incorrectly continues beyond that failed read.
+            std::fs::create_dir(&path).unwrap();
+            let continued = std::cell::Cell::new(false);
+            let restore = || {
+                continued.set(true);
+                std::fs::remove_dir(&path).unwrap();
+                std::fs::rename(&saved, &path).unwrap();
+            };
+            let result = if person_update {
+                stale.update_person(|m| {
+                    restore();
+                    m.asset_budget_usd = 25.0;
+                    Ok(true)
+                })
+            } else {
+                stale.save_after_read(restore)
+            };
+            if path.is_dir() {
+                std::fs::remove_dir(&path).unwrap();
+                std::fs::rename(&saved, &path).unwrap();
+            }
+            assert!(result.is_err(), "an unreadable manifest must stop the writer");
+            assert!(!continued.get(), "neither the update callback nor publication may follow a failed read");
+            assert_eq!(std::fs::read(&path).unwrap(), saved_bytes, "the newer saved person fields are unchanged");
+            assert_eq!(serde_json::to_value(&stale.manifest).unwrap(), before, "a failed update keeps its handle unchanged");
+        }
+    }
+
+    #[test]
+    fn missing_and_malformed_manifests_keep_the_existing_repair_path() {
+        for person_update in [false, true] {
+            for malformed in [false, true] {
+                let dir = tempfile::tempdir().unwrap();
+                let mut ws = Workspace::create(dir.path(), "Site", "A website", TargetRef::None).unwrap();
+                let path = ws.root.join(MANIFEST);
+                if malformed {
+                    std::fs::write(&path, b"{broken json").unwrap();
+                } else {
+                    std::fs::remove_file(&path).unwrap();
+                }
+                if person_update {
+                    ws.set_person(|m| m.asset_budget_usd = 25.0).unwrap();
+                } else {
+                    ws.manifest.note = "Saved progress".into();
+                    ws.save().unwrap();
+                }
+                let disk = Workspace::open(&ws.root).unwrap().manifest;
+                assert_eq!(disk.name, ws.manifest.name);
+                assert_eq!(disk.asset_budget_usd, ws.manifest.asset_budget_usd);
+                assert_eq!(disk.note, ws.manifest.note);
+            }
+        }
+    }
+
+    #[test]
+    fn manifest_writers_do_not_recreate_a_removed_project_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ws = Workspace::create(dir.path(), "Site", "A website", TargetRef::None).unwrap();
+        std::fs::remove_dir_all(&ws.root).unwrap();
+        assert!(ws.save().is_err());
+        assert!(ws.set_person(|m| m.name = "Changed".into()).is_err());
+        assert!(!ws.root.exists());
+    }
+
+    #[test]
+    fn a_failed_initial_manifest_write_leaves_no_lock_that_blocks_retry() {
+        for picked in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path().join("site");
+            if picked {
+                std::fs::create_dir(&root).unwrap();
+                std::fs::write(root.join("index.html"), b"the person's page").unwrap();
+            }
+            let mut reached_publication = false;
+            let fail_write = |ws: &Workspace| {
+                reached_publication = true;
+                // Inject a real atomic-write failure after the constructor's folder checks.
+                std::fs::create_dir(ws.root.join(MANIFEST)).unwrap();
+            };
+            let result = if picked {
+                Workspace::create_at_before_publish(&root, "Site", "A website", TargetRef::None, Some(ExistingFiles::Edit), fail_write)
+            } else {
+                Workspace::create_before_publish(dir.path(), "Site", "A website", TargetRef::None, fail_write)
+            };
+            assert!(reached_publication && result.is_err());
+            assert!(!root.join(MANIFEST_LOCK).exists(), "a failed first write leaves no new owned-name clash");
+            std::fs::remove_dir(root.join(MANIFEST)).unwrap();
+            let ws = Workspace::create_at(&root, "Site", "Try the initial write again", TargetRef::None, picked.then_some(ExistingFiles::Edit)).unwrap();
+            assert_eq!(Workspace::open(&root).unwrap().manifest, ws.manifest);
+            if picked {
+                assert_eq!(std::fs::read(root.join("index.html")).unwrap(), b"the person's page");
+            }
+        }
+    }
+
+    #[test]
     fn slugs_and_names() {
         assert_eq!(slug("  My Cool Site!! "), "my-cool-site");
         assert_eq!(slug("***"), "project");
@@ -1893,7 +2208,8 @@ mod tests {
         assert_eq!(Workspace::list(dir.path().parent().unwrap()).iter().filter(|w| w.root == dir.path()).count(), 1, "still listed");
 
         // A newer manifest whose shape this build can't read at all is refused, in plain words.
-        std::fs::write(dir.path().join(MANIFEST), r#"{"version": 7, "name": {"parts": []}}"#).unwrap();
+        let unreadable = serde_json::json!({"version": MANIFEST_VERSION + 1, "name": {"parts": []}});
+        std::fs::write(dir.path().join(MANIFEST), serde_json::to_vec(&unreadable).unwrap()).unwrap();
         let err = Workspace::open(dir.path()).unwrap_err();
         assert_eq!(err.code, ErrorCode::NotSupported);
         assert!(err.message.contains("newer Craft Anything") && err.remediation.is_some());
@@ -2025,6 +2341,37 @@ mod tests {
     }
 
     #[test]
+    fn a_version_6_language_choice_migrates_without_inventing_request_order() {
+        let old = br#"{"version":6,"name":"Old","request":"A website","target":{"kind":"none"},"created_ms":1,"updated_ms":1,"website_language":{"kind":"requested","tag":"fr"}}"#;
+        let manifest = read_manifest(old).unwrap();
+        assert_eq!(manifest.version, MANIFEST_VERSION);
+        assert_eq!(manifest.website_language, Some(WebsiteLanguage::Requested { tag: "fr".into() }));
+        assert_eq!(manifest.website_language_request_id, None);
+    }
+
+    #[test]
+    fn main_toolchains_and_early_language_records_survive_the_appended_migrations() {
+        for version in [6, 7] {
+            for recorded in [false, true] {
+                let mut old: Value = serde_json::from_slice(MANIFEST_V0.as_bytes()).unwrap();
+                old["version"] = version.into();
+                old["toolchain"] = "Gradle".into();
+                if recorded {
+                    old["website_language"] = serde_json::json!({"kind": "requested", "tag": "fr"});
+                    old["website_language_request_id"] = 71.into();
+                }
+
+                let manifest = read_manifest(&serde_json::to_vec(&old).unwrap()).unwrap();
+
+                assert_eq!(manifest.version, MANIFEST_VERSION);
+                assert_eq!(manifest.toolchain.as_deref(), Some("Gradle"));
+                assert_eq!(manifest.website_language, recorded.then(|| WebsiteLanguage::Requested { tag: "fr".into() }));
+                assert_eq!(manifest.website_language_request_id, recorded.then_some(71));
+            }
+        }
+    }
+
+    #[test]
     fn a_version_1_manifest_reads_as_a_usual_project_and_new_fields_are_saved_only_when_set() {
         let v1 = br#"{"version":1,"name":"Old","request":"x","target":{"kind":"none"},"created_ms":1,"updated_ms":1}"#;
         let m = read_manifest(v1).unwrap();
@@ -2110,7 +2457,7 @@ mod tests {
         ws.manifest.toolchain = Some("Gradle".into());
         ws.save().unwrap();
         let saved: Value = serde_json::from_slice(&std::fs::read(ws.root.join("craft.json")).unwrap()).unwrap();
-        assert_eq!((saved["version"].as_u64(), saved["toolchain"].as_str()), (Some(6), Some("Gradle")));
+        assert_eq!((saved["version"].as_u64(), saved["toolchain"].as_str()), (Some(u64::from(MANIFEST_VERSION)), Some("Gradle")));
         // A version-5 build reads up to 5, so it opens this one read-only (newer_manifests_open_read_only_and_are_never_overwritten).
         let mut old = saved.clone();
         old["version"] = 5.into();
@@ -2223,12 +2570,34 @@ mod tests {
         let ws = Workspace::create_at(&mine, "Site", "x", TargetRef::None, Some(ExistingFiles::Edit)).unwrap();
         std::fs::create_dir_all(ws.inbox_dir()).unwrap();
         std::fs::write(ws.agent_session_path(), "{}\n").unwrap();
+        ws.save().unwrap();
+        std::fs::write(mine.join(MANIFEST_LOCK), b"source coordination record").unwrap();
+        assert!(ws.is_own_record(&mine.join(MANIFEST_LOCK)));
         let copy = ws.duplicate("Site copy").unwrap();
         assert!(copy.app_dir().join("index.html").is_file() && !copy.manifest.app_in_root, "the copy's app is in its app/");
         assert!(!copy.app_dir().join(MANIFEST).exists(), "without the original's records");
+        assert!(!copy.app_dir().join(MANIFEST_LOCK).exists(), "the original lock is not app content");
+        assert!(std::fs::read(copy.root.join(MANIFEST_LOCK)).unwrap().is_empty(), "a copy has its own coordination file");
         ws.delete().unwrap();
         assert_eq!(std::fs::read_to_string(mine.join("index.html")).unwrap(), "<p>hi</p>");
         assert!(!mine.join(MANIFEST).exists() && !mine.join("inbox").exists() && !mine.join(AGENT_SESSION_FILE).exists());
+        assert!(!mine.join(MANIFEST_LOCK).exists(), "deletion removes its own coordination file");
+    }
+
+    #[test]
+    fn duplicating_a_website_keeps_its_latest_language_choice() {
+        for language in [None, Some(WebsiteLanguage::Requested { tag: "de".into() }), Some(WebsiteLanguage::Original)] {
+            let d = tempfile::tempdir().unwrap();
+            let mut ws = Workspace::create(d.path(), "Site", "Rebuild this website in French", TargetRef::None).unwrap();
+            ws.set_person(|m| m.website_language = Some(WebsiteLanguage::Requested { tag: "fr".into() })).unwrap();
+            let mut other = Workspace::open(&ws.root).unwrap();
+            other.set_person(|m| m.website_language = language.clone()).unwrap();
+            ws.save().unwrap();
+            assert_eq!(ws.manifest.website_language, Some(WebsiteLanguage::Requested { tag: "fr".into() }), "the copying handle is still stale");
+            let copy = ws.duplicate("Site copy").unwrap();
+            assert_eq!(copy.manifest.website_language, language);
+            assert_eq!(Workspace::open(&copy.root).unwrap().manifest.website_language, language, "the copy persists the current choice");
+        }
     }
 
     #[test]

@@ -4,8 +4,14 @@ use super::*;
 #[path = "note_progress_tests.rs"]
 mod note_progress;
 
+#[path = "queue_review_tests.rs"]
+mod queue_review;
+
 #[path = "stall_tests.rs"]
 mod stall;
+
+#[path = "website_language_tests.rs"]
+mod website_language;
 
 // Helpers that take a built-in kind's id, so each test reads as one line.
 fn kind(id: &str) -> Arc<dyn TargetKind> {
@@ -535,7 +541,7 @@ fn notes_added_while_it_works_reach_the_agent_at_its_next_step() {
     let mut ws = Workspace::create(d.path(), "x", "Copy this game", TargetRef::None).unwrap();
     let (tx, rx) = std::sync::mpsc::channel();
     let notes: Arc<Mutex<Vec<Note>>> = Arc::default();
-    let w = Worker {
+    let mut w = Worker {
         wake: Default::default(),
         engine: Arc::new(Engine::new(craft_anything_engine::testing::session())),
         tx,
@@ -553,8 +559,9 @@ fn notes_added_while_it_works_reach_the_agent_at_its_next_step() {
         self_check: None,
         reset_progress_after_notes: false,
         taken_in_turn: Vec::new(),
+        prepared_note_ids: HashSet::new(),
     };
-    assert!(w.added(&mut ws, true, true).is_none(), "nothing added, nothing to say");
+    assert!(w.added(&mut ws, true, true).unwrap().is_none(), "nothing added, nothing to say");
     use craft_anything_engine::questions::{self, AskedQuestion};
     let asked = AskedQuestion { deep: false, ..AskedQuestion::new("where is the score kept".into(), "In src.".into(), true, "Stand-in".into(), None, 0) };
     questions::add(&ws, asked.clone()).unwrap();
@@ -577,7 +584,7 @@ fn notes_added_while_it_works_reach_the_agent_at_its_next_step() {
     let mut first = note(1, "Make it faster");
     first.questions = vec![asked];
     notes.lock().unwrap().extend([first, note(2, "A blue sky")]);
-    let (p, more) = w.added(&mut ws, true, true).unwrap();
+    let NotePrompt { prompt: p, questions: more, .. } = w.added(&mut ws, true, true).unwrap().unwrap();
     assert!(!craft_anything_engine::tools::deep::stopped(&ws.root), "a note is a new request, so Ghidra may run again");
     assert!(p.contains("where is the score kept") && p.contains("- Make it faster (pictures: a.png)\n- A blue sky"), "{p}");
     assert_eq!(more.len(), 1, "the question is marked told after the turn");
@@ -643,7 +650,9 @@ fn a_note_written_for_the_hook_carries_its_answers() {
         started: Instant::now(),
         activity,
     };
-    let id = run.add_note("make it blue".into(), "make it blue".into(), Vec::new());
+    let added = run.add_note("make it blue".into(), "make it blue".into(), Vec::new()).unwrap();
+    let id = added.id;
+    assert_eq!(tools::note_output(added, run.queued()).to_json()["result"], json!({"id": id, "queued": 1}), "ordinary success keeps the existing tool result");
     let note = run.waiting().pop().unwrap();
     assert_eq!(note.text, "make it blue", "the in-memory text stays raw for a later run's mode");
     assert_eq!(note.questions.len(), 1);
@@ -700,6 +709,7 @@ fn notes_worker(ws: &Workspace, run: &RebuildRun) -> Worker {
         self_check: None,
         reset_progress_after_notes: false,
         taken_in_turn: Vec::new(),
+        prepared_note_ids: HashSet::new(),
     }
 }
 
@@ -712,10 +722,11 @@ fn a_note_left_before_a_stop_keeps_it_across_a_restart() {
     use craft_anything_engine::tools::deep;
     // Run, then restart without a new request: what the builder sees once it reads the left notes.
     fn restart(ws: &mut Workspace) -> bool {
-        let left = notes::take_left(&notes::notes_dir(&ws.inbox_dir()), true);
+        let left = notes::take_left(&notes::notes_dir(&ws.inbox_dir())).unwrap();
         assert_eq!(left.len(), 1, "the note was left for the next run");
         let run = bare_run(ws);
-        run.restore_left(left);
+        let waiting = restore_left_notes(ws, false, &mut RunOptions::default(), &left).unwrap();
+        *run.notes.lock().unwrap() = waiting;
         notes_worker(ws, &run).added(ws, true, true).expect("the left note is read");
         assert!(run.waiting().is_empty(), "the builder took it");
         deep::stopped(&ws.root)
@@ -724,7 +735,7 @@ fn a_note_left_before_a_stop_keeps_it_across_a_restart() {
     // Left before the stop: the stop holds.
     let d = tempfile::tempdir().unwrap();
     let mut ws = Workspace::create(d.path(), "x", "Copy this game", TargetRef::None).unwrap();
-    bare_run(&ws).add_note("make it blue".into(), "make it blue".into(), Vec::new());
+    bare_run(&ws).add_note("make it blue".into(), "make it blue".into(), Vec::new()).unwrap();
     std::thread::sleep(Duration::from_millis(5));
     deep::stop_for(&ws.root).unwrap();
     assert!(restart(&mut ws), "a note from before the stop doesn't undo it after a restart");
@@ -734,7 +745,7 @@ fn a_note_left_before_a_stop_keeps_it_across_a_restart() {
     let mut ws = Workspace::create(d.path(), "x", "Copy this game", TargetRef::None).unwrap();
     deep::stop_for(&ws.root).unwrap();
     std::thread::sleep(Duration::from_millis(5));
-    bare_run(&ws).add_note("make it blue".into(), "make it blue".into(), Vec::new());
+    bare_run(&ws).add_note("make it blue".into(), "make it blue".into(), Vec::new()).unwrap();
     assert!(!restart(&mut ws), "a note added after the stop lets Ghidra run again");
 
     // An older version's note keeps no time: it's taken as new, as before this change.
@@ -744,6 +755,120 @@ fn a_note_left_before_a_stop_keeps_it_across_a_restart() {
     let old = notes::Left { text: "make it blue".into(), shown: "make it blue".into(), pictures: Vec::new(), added: None };
     notes::hand_over(&notes::notes_dir(&ws.inbox_dir()), 1, "make it blue", Some(&old)).unwrap();
     assert!(!restart(&mut ws), "a note with no time is a new request");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_note_that_cannot_be_saved_is_not_accepted_for_handoff() {
+    let d = tempfile::tempdir().unwrap();
+    let ws = Workspace::create(d.path(), "Site", "Build a website", TargetRef::None).unwrap();
+    let (_tx, rx) = std::sync::mpsc::channel();
+    let feed = Arc::new(Mutex::new(feed::FeedLog::open(&ws)));
+    let activity = feed.lock().unwrap_or_else(PoisonError::into_inner).activity();
+    let run = RebuildRun {
+        rx,
+        stop: CancelToken::default(),
+        inbox: Inbox::new(ws.inbox_dir()),
+        running: Arc::new(AtomicBool::new(true)),
+        preview: Arc::default(),
+        notes: Arc::default(),
+        clean_room: true,
+        feed,
+        root: ws.root.clone(),
+        started: Instant::now(),
+        activity,
+    };
+    let dir = notes::notes_dir(&ws.inbox_dir());
+    std::fs::create_dir_all(ws.inbox_dir()).unwrap();
+    // A dangling directory link looks absent to ID reservation, but hand_over cannot create it.
+    // This exercises the write failure without permissions that a privileged test can bypass.
+    std::os::unix::fs::symlink(d.path().join("unavailable-notes"), &dir).unwrap();
+    let text = "Build the website in French";
+    let pictures = vec![ws.root.join("reference.png")];
+    let error = run.add_note(text.into(), text.into(), pictures.clone()).unwrap_err();
+    assert_eq!(error.code, ErrorCode::FileError);
+    assert!(run.waiting().is_empty(), "a rejected note must not appear as queued");
+    assert!(run.take_notes().is_empty(), "the next run must not receive a memory-only handoff");
+
+    std::fs::remove_file(&dir).unwrap();
+    let id = run.add_note(text.into(), text.into(), pictures.clone()).unwrap().id;
+    let handed = run.take_notes();
+    let saved = notes::take_left(&dir).unwrap();
+    assert_eq!(handed.len(), 1);
+    assert_eq!(saved.len(), 1);
+    assert_eq!(handed[0].id, id);
+    assert_eq!(saved[0].id, id, "the accepted handoff retains its durable identity");
+    assert_eq!(saved[0].left, notes::Left { text: text.into(), shown: text.into(), pictures, added: Some(handed[0].added) });
+}
+
+#[test]
+fn note_sync_failures_preserve_the_publication_boundary() {
+    for (fail_parent, claim_during_sync) in [(true, false), (false, false), (false, true)] {
+        let d = tempfile::tempdir().unwrap();
+        let ws = Workspace::create(d.path(), "Notes", "Build a notes app", TargetRef::None).unwrap();
+        let (_tx, rx) = std::sync::mpsc::channel();
+        let feed = Arc::new(Mutex::new(feed::FeedLog::open(&ws)));
+        let activity = feed.lock().unwrap_or_else(PoisonError::into_inner).activity();
+        let run = RebuildRun {
+            rx,
+            stop: CancelToken::default(),
+            inbox: Inbox::new(ws.inbox_dir()),
+            running: Arc::new(AtomicBool::new(true)),
+            preview: Arc::default(),
+            notes: Arc::default(),
+            clean_room: true,
+            feed,
+            root: ws.root.clone(),
+            started: Instant::now(),
+            activity,
+        };
+        let dir = notes::notes_dir(&ws.inbox_dir());
+        let text = "Build the website in French";
+        let pictures = vec![ws.root.join("reference.png")];
+        let result = run.add_note_syncing(text.into(), text.into(), pictures.clone(), |directory| {
+            if fail_parent || directory == dir {
+                if !fail_parent {
+                    assert_eq!(notes::take_left(&dir).unwrap().len(), 1, "the record was actually published before the failure");
+                    if claim_during_sync {
+                        assert_eq!(notes::claim(&dir), [text], "the hook can deliver before the last sync returns");
+                    }
+                }
+                return Err(ToolError::io(directory.display(), std::io::Error::other("injected note directory sync failure")));
+            }
+            notes::sync_directory(directory)
+        });
+        if fail_parent {
+            assert_eq!(result.unwrap_err().code, ErrorCode::FileError);
+            assert!(run.waiting().is_empty());
+            assert!(run.take_notes().is_empty());
+            assert!(notes::take_left(&dir).unwrap().is_empty());
+            assert!(notes::claim(&dir).is_empty(), "a rejected pre-publication note cannot be delivered");
+            continue;
+        }
+
+        let added = result.expect("a visible note is accepted even when its last sync fails");
+        let id = added.id;
+        let warning = added.persistence_warning.as_ref().expect("persistence failure is visible, not a plain success");
+        assert_eq!(warning.code, ErrorCode::FileError);
+        assert!(!warning.retryable, "an accepted note must not be submitted again automatically");
+        assert!(warning.message.contains("injected note directory sync failure"));
+        assert!(warning.remediation.as_deref().unwrap().contains("Do not resend"));
+        let output = tools::note_output(added, run.queued()).to_json();
+        assert_eq!(output["result"]["id"], json!(id));
+        assert_eq!(output["result"]["queued"], json!(1));
+        assert!(output["result"]["persistence_warning"]["message"].as_str().unwrap().contains("injected note directory sync failure"));
+        assert_eq!(output["result"]["persistence_warning"]["retryable"], json!(false));
+
+        let claimed = notes::claim(&dir);
+        assert_eq!(claimed, if claim_during_sync { Vec::<String>::new() } else { vec![text.into()] });
+        assert!(notes::claim(&dir).is_empty(), "the hook cannot claim the same record twice");
+        let handed = run.take_notes();
+        let saved = notes::take_left(&dir).unwrap();
+        assert_eq!(handed.len(), 1);
+        assert_eq!(saved.len(), 1);
+        assert_eq!((handed[0].id, saved[0].id), (id, id));
+        assert_eq!(saved[0].left, notes::Left { text: text.into(), shown: text.into(), pictures, added: Some(handed[0].added) });
+    }
 }
 
 #[test]
@@ -1685,6 +1810,7 @@ fn an_api_backend_builds_with_the_build_tools() {
         self_check: None,
         reset_progress_after_notes: false,
         taken_in_turn: Vec::new(),
+        prepared_note_ids: HashSet::new(),
     };
     w.attach(&ws).unwrap();
     // The model writes a file with the Build tools, then answers.
@@ -1895,6 +2021,7 @@ fn the_mechanics_sheet_is_required_without_claiming_effective_behavior() {
         self_check: None,
         reset_progress_after_notes: false,
         taken_in_turn: Vec::new(),
+        prepared_note_ids: HashSet::new(),
     };
     let check = |round| w.run_checks(&ws, &SheetKind, round).unwrap().remove(0);
 
@@ -2176,8 +2303,420 @@ mod picking_up_a_build {
         (ok.unwrap(), feed::load(&Workspace::open(&ws.root).unwrap()))
     }
 
+    struct LanguageKind;
+    impl TargetKind for LanguageKind {
+        fn id(&self) -> &'static str {
+            "language-recovery"
+        }
+        fn words(&self) -> KindWords {
+            FlakyKind.words()
+        }
+        fn detect(&self, _: &DetectCx) -> Option<u32> {
+            Some(2000)
+        }
+        fn default_stack(&self, cx: &DetectCx) -> &'static str {
+            FlakyKind.default_stack(cx)
+        }
+        fn goal(&self) -> &'static str {
+            FlakyKind.goal()
+        }
+        fn checks(&self, ws: &Workspace) -> Vec<Box<dyn Check>> {
+            FlakyKind.checks(ws)
+        }
+        fn record_requests(&self, ws: &mut Workspace, requests: &[&str]) -> Result<(), ToolError> {
+            kind("website").record_requests(ws, requests)
+        }
+        fn record_ordered_requests(&self, ws: &mut Workspace, requests: &[(u64, &str)]) -> Result<(), ToolError> {
+            kind("website").record_ordered_requests(ws, requests)
+        }
+    }
+
+    #[test]
+    fn a_restarted_run_records_a_previously_claimed_language_note() {
+        use craft_anything_engine::workspace::WebsiteLanguage;
+
+        // Use the real website request recorder, with the existing local builder/check
+        // stand-ins so this restart exercises RebuildRun::start without opening a browser.
+
+        let b = bench();
+        let mut ws = Workspace::create(&b.projects, "Site", "Rebuild this website in French", TargetRef::None).unwrap();
+        let website = kind("website");
+        website.record_requests(&mut ws, &[]).unwrap();
+        let mut worker = check_worker(&ws, false);
+        worker.self_check = Some((website, 90.0));
+        let inbox = notes::notes_dir(&ws.inbox_dir());
+        let text = "Translate the site into German";
+        let left = notes::Left { text: text.into(), shown: text.into(), pictures: Vec::new(), added: None };
+        notes::hand_over(&inbox, 71, text, Some(&left)).unwrap();
+        worker.notes.lock().unwrap().push(Note {
+            id: 71,
+            text: text.into(),
+            shown: text.into(),
+            pictures: Vec::new(),
+            questions: Vec::new(),
+            added: std::time::SystemTime::now(),
+        });
+        assert_eq!(notes::claim(&inbox), [text]);
+        ws.manifest.version = craft_anything_engine::workspace::MANIFEST_VERSION + 1;
+        assert_eq!(worker.relay_read_notes(&mut ws).unwrap_err().code, ErrorCode::NotSupported);
+        assert_eq!(Workspace::open(&ws.root).unwrap().manifest.website_language, Some(WebsiteLanguage::Requested { tag: "fr".into() }));
+        drop(worker);
+
+        let mut opts = RunOptions::default();
+        opts.kinds.register(Arc::new(LanguageKind));
+        let (ok, feed) = try_with(&b, &Workspace::open(&ws.root).unwrap(), opts);
+
+        assert!(ok);
+        assert_eq!(Workspace::open(&ws.root).unwrap().manifest.website_language, Some(WebsiteLanguage::Requested { tag: "de".into() }));
+        assert!(std::fs::read_to_string(&b.prompts).unwrap().contains(text), "the real restarted builder receives the recovered request");
+        assert!(feed.iter().any(|item| matches!(item, feed::FeedItem::User(user) if user.text() == text)));
+        assert!(notes::take_left(&inbox).unwrap().is_empty(), "a successfully recorded request is not left for another restart");
+    }
+
     fn prompts_given(b: &Bench) -> usize {
         std::fs::read_to_string(&b.prompts).unwrap_or_default().matches("===").count()
+    }
+
+    #[test]
+    fn an_unrelated_followup_keeps_older_words_without_reversing_language_requests() {
+        use craft_anything_engine::workspace::WebsiteLanguage;
+        for (old, new, language) in [
+            ("Build the website in French", "Build the website in German", "de"),
+            ("The label says \"Bonjour\"", "Build the website in German", "de"),
+            ("Build the website in French", "Make the header blue", "fr"),
+        ] {
+            let b = bench();
+            let ws = Workspace::create(&b.projects, "Site", "Build the website in English", TargetRef::None).unwrap();
+            let dir = notes::notes_dir(&ws.inbox_dir());
+            let left = notes::Left { text: old.into(), shown: old.into(), pictures: Vec::new(), added: None };
+            notes::hand_over(&dir, 71, old, Some(&left)).unwrap();
+            let mut opts = RunOptions { message: Some(new.into()), shown: Some(new.into()), ..RunOptions::default() };
+            opts.kinds.register(Arc::new(LanguageKind));
+            let (ok, feed) = try_with(&b, &ws, opts);
+            assert!(ok, "{feed:?}");
+            assert_eq!(Workspace::open(&ws.root).unwrap().manifest.website_language, Some(WebsiteLanguage::Requested { tag: language.into() }));
+            let prompts = std::fs::read_to_string(&b.prompts).unwrap();
+            assert!(prompts.contains(&format!("{old}\n\n{new}")), "the actual builder sees the older request before the new one: {prompts}");
+            assert_eq!(prompts_given(&b), 1, "a restored older request is not delivered again after the newer initial message");
+            assert!(feed.iter().any(|item| matches!(item, feed::FeedItem::User(user) if user.text() == format!("{old}\n\n{new}"))));
+            assert!(notes::take_left(&dir).unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn a_prepared_followup_note_survives_an_error_before_its_builder_turn() {
+        let b = bench();
+        let mut ws = Workspace::create(&b.projects, "Site", "Build the website in English", TargetRef::None).unwrap();
+        let dir = notes::notes_dir(&ws.inbox_dir());
+        let text = "Build the website in French";
+        let left = notes::Left { text: text.into(), shown: text.into(), pictures: Vec::new(), added: None };
+        notes::hand_over(&dir, 71, text, Some(&left)).unwrap();
+        let mut worker = check_worker(&ws, false);
+        worker.self_check = Some((kind("website"), 90.0));
+        worker.notes.lock().unwrap().push(Note {
+            id: 71,
+            text: text.into(),
+            shown: text.into(),
+            pictures: Vec::new(),
+            questions: Vec::new(),
+            added: std::time::SystemTime::now(),
+        });
+        let NotePrompt { prompt, note_ids: ids, .. } = worker.added(&mut ws, false, true).unwrap().unwrap();
+        assert!(prompt.contains(text));
+        assert_eq!(ids, [71]);
+        assert!(dir.join("71.read.json").is_file(), "preparing a prompt is not successful delivery");
+        assert!(!dir.join("71.recorded.json").exists());
+        assert!(notes::claim(&dir).is_empty(), "the hook cannot also deliver the carried prompt");
+        let progress = ws.root.join(craft_anything_engine::workspace::progress::BUILD_PROGRESS_FILE);
+        std::fs::create_dir_all(&progress).unwrap();
+        assert!(BuildProgress::default().save(&ws.root).is_err());
+        drop(worker);
+        assert_eq!(notes::take_left(&dir).unwrap().len(), 1);
+        std::fs::remove_dir(progress).unwrap();
+        let mut opts = RunOptions::default();
+        opts.kinds.register(Arc::new(LanguageKind));
+        let (ok, feed) = try_with(&b, &Workspace::open(&ws.root).unwrap(), opts);
+        assert!(ok, "{feed:?}");
+        assert!(std::fs::read_to_string(&b.prompts).unwrap().contains(text));
+        assert!(notes::take_left(&dir).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_recovered_older_note_keeps_the_newer_saved_language_after_restart() {
+        use craft_anything_engine::workspace::WebsiteLanguage;
+        let b = bench();
+        let mut ws = Workspace::create(&b.projects, "Site", "Build the website in English", TargetRef::None).unwrap();
+        let dir = notes::notes_dir(&ws.inbox_dir());
+        let website = kind("website");
+        let old = "Build the website in German";
+        let new = "Build the website in French";
+        let left = notes::Left { text: old.into(), shown: old.into(), pictures: Vec::new(), added: None };
+        notes::hand_over(&dir, 71, old, Some(&left)).unwrap();
+        assert_eq!(notes::claim(&dir), [old]);
+        website.record_ordered_requests(&mut ws, &[(71, old)]).unwrap();
+        let mut worker = check_worker(&ws, false);
+        worker.self_check = Some((website, 90.0));
+        let left = notes::Left { text: new.into(), shown: new.into(), pictures: Vec::new(), added: None };
+        notes::hand_over(&dir, 72, new, Some(&left)).unwrap();
+        worker.notes.lock().unwrap().push(Note {
+            id: 72,
+            text: new.into(),
+            shown: new.into(),
+            pictures: Vec::new(),
+            questions: Vec::new(),
+            added: std::time::SystemTime::now(),
+        });
+        assert_eq!(notes::claim(&dir), [new]);
+        worker.relay_read_notes(&mut ws).unwrap();
+        assert!(dir.join("71.read.json").exists());
+        drop(worker);
+
+        let mut opts = RunOptions::default();
+        opts.kinds.register(Arc::new(LanguageKind));
+        let (ok, feed) = try_with(&b, &Workspace::open(&ws.root).unwrap(), opts);
+        assert!(ok, "{feed:?}");
+        assert_eq!(Workspace::open(&ws.root).unwrap().manifest.website_language, Some(WebsiteLanguage::Requested { tag: "fr".into() }));
+        assert!(std::fs::read_to_string(&b.prompts).unwrap().contains(old), "the builder still receives the recoverable older note");
+        assert!(notes::take_left(&dir).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_recovered_note_keeps_its_place_between_carried_request_parts() {
+        use craft_anything_engine::workspace::WebsiteLanguage;
+        for reopen_queued in [false, true] {
+            let b = bench();
+            let ws = Workspace::create(&b.projects, "Site", "Build the website in English", TargetRef::None).unwrap();
+            let dir = notes::notes_dir(&ws.inbox_dir());
+            let words = ["Build the website in German", "Build the website in French", "Make the header blue"];
+            let mut carried = Vec::new();
+            for (id, text) in (71..).zip(words) {
+                let left = notes::Left { text: text.into(), shown: text.into(), pictures: Vec::new(), added: None };
+                notes::hand_over(&dir, id, text, Some(&left)).unwrap();
+                if id != 72 {
+                    carried.push(Note {
+                        id,
+                        text: text.into(),
+                        shown: text.into(),
+                        pictures: Vec::new(),
+                        questions: Vec::new(),
+                        added: std::time::SystemTime::now(),
+                    });
+                }
+            }
+            let joined = [words[0], words[2]].join("\n\n");
+            let mut opts = RunOptions {
+                message: Some(joined.clone()),
+                shown: Some(joined),
+                carried_note_ids: vec![71, 73],
+                request_parts: carried,
+                ..RunOptions::default()
+            };
+            if reopen_queued {
+                queued_request::save(&ws, &opts).unwrap();
+                // The next real worker restores the durable request with its original boundaries.
+                opts = RunOptions::default();
+            }
+            opts.kinds.register(Arc::new(LanguageKind));
+            let (ok, feed) = try_with(&b, &ws, opts);
+            assert!(ok, "{feed:?}");
+            assert_eq!(Workspace::open(&ws.root).unwrap().manifest.website_language, Some(WebsiteLanguage::Requested { tag: "fr".into() }));
+            assert!(std::fs::read_to_string(&b.prompts).unwrap().contains(&words.join("\n\n")), "the actual initial prompt follows the original note order");
+            assert_eq!(prompts_given(&b), 1);
+            assert!(notes::take_left(&dir).unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn a_carried_request_keeps_its_time_but_a_new_follow_up_can_resume_after_a_stop() {
+        use craft_anything_engine::tools::deep;
+        for new_request in [false, true] {
+            let b = bench();
+            let ws = Workspace::create(&b.projects, "Site", "Build the website in English", TargetRef::None).unwrap();
+            let dir = notes::notes_dir(&ws.inbox_dir());
+            let added = std::time::UNIX_EPOCH + Duration::from_nanos(1_234_567_890);
+            let text = "Build the website in German";
+            let left = notes::Left { text: text.into(), shown: text.into(), pictures: Vec::new(), added: Some(added) };
+            notes::hand_over(&dir, 71, text, Some(&left)).unwrap();
+            deep::stop_for(&ws.root).unwrap();
+            let marker = std::fs::read(ws.root.join(deep::STOPPED)).unwrap();
+            let asked = std::time::SystemTime::now() + Duration::from_secs(1);
+            let mut opts = RunOptions { asked, ..RunOptions::default() };
+            if new_request {
+                opts.message = Some("Build the website in French".into());
+                opts.shown = opts.message.clone();
+            } else {
+                opts.message = Some(text.into());
+                opts.shown = Some(text.into());
+                opts.carried_note_ids = vec![71];
+                opts.request_parts = vec![Note { id: 71, text: text.into(), shown: text.into(), pictures: Vec::new(), questions: Vec::new(), added }];
+            }
+            opts.kinds.register(Arc::new(LanguageKind));
+
+            let mut prepared = opts.clone();
+            prepend_older_notes(&mut prepared, &notes::take_left(&dir).unwrap()).unwrap();
+            assert_eq!(prepared.asked, if new_request { asked } else { added });
+            assert_eq!(prepared.request_parts[0].added, added, "joining requests keeps the old note's exact time");
+
+            let (ok, feed) = try_with(&b, &Workspace::open(&ws.root).unwrap(), opts);
+
+            assert!(ok, "{feed:?}");
+            assert_eq!(deep::stopped(&ws.root), !new_request, "only a genuinely new request can supersede the later stop");
+            if !new_request {
+                assert_eq!(std::fs::read(ws.root.join(deep::STOPPED)).unwrap(), marker);
+            }
+            let prompts = std::fs::read_to_string(&b.prompts).unwrap();
+            assert!(prompts.contains(text), "the old request is still delivered: {prompts}");
+            if new_request {
+                assert!(prompts.contains("Build the website in French"));
+            }
+            assert!(notes::take_left(&dir).unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn carried_note_records_survive_failure_before_any_builder_turn() {
+        struct RefusesRequest;
+        impl TargetKind for RefusesRequest {
+            fn id(&self) -> &'static str {
+                "refuses-initial-request"
+            }
+            fn words(&self) -> KindWords {
+                LanguageKind.words()
+            }
+            fn detect(&self, _: &DetectCx) -> Option<u32> {
+                Some(3000)
+            }
+            fn default_stack(&self, cx: &DetectCx) -> &'static str {
+                LanguageKind.default_stack(cx)
+            }
+            fn goal(&self) -> &'static str {
+                LanguageKind.goal()
+            }
+            fn checks(&self, ws: &Workspace) -> Vec<Box<dyn Check>> {
+                LanguageKind.checks(ws)
+            }
+            fn record_requests(&self, _: &mut Workspace, _: &[&str]) -> Result<(), ToolError> {
+                Err(ToolError::new(ErrorCode::FileError, "The initial request record is unavailable."))
+            }
+        }
+        let b = bench();
+        let ws = Workspace::create(&b.projects, "Site", "Build the website in English", TargetRef::None).unwrap();
+        let dir = notes::notes_dir(&ws.inbox_dir());
+        let text = "Build the website in German";
+        let left = notes::Left { text: text.into(), shown: text.into(), pictures: Vec::new(), added: None };
+        notes::hand_over(&dir, 71, "Old mode context", Some(&left)).unwrap();
+        let mut opts = RunOptions {
+            message: Some(text.into()),
+            shown: Some(text.into()),
+            carried_note_ids: vec![71],
+            request_parts: vec![Note {
+                id: 71,
+                text: text.into(),
+                shown: text.into(),
+                pictures: Vec::new(),
+                questions: Vec::new(),
+                added: std::time::SystemTime::now(),
+            }],
+            ..RunOptions::default()
+        };
+        opts.kinds.register(Arc::new(RefusesRequest));
+        let (ok, feed) = try_with(&b, &ws, opts);
+        assert!(!ok, "{feed:?}");
+        assert_eq!(prompts_given(&b), 0);
+        assert!(dir.join("71.read.json").is_file());
+        assert!(notes::claim(&dir).is_empty(), "a carried initial request is not offered to the hook too");
+        let recovered = notes::take_left(&dir).unwrap();
+        assert_eq!(recovered.len(), 1);
+        assert_eq!((recovered[0].id, &recovered[0].left), (71, &left));
+        drop(recovered);
+        let mut opts = RunOptions::default();
+        opts.kinds.register(Arc::new(LanguageKind));
+        let (ok, feed) = try_with(&b, &Workspace::open(&ws.root).unwrap(), opts);
+        assert!(ok, "{feed:?}");
+        assert!(std::fs::read_to_string(&b.prompts).unwrap().contains(text), "the real restarted builder still receives the request");
+        assert!(notes::take_left(&dir).unwrap().is_empty());
+    }
+
+    #[test]
+    fn carried_notes_remain_on_disk_until_the_actual_initial_turn_succeeds() {
+        for legacy in [false, true] {
+            for failed_turn in [false, true] {
+                let b = bench();
+                let ws = Workspace::create(&b.projects, "Site", "Build the website in English", TargetRef::None).unwrap();
+                let dir = notes::notes_dir(&ws.inbox_dir());
+                let text = "Build the website in German";
+                let left = notes::Left { text: text.into(), shown: text.into(), pictures: Vec::new(), added: None };
+                notes::hand_over(&dir, 71, "Old mode context", Some(&left)).unwrap();
+                if legacy {
+                    let path = dir.join("71.json");
+                    let mut old: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+                    old.as_object_mut().unwrap().remove("version");
+                    std::fs::write(path, serde_json::to_vec(&old).unwrap()).unwrap();
+                }
+                let agent = b._dir.path().join("agent.sh");
+                let normal = std::fs::read_to_string(&agent).unwrap();
+                let witness = b._dir.path().join("saw-durable-note");
+                let mut script = normal.clone();
+                let finish = if failed_turn {
+                    // A plain nonzero exit is transient and correctly retries. Use the
+                    // existing typed authentication failure to end this actual turn.
+                    let mut config = b.hub.config();
+                    let mut entry = config.get("Stand-in").unwrap().clone();
+                    entry.config.model = "opencode".into();
+                    config.upsert(entry);
+                    b.hub.engine.session().settings.ai = config.to_table().unwrap();
+                    script =
+                        script.replacen("#!/bin/sh\n", "#!/bin/sh\nif [ \"$2\" = '--help' ]; then printf '%s\\n' '--format --standalone'; exit 0; fi\n", 1);
+                    let error =
+                        json!({"type":"error","error":{"name":"APIError","data":{"message":"fixture sign in needed","statusCode":401,"isRetryable":false}}});
+                    format!("printf '%s\\n' '{error}'\nexit 1")
+                } else {
+                    "echo Done.".into()
+                };
+                let observe = format!(
+                    "test -f '{}' && test ! -e '{}' || exit 9\nprintf 'kept' > '{}'\n{}",
+                    dir.join("71.read.json").display(),
+                    dir.join("71.json").display(),
+                    witness.display(),
+                    finish
+                );
+                std::fs::write(&agent, script.replace("echo Done.", &observe)).unwrap();
+                let mut opts = RunOptions {
+                    message: Some(text.into()),
+                    shown: Some(text.into()),
+                    carried_note_ids: vec![71],
+                    request_parts: vec![Note {
+                        id: 71,
+                        text: text.into(),
+                        shown: text.into(),
+                        pictures: Vec::new(),
+                        questions: Vec::new(),
+                        added: std::time::SystemTime::now(),
+                    }],
+                    ..RunOptions::default()
+                };
+                opts.kinds.register(Arc::new(LanguageKind));
+                let (ok, feed) = try_with(&b, &ws, opts);
+                assert_eq!(ok, !failed_turn, "{feed:?}");
+                assert_eq!(std::fs::read(&witness).unwrap(), b"kept", "the builder itself observes the durable handoff before it ends");
+                assert_eq!(prompts_given(&b), 1);
+                assert_eq!(notes::take_left(&dir).unwrap().len(), usize::from(failed_turn));
+                assert_eq!(dir.join("71.read.json").exists(), failed_turn);
+                assert!(notes::claim(&dir).is_empty());
+                if failed_turn {
+                    std::fs::write(&agent, normal).unwrap();
+                    let mut config = b.hub.config();
+                    let mut entry = config.get("Stand-in").unwrap().clone();
+                    entry.config.model = "stand-in".into();
+                    config.upsert(entry);
+                    b.hub.engine.session().settings.ai = config.to_table().unwrap();
+                    let mut opts = RunOptions::default();
+                    opts.kinds.register(Arc::new(LanguageKind));
+                    assert!(try_with(&b, &Workspace::open(&ws.root).unwrap(), opts).0);
+                    assert!(notes::take_left(&dir).unwrap().is_empty());
+                }
+            }
+        }
     }
 
     fn studied(feed: &[feed::FeedItem]) -> bool {
@@ -2226,7 +2765,7 @@ mod picking_up_a_build {
         assert!(prompts.contains(words), "{prompts}");
         assert!(feed.iter().any(|item| matches!(item, feed::FeedItem::User(user) if user.text() == "Add search" && user.pictures() == [picture.clone()])));
         assert!(queued_request::restore(&ws, &mut RunOptions::default()).unwrap().is_none(), "a started request is no longer queued");
-        assert!(notes::take_left(&notes::notes_dir(&ws.inbox_dir()), true).is_empty());
+        assert!(notes::take_left(&notes::notes_dir(&ws.inbox_dir())).unwrap().is_empty());
     }
 
     #[test]
@@ -2255,7 +2794,7 @@ mod picking_up_a_build {
             let prompts = std::fs::read_to_string(&b.prompts).unwrap();
             assert_eq!(prompts.matches("Add a search box").count(), 1, "{prompts}");
             assert_eq!(prompts.matches(&left.text).count(), 1, "the independent waiting note must reach the builder: {prompts}");
-            assert!(feed.iter().any(|item| matches!(item, feed::FeedItem::User(user) if user.text() == left.shown && user.pictures() == [picture.clone()])));
+            assert!(feed.iter().any(|item| matches!(item, feed::FeedItem::User(user) if user.text() == format!("{}\n\nAdd a search box", left.shown) && user.pictures() == [picture.clone()])));
             assert!(queued_request::restore(&ws, &mut RunOptions::default()).unwrap().is_none());
         }
     }
@@ -3371,6 +3910,7 @@ pub(crate) fn check_worker(ws: &Workspace, deep: bool) -> Worker {
         self_check: None,
         reset_progress_after_notes: false,
         taken_in_turn: Vec::new(),
+        prepared_note_ids: HashSet::new(),
         keys: crate::KeyStore::file_only(ws.root.join("keys.toml")),
         kept_checks: Mutex::default(),
     }
@@ -3417,7 +3957,7 @@ fn a_check_that_worked_stands_while_nothing_it_looks_at_changes() {
     let runs = Cell::new(0);
     let worked = Cell::new(true);
     let check = |ws: &Workspace, round| {
-        w.checks_unless_unchanged(ws, &SheetKind, round, || {
+        w.checks_unless_unchanged(ws, &SheetKind, round, |_| {
             runs.set(runs.get() + 1);
             Ok(vec![CheckResult::new(CheckResult::BUILD, round, worked.get(), "built")])
         })
@@ -3442,7 +3982,7 @@ fn a_check_that_worked_stands_while_nothing_it_looks_at_changes() {
     assert_eq!(runs.get(), 3);
     let deep = check_worker(&ws, true);
     *deep.kept_checks.lock().unwrap_or_else(PoisonError::into_inner) = std::mem::take(&mut *w.kept_checks.lock().unwrap_or_else(PoisonError::into_inner));
-    deep.checks_unless_unchanged(&ws, &SheetKind, 5, || {
+    deep.checks_unless_unchanged(&ws, &SheetKind, 5, |_| {
         runs.set(runs.get() + 1);
         Ok(vec![CheckResult::new(CheckResult::BUILD, 5, true, "built")])
     })
@@ -3465,7 +4005,7 @@ fn a_check_that_worked_stands_while_nothing_it_looks_at_changes() {
     let progress = BuildProgress { checked: saved.clone(), ..BuildProgress::default() };
     let next_run = check_worker(&ws, false);
     *next_run.kept_checks.lock().unwrap_or_else(PoisonError::into_inner) = kept_check::KeptChecks::from_saved(&progress, &ws);
-    let again = next_run.checks_unless_unchanged(&ws, &SheetKind, 9, || panic!("an unchanged build isn't checked again")).unwrap();
+    let again = next_run.checks_unless_unchanged(&ws, &SheetKind, 9, |_| panic!("an unchanged build isn't checked again")).unwrap();
     assert_eq!((again[0].round, again[0].note.as_str()), (9, "built"));
     // A copy of the project, with the same files, checks its own build.
     let other = tempfile::tempdir().unwrap();
@@ -3476,7 +4016,7 @@ fn a_check_that_worked_stands_while_nothing_it_looks_at_changes() {
     std::fs::copy(ws.reference_dir().join("look.png"), copy.reference_dir().join("look.png")).unwrap();
     let copied = Cell::new(false);
     next_run
-        .checks_unless_unchanged(&copy, &SheetKind, 10, || {
+        .checks_unless_unchanged(&copy, &SheetKind, 10, |_| {
             copied.set(true);
             Ok(Vec::new())
         })
@@ -3974,6 +4514,7 @@ fn preparing_the_builders_agent_does_not_lock_up() {
         self_check: None,
         reset_progress_after_notes: false,
         taken_in_turn: Vec::new(),
+        prepared_note_ids: HashSet::new(),
     };
     let entry = crate::BackendEntry {
         config: crate::BackendConfig {
@@ -4018,6 +4559,7 @@ fn the_run_answers_the_builders_own_check_during_its_turn() {
         self_check: Some((Arc::new(SheetKind), 90.0)),
         reset_progress_after_notes: false,
         taken_in_turn: Vec::new(),
+        prepared_note_ids: HashSet::new(),
     };
     let mut builder = ChecksItsWork { root: ws.root.clone(), asked: None, reply: None };
     let reply = w.turn(&mut ws, &mut builder, "Build it.", true, None).unwrap();
@@ -4058,6 +4600,7 @@ fn a_stopped_build_answers_the_check_it_took() {
         self_check: Some((Arc::new(SheetKind), 90.0)),
         reset_progress_after_notes: false,
         taken_in_turn: Vec::new(),
+        prepared_note_ids: HashSet::new(),
     };
     let asks = Inbox::new(self_check::asks_dir(&ws.root));
     let id = asks.post(craft_anything_engine::inbox::RequestKind::Question, "Check the build", "", Vec::new(), false, None).unwrap();
@@ -4218,6 +4761,7 @@ fn decompiling_once_is_remembered_by_the_project() {
         self_check: None,
         reset_progress_after_notes: false,
         taken_in_turn: Vec::new(),
+        prepared_note_ids: HashSet::new(),
     };
     let mut builder = Decompiles { events: Vec::new() };
     w.turn(&mut ws, &mut builder, "Build it.", true, None).unwrap();
@@ -4284,6 +4828,7 @@ fn a_build_says_why_it_refused_a_tool_that_needs_consent() {
         self_check: None,
         reset_progress_after_notes: false,
         taken_in_turn: Vec::new(),
+        prepared_note_ids: HashSet::new(),
     };
     let mut builder = AsksConsent::default();
     w.turn(&mut ws, &mut builder, "Build it.", true, None).unwrap();
@@ -4534,23 +5079,26 @@ fn a_note_the_builder_took_at_a_step_joins_the_feed_and_isnt_sent_again() {
         self_check: None,
         reset_progress_after_notes: false,
         taken_in_turn: Vec::new(),
+        prepared_note_ids: HashSet::new(),
     };
     let dir = notes::notes_dir(&ws.inbox_dir());
-    notes::hand_over(&dir, 1, "make the header blue", None).unwrap();
-    notes::hand_over(&dir, 2, "add a footer", None).unwrap();
+    for (id, text) in [(1, "make the header blue"), (2, "add a footer")] {
+        let left = notes::Left { text: text.into(), shown: text.into(), pictures: Vec::new(), added: None };
+        notes::hand_over(&dir, id, text, Some(&left)).unwrap();
+    }
     // The agent's hook takes the first one at a step; the second comes in after it.
     std::fs::rename(dir.join("2.json"), dir.join("2.wait")).unwrap();
     assert_eq!(notes::claim(&dir), ["make the header blue"]);
     std::fs::rename(dir.join("2.wait"), dir.join("2.json")).unwrap();
     craft_anything_engine::tools::deep::stop_for(&ws.root).unwrap();
-    w.relay_read_notes(&ws);
+    w.relay_read_notes(&mut ws).unwrap();
     assert!(!craft_anything_engine::tools::deep::stopped(&ws.root), "a note the hook took is a new request too");
     assert!(questions::untold(&ws, false).is_empty(), "the answers in a read note are told");
     let shown: Vec<String> = rx.try_iter().filter_map(|e| if let RunEvent::Note { shown, .. } = e { Some(shown) } else { None }).collect();
     assert_eq!(shown, ["make the header blue"], "it joins the feed as soon as the builder took it");
     assert!(!notes::was_read(&dir, 1), "its files are gone");
     // After the turn, only the note nobody took is sent, and no hook can hand it over again.
-    let (follow, _) = w.added(&mut ws, true, true).unwrap();
+    let NotePrompt { prompt: follow, .. } = w.added(&mut ws, true, true).unwrap().unwrap();
     assert!(follow.contains("add a footer") && !follow.contains("make the header blue"), "{follow}");
     assert!(notes::claim(&dir).is_empty());
 }
@@ -4985,6 +5533,7 @@ fn a_session_left_on_another_computer_starts_a_new_one_from_the_project() {
         self_check: None,
         reset_progress_after_notes: false,
         taken_in_turn: Vec::new(),
+        prepared_note_ids: HashSet::new(),
     };
     let first = resumed_elsewhere("THE BRIEF", &ws.manifest.last_reply, None);
     let reply = w.turn(&mut ws, &mut agent, "The person asks: make it blue", true, Some(first)).unwrap();
@@ -5042,6 +5591,7 @@ fn a_missing_session_with_nothing_to_start_from_is_said_plainly() {
         self_check: None,
         reset_progress_after_notes: false,
         taken_in_turn: Vec::new(),
+        prepared_note_ids: HashSet::new(),
     };
     let e = w
         .turn_with_wait(&mut ws, &mut agent, "Carry on.", true, None, |_, _| panic!("a missing session without a fresh start must not be retried"))
@@ -5110,6 +5660,7 @@ fn the_builders_conversation_travels_with_the_project() {
         self_check: None,
         reset_progress_after_notes: false,
         taken_in_turn: Vec::new(),
+        prepared_note_ids: HashSet::new(),
     };
     let adapter = KeepsSessions(store.path().to_path_buf());
     // No session yet, or one this computer doesn't have: nothing to keep, nothing said.
@@ -5189,6 +5740,7 @@ fn waiting_for_another_analysis(d: &Path, limit_secs: u64) -> (Worker, std::sync
         self_check: None,
         reset_progress_after_notes: false,
         taken_in_turn: Vec::new(),
+        prepared_note_ids: HashSet::new(),
     };
 
     // Another process is already analysing this program: a fresh lock beside its project.
@@ -5284,6 +5836,7 @@ fn a_later_run_opens_the_projects_program_again_for_the_builder() {
             self_check: None,
             reset_progress_after_notes: false,
             taken_in_turn: Vec::new(),
+            prepared_note_ids: HashSet::new(),
         };
         w.reopen_target(&mut ws, app.as_ref(), true, deep).unwrap();
         assert!(w.engine.session().shared_targets().is_empty(), "a builder over SSH isn't handed this computer's targets");

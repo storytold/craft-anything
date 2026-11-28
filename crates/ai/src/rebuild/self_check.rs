@@ -163,8 +163,8 @@ impl Worker {
             };
             // Once taken, every way out answers the request: a stop seen by this step too.
             let checked = self.step(ws, Step::Build, Status::Building, checking).and_then(|()| {
-                self.checks_unless_unchanged(ws, kind.as_ref(), SELF_CHECK_ROUND, || {
-                    self.run_checks_within(ws, kind.as_ref(), SELF_CHECK_ROUND, Some(SELF_CHECK_LIMIT))
+                self.checks_unless_unchanged(ws, kind.as_ref(), SELF_CHECK_ROUND, |current| {
+                    self.run_checks_within(current, kind.as_ref(), SELF_CHECK_ROUND, Some(SELF_CHECK_LIMIT))
                 })
             });
             let (text, line) = match checked {

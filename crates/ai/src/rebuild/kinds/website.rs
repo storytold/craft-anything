@@ -194,7 +194,7 @@ impl TargetKind for WebsiteKind {
     }
 
     fn brief_sections(&self, cx: &BriefCx) -> Vec<String> {
-        let mut out = Vec::new();
+        let mut out = super::website_language::brief(cx.ws);
         let routes = routes(cx.ws);
         if !routes.is_empty() {
             let list = routes.iter().map(|r| format!("{} (capture/routes/{}/)", r.path, r.slug)).collect::<Vec<_>>().join(", ");
@@ -214,6 +214,18 @@ impl TargetKind for WebsiteKind {
             out.push(HOW_TO_RUN.into());
         }
         out
+    }
+
+    fn follow_up_sections(&self, cx: &BriefCx) -> Vec<String> {
+        super::website_language::brief(cx.ws)
+    }
+
+    fn record_requests(&self, ws: &mut Workspace, requests: &[&str]) -> Result<(), ToolError> {
+        super::website_language::record(ws, requests)
+    }
+
+    fn record_ordered_requests(&self, ws: &mut Workspace, requests: &[(u64, &str)]) -> Result<(), ToolError> {
+        super::website_language::record_ordered(ws, requests)
     }
 
     fn checks(&self, ws: &Workspace) -> Vec<Box<dyn Check>> {
@@ -419,6 +431,10 @@ impl StructureLikeness {
 /// language. Problems the original has too aren't the build's to fix (the accessibility floor,
 /// [`super::a11y_floor`], is how the person holds the build to more).
 pub fn health_notes(original: &Value, built: &Value) -> Vec<String> {
+    health_notes_with_language(original, built, true)
+}
+
+fn health_notes_with_language(original: &Value, built: &Value, compare_language: bool) -> Vec<String> {
     let mut out = Vec::new();
     let new_errors = new_errors(original, built);
     if !new_errors.is_empty() {
@@ -437,7 +453,7 @@ pub fn health_notes(original: &Value, built: &Value) -> Vec<String> {
             }
         }
         let lang = |v: &Value| v.pointer("/a11y/lang").and_then(Value::as_str).unwrap_or_default().to_string();
-        if lang(built).is_empty() && !lang(original).is_empty() {
+        if compare_language && lang(built).is_empty() && !lang(original).is_empty() {
             out.push(format!("the page language isn't set (the original's is {})", lang(original)));
         }
     }
@@ -752,7 +768,14 @@ fn states_note(cx: &CheckCx, base: &str, out: &Path, dir: &str, unknowns: &mut V
             Some(b) => picture_likeness(cx, &theirs.join(s(o, "file")), &ours.join(s(b, "file")))?,
             None => None,
         };
-        claims.push(Claim::new(format!("{name} opens in the build at {width} px"), b.is_some(), "no such control opens"));
+        match super::website_language::state_claim(&name, width, b.is_some(), cx.ws.manifest.website_language.as_ref()) {
+            Ok(claim) => claims.push(claim),
+            Err(unknown) => {
+                unknowns.push(unknown.clone());
+                parts.push(unknown);
+                continue;
+            }
+        }
         parts.push(match (b, likeness) {
             (_, Some((score, ..))) => format!("{name} {score:.0}% alike"),
             (Some(_), None) => {
@@ -788,6 +811,20 @@ impl Check for WebVisualCheck {
     }
 
     fn run(&self, cx: &mut CheckCx) -> Result<CheckResult, ToolError> {
+        self.run_with_capture(cx, |cx, url, built, widths| {
+            cx.call("web_site_open", json!({"url": url, "settle_ms": 1200, "signed_in": false}))?;
+            cx.call("web_site_capture", json!({"output_directory": built.display().to_string(), "include_html": false, "widths": widths}))?;
+            Ok(())
+        })
+    }
+}
+
+impl WebVisualCheck {
+    fn run_with_capture(
+        &self,
+        cx: &mut CheckCx,
+        mut capture: impl FnMut(&CheckCx, &str, &Path, &[u32]) -> Result<(), ToolError>,
+    ) -> Result<CheckResult, ToolError> {
         let (ws, round) = (cx.ws, cx.round);
         let settings = cx.build_settings();
         let widths = settings.widths();
@@ -819,8 +856,7 @@ impl Check for WebVisualCheck {
             if let Some(parent) = built.parent() {
                 std::fs::create_dir_all(parent).map_err(|e| ToolError::io(parent.display(), e))?;
             }
-            cx.call("web_site_open", json!({"url": url, "settle_ms": 1200, "signed_in": false}))?;
-            cx.call("web_site_capture", json!({"output_directory": built.display().to_string(), "include_html": false, "widths": widths}))?;
+            capture(cx, url, &built, &widths)?;
             // The floor judges the build alone, so it holds even where the original can't be compared.
             let page = if dir.is_empty() { "The start page".to_string() } else { name.clone() };
             let built_capture = read_json(&built.join("capture.json"));
@@ -839,8 +875,15 @@ impl Check for WebVisualCheck {
                     None => {}
                 }
             }
+            // Language is measured by the capture, even when the original has no screenshots
+            // at these widths. Every studied route must still satisfy the requested language.
+            let (o, b) = (read_json(&original.join("capture.json")), built_capture);
+            let content = super::website_language::content_check(&page, ws.manifest.website_language.as_ref(), o.as_ref(), b.as_ref());
+            claims.extend(content.claim);
+            unknowns.extend(content.unknown);
+            let mut text = content.note.map(|n| format!("; {n}")).unwrap_or_default();
             if per_width.is_empty() {
-                notes.push(format!("{name}: couldn't be compared"));
+                notes.push(format!("{name}: couldn't be compared{text}"));
                 continue;
             }
             let score = per_width.iter().map(|p| p.1).sum::<f64>() / per_width.len() as f64;
@@ -853,23 +896,31 @@ impl Check for WebVisualCheck {
                 .join("; ");
             // The page's words, parts and measured design too: a build can look alike and still
             // miss words, or get the padding, colours and fonts wrong at some width.
-            let text = match (read_json(&original.join("capture.json")), built_capture) {
+            text.push_str(&match (o, b) {
                 (Some(o), Some(b)) => {
                     claims.extend(page_claims(&page, &o, &b));
-                    [text_likeness(&o, &b).map(|t| t.note()), structure_likeness(&o, &b).map(|s| s.note())]
+                    [structure_likeness(&o, &b).map(|s| s.note())]
                         .into_iter()
                         .flatten()
                         .chain(design_notes(&o, &b))
-                        .chain(health_notes(&o, &b))
+                        .chain(health_notes_with_language(
+                            &o,
+                            &b,
+                            !matches!(ws.manifest.website_language, Some(craft_anything_engine::workspace::WebsiteLanguage::Requested { .. })),
+                        ))
                         .map(|n| format!("; {n}"))
                         .collect::<String>()
                 }
                 _ => String::new(),
-            };
+            });
             notes.push(if pages.len() == 1 { format!("{widths}{text}") } else { format!("{name}: {score:.0}% ({widths}{text})") });
         }
         if scores.is_empty() {
-            return Ok(CheckResult::new(self.id(), round, false, "The build couldn't be compared with the original."));
+            return Ok(CheckResult {
+                unknowns,
+                claims,
+                ..CheckResult::new(self.id(), round, false, format!("The build couldn't be compared with the original. {}", notes.join(" | ")))
+            });
         }
         for dir in state_dirs(&ws.capture_dir()) {
             notes.extend(states_note(cx, &base, &out, &dir, &mut unknowns, &mut claims)?);
@@ -891,6 +942,77 @@ impl Check for WebVisualCheck {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_routes_language_is_checked_without_reference_screenshots() {
+        use craft_anything_engine::tools::web_common::{Image, encode_png};
+        use craft_anything_engine::workspace::WebsiteLanguage;
+        let d = tempfile::tempdir().unwrap();
+        let mut ws = Workspace::create(d.path(), "Site", "Rebuild this website in French", TargetRef::None).unwrap();
+        ws.set_person(|m| m.website_language = Some(WebsiteLanguage::Requested { tag: "fr".into() })).unwrap();
+        std::fs::create_dir_all(ws.app_dir()).unwrap();
+        std::fs::write(ws.app_dir().join("index.html"), "<html lang='fr'></html>").unwrap();
+        std::fs::create_dir_all(ws.capture_dir().join("routes/about")).unwrap();
+        std::fs::write(ws.capture_dir().join(ROUTES_FILE), r#"[{"path":"/about","slug":"about","url":"https://example.test/about"}]"#).unwrap();
+        for dir in [ws.capture_dir(), ws.capture_dir().join("routes/about")] {
+            std::fs::write(dir.join("capture.json"), r#"{"a11y":{"lang":"en"}}"#).unwrap();
+        }
+        let png = encode_png(&Image { width: 64, height: 36, rgba: vec![255; 64 * 36 * 4] }).unwrap();
+        let worker = crate::rebuild::tests::check_worker(&ws, false);
+        worker.engine.session().settings.build.a11y_floor = true;
+        worker.attach(&ws).unwrap();
+        let mut cx = CheckCx { worker: &worker, ws: &ws, round: 1, until: None };
+        for pictured in [true, false] {
+            for width in worker.engine.session().settings.build.widths() {
+                let screenshot = ws.capture_dir().join(format!("screenshot-{width}.png"));
+                if pictured {
+                    std::fs::write(screenshot, &png).unwrap();
+                } else {
+                    std::fs::remove_file(screenshot).unwrap();
+                }
+            }
+            for lang in [Some("en"), None] {
+                let check = WebVisualCheck
+                    .run_with_capture(&mut cx, |_, url, built, widths| {
+                        std::fs::create_dir_all(built).unwrap();
+                        let measured = if url.ends_with("/about") { lang } else { Some("fr") };
+                        let unnamed = u32::from(url.ends_with("/about"));
+                        std::fs::write(
+                            built.join("capture.json"),
+                            serde_json::to_vec(&json!({"a11y": {"lang": measured, "unnamed_controls": unnamed}})).unwrap(),
+                        )
+                        .unwrap();
+                        for width in widths {
+                            std::fs::write(built.join(format!("screenshot-{width}.png")), &png).unwrap();
+                        }
+                        Ok(())
+                    })
+                    .unwrap();
+                assert_eq!(check.similarity.is_some(), pictured);
+                assert!(
+                    check.claims.iter().any(|claim| claim.title.contains("/about") && claim.title.contains("accessibility floor") && !claim.passed),
+                    "the accessibility floor still judges a route without reference screenshots: {check:?}"
+                );
+                if lang.is_some() {
+                    assert!(
+                        check.claims.iter().any(|claim| claim.title.contains("/about") && claim.title.contains("requested language") && !claim.passed),
+                        "{check:?}"
+                    );
+                } else {
+                    assert!(check.unknowns.iter().any(|unknown| unknown.contains("/about") && unknown.contains("language")), "{check:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_requested_language_does_not_restore_the_original_language_hint() {
+        let original = json!({"a11y": {"lang": "en", "unnamed_controls": 0}});
+        let built = json!({"a11y": {"lang": "", "unnamed_controls": 2}});
+        let notes = health_notes_with_language(&original, &built, false);
+        assert_eq!(notes, ["2 controls without a name (the original has 0)"]);
+        assert!(health_notes(&original, &built).iter().any(|note| note.contains("the original's is en")));
+    }
 
     #[test]
     fn rgba_rejects_non_hex_digits() {

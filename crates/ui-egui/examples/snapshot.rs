@@ -264,22 +264,29 @@ fn main() {
     }
     // Notes sent while it builds, waiting under the conversation until the builder reads them.
     if want("project-notes") {
-        render(&out, "project-notes", w, h, scale, || {
+        let scene = (|| -> Result<_, String> {
             use craft_anything_ai::rebuild::{RunOptions, RunSet, StandIns};
             let mut a = demo::app(demo::engine(Mode::Beginner, true));
             demo::fill_project(&mut a);
             a.state.feed.retain(|i| !matches!(i, craft_anything_ui_egui::state::FeedItem::Ask { .. }));
             a.runs = RunSet::new(1).with_starter(StandIns::new().starter());
-            if let Some(ws) = a.workspace.clone() {
-                let root = ws.root.clone();
-                let _ = a.runs.start(&a.hub, ws, RunOptions::default());
-                if let Some(run) = a.runs.get(&root) {
-                    run.add_note("Make the header blue".into(), "Make the header blue".into(), Vec::new());
-                    run.add_note("And add a contact form".into(), "And add a contact form".into(), Vec::new());
-                }
-            }
-            a
-        });
+            let directory = tempfile::tempdir().map_err(|error| format!("create note fixture directory: {error}"))?;
+            let ws = a.workspace.as_mut().ok_or("the note fixture has no project")?;
+            ws.root = directory.path().to_path_buf();
+            ws.save().map_err(|error| format!("save note fixture project: {}", error.message))?;
+            let root = ws.root.clone();
+            a.runs.start(&a.hub, ws.clone(), RunOptions::default()).map_err(|error| format!("start note fixture: {}", error.message))?;
+            let run = a.runs.get(&root).ok_or("the note fixture run did not start")?;
+            run.add_note("Make the header blue".into(), "Make the header blue".into(), Vec::new())
+                .map_err(|error| format!("add first example note: {}", error.message))?;
+            run.add_note("And add a contact form".into(), "And add a contact form".into(), Vec::new())
+                .map_err(|error| format!("add second example note: {}", error.message))?;
+            Ok((a, directory))
+        })();
+        match scene {
+            Ok((app, _directory)) => render(&out, "project-notes", w, h, scale, move || app),
+            Err(error) => eprintln!("project-notes: {error}"),
+        }
     }
     // A build the app closed on mid-way: the Continue card.
     if want("project-interrupted") {

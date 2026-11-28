@@ -57,13 +57,18 @@ pub(super) struct QueuedRequest {
 impl QueuedRequest {
     pub(super) fn from_options(opts: &RunOptions) -> Option<Self> {
         let message = opts.message.as_ref().filter(|m| !m.trim().is_empty())?;
+        // A legacy carried note can live inside one larger aggregate part. In that case the
+        // exact saved identities must survive another queue/restart cycle instead of being
+        // replaced by the aggregate's fresh id.
+        let complete = !opts.request_parts.is_empty() && opts.carried_note_ids.iter().all(|id| opts.request_parts.iter().any(|part| part.id == *id));
+        let parts = complete.then_some(opts.request_parts.as_slice());
         Some(Self {
             version: VERSION,
             message: message.clone(),
             asked: opts.asked,
-            shown: opts.shown.clone(),
-            shown_pictures: opts.shown_pictures.clone(),
-            carried_notes: opts.carried_notes.clone(),
+            shown: opts.shown.clone().or_else(|| parts.map(|parts| parts.iter().map(|note| note.shown.as_str()).collect::<Vec<_>>().join("\n\n"))),
+            shown_pictures: parts.map_or_else(|| opts.shown_pictures.clone(), |parts| parts.iter().flat_map(|note| note.pictures.iter().cloned()).collect()),
+            carried_notes: parts.map_or_else(|| opts.carried_notes.clone(), |parts| parts.iter().map(notes::Carried::from).collect()),
         })
     }
 }
@@ -104,13 +109,15 @@ pub(super) fn validate(ws: &Workspace) -> Result<(), ToolError> {
     load(ws).map(|_| ())
 }
 
-/// Restore before deciding whether the run needs Study or a queued build slot. A new explicit
-/// message takes precedence, but an unreadable older request is never silently discarded.
+/// Restore before deciding whether the run needs Study or a queued build slot. The saved
+/// request must be continued before a new message can replace it.
 pub(super) fn restore(ws: &Workspace, opts: &mut RunOptions) -> Result<Option<QueuedRequest>, ToolError> {
     let saved = load(ws)?;
-    if opts.message.is_none()
-        && let Some(saved) = &saved
-    {
+    if let Some(saved) = &saved {
+        if opts.message.as_ref().is_some_and(|message| !message.trim().is_empty()) {
+            return Err(ToolError::new(ErrorCode::BadInput, "A queued request is still waiting to start.")
+                .with_remediation("Continue the saved request before sending a new message."));
+        }
         opts.message = Some(saved.message.clone());
         opts.asked = saved.asked;
         opts.shown.clone_from(&saved.shown);
@@ -210,6 +217,51 @@ mod tests {
     }
 
     #[test]
+    fn repeated_recovery_keeps_partial_carried_identities_and_separate_notes() {
+        for claimed in [false, true] {
+            let (_dir, ws) = project();
+            let dir = notes::notes_dir(&ws.inbox_dir());
+            let search =
+                notes::Left { text: "Add search".into(), shown: "Search".into(), pictures: vec![PathBuf::from("attachments/search.png")], added: None };
+            let blue = notes::Left { text: "Use blue".into(), shown: "Blue".into(), pictures: vec![PathBuf::from("attachments/blue.png")], added: None };
+            notes::hand_over(&dir, 71, &search.text, Some(&search)).unwrap();
+            notes::hand_over(&dir, 72, &blue.text, Some(&blue)).unwrap();
+            if claimed {
+                assert_eq!(notes::claim(&dir), [search.text.clone(), blue.text.clone()]);
+            }
+            save(
+                &ws,
+                &RunOptions {
+                    message: Some("Add search and keep the current layout".into()),
+                    shown: Some("Keep this layout with search".into()),
+                    shown_pictures: search.pictures.clone(),
+                    carried_notes: vec![notes::Carried { id: 71, note: search.clone() }],
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+            for _ in 0..3 {
+                let reopened = Workspace::open(&ws.root).unwrap();
+                let mut opts = RunOptions::default();
+                restore(&reopened, &mut opts).unwrap();
+                let left = notes::take_left(&dir).unwrap();
+                super::super::prepend_older_notes(&mut opts, &left).unwrap();
+                assert!(super::super::restore_left_notes(&reopened, false, &mut opts, &left).unwrap().is_empty());
+                assert_eq!(opts.message.as_deref(), Some("Use blue\n\nAdd search and keep the current layout"));
+                assert_eq!(opts.shown.as_deref(), Some("Blue\n\nKeep this layout with search"));
+                assert_eq!(opts.shown_pictures, [blue.pictures[0].clone(), search.pictures[0].clone()]);
+                save(&reopened, &opts).unwrap();
+                assert_eq!(
+                    load(&reopened).unwrap().unwrap().carried_notes,
+                    [notes::Carried { id: 71, note: search.clone() }, notes::Carried { id: 72, note: blue.clone() },]
+                );
+                assert_eq!(notes::take_left(&dir).unwrap().len(), 2, "failed or queued starts keep both notes recoverable");
+            }
+        }
+    }
+
+    #[test]
     fn older_requests_without_a_time_do_not_clear_a_later_stop() {
         use craft_anything_engine::tools::deep;
         for bytes in [
@@ -236,6 +288,8 @@ mod tests {
             assert_eq!(restored.message.as_deref(), Some("Old request"));
             assert_eq!(std::fs::read_to_string(&path).unwrap(), bytes, "migration on read does not consume or rewrite the backup");
 
+            let saved = restore(&ws, &mut RunOptions::default()).unwrap();
+            finished(&ws, saved.as_ref());
             let mut fresh = RunOptions { asked: after_stop, ..request("A genuinely new request") };
             restore(&ws, &mut fresh).unwrap();
             deep::resume_for(&root, fresh.asked).unwrap();
@@ -246,16 +300,21 @@ mod tests {
     }
 
     #[test]
-    fn an_explicit_new_request_wins_but_failed_starts_leave_the_backup() {
+    fn an_explicit_new_request_cannot_discard_the_waiting_request() {
         let (_dir, ws) = project();
         save(&ws, &request("Earlier request")).unwrap();
         let before = std::fs::read(ws.root.join(FILE)).unwrap();
         let mut opts = request("New request");
-        let saved = restore(&ws, &mut opts).unwrap();
+        assert!(restore(&ws, &mut opts).is_err());
         assert_eq!(opts.message.as_deref(), Some("New request"));
-        assert_eq!(std::fs::read(ws.root.join(FILE)).unwrap(), before, "reading is not consumption");
+        assert_eq!(std::fs::read(ws.root.join(FILE)).unwrap(), before, "refusing a new message keeps the earlier request");
+        let mut retry = RunOptions::default();
+        let saved = restore(&ws, &mut retry).unwrap();
+        assert_eq!(retry.message.as_deref(), Some("Earlier request"));
         finished(&ws, saved.as_ref());
-        assert!(!ws.root.join(FILE).exists(), "a successful explicit replacement retires the old request");
+        assert!(!ws.root.join(FILE).exists(), "only starting the saved request consumes it");
+        restore(&ws, &mut opts).unwrap();
+        assert_eq!(opts.message.as_deref(), Some("New request"));
     }
 
     #[test]

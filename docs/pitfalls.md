@@ -1405,6 +1405,49 @@ jobs, focus and cursors need layout-independent identities. Test continued typin
 refocusing and tab activation across both rail orientations. On resize, egui keeps only the last
 scroll request: combine selection and focus when both fit, otherwise keep focus visible.
 
+**A builder claim was mistaken for completed request recording.** Handing a note to the builder
+does not prove its requested language reached the project record. Keep version-1 claimed notes
+recoverable until the request state is saved, then mark them recorded before cleanup. Restart
+recovery is at-least-once; legacy claimed notes lack that pending-state evidence. Preserve newer,
+damaged or identity-mismatched claimed/completed records for inspection. Record only a continuous
+read prefix in note-id order: a claim arriving between observations must not let an earlier
+language request overwrite a later one.
+
+**Restart cleared a note before its successor was durable.** Inspect the whole batch first,
+retain the persistent id, sync the new waiting copy before removing an older claimed record,
+and install every queued note before spawning the worker. Unreadable, changed or newer records
+stay in place and fail startup; a fresh process's counter must advance beyond occupied names,
+including names whose contents it cannot interpret. An interrupted takeover may leave both
+waiting and claimed copies: matching raw note identity is one recoverable request, while a
+disagreement must be preserved and reported. Explicitly carried initial-message notes stay
+claimed through startup and failed turns, rather than being offered to the hook twice.
+
+**A combined message erased request order and boundaries.** Only note ids actually joined by
+the caller are already carried. Prepend older recovered words before a genuinely new message,
+merge recovered parts between carried parts by their persistent ids, and pass the original
+shown requests separately to the policy recorder: a quoted observation must not prevent a later
+language request from being recognized. Save the latest explicit request id with the choice, so
+replaying an older request after a restart cannot undo it. Once a hook has delivered a
+nonempty note, set the pending progress reset before any fallible request/completion recording;
+an after-turn note whose recording failed has not yet been sent and must not claim consumption.
+
+**Preparing a follow-up prompt was mistaken for delivery.** A progress save or process exit can
+stop the run before its next builder turn. Keep those notes claimed and recoverable until the
+turn succeeds; use a no-replace claim so another hook preserves an occupied read record. A
+completed id must block every active record, not only those with words eligible for recovery.
+
+**A failed handover write still accepted the note.** A memory-only queue entry can be carried
+into a later run without a recoverable file, then disappear when that run fails. Propagate the
+initial handover error before enqueueing, so the caller restores the draft. A successful retry
+keeps the same id in its queue entry and durable record.
+
+**A published note was reported as rejected after a directory-sync failure.** The hook can
+already claim a note after its atomic publication, before the final sync returns. A new send
+therefore keeps that accepted id and queue entry, and reports an explicit persistence warning
+to the desktop and automation instead of restoring the draft for a duplicate send. Failures
+before publication still reject the send. This warning does not promise crash durability;
+recovery of an existing note still requires every persistence step to succeed.
+
 **A scroll area's minimum height pushed a fixed row offscreen.** egui's `ScrollArea` keeps a
 64-point minimum even when its parent has less, so at 760 x 520 and 200% zoom the project feed's
 reserved 40 points became 64 and the row under the prompt box fell below the window. Where a

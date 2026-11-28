@@ -118,7 +118,9 @@ impl RunSet {
                 }
                 Err(e) => {
                     let message = e.for_people();
-                    let _ = keep.set_status(Status::NeedsYou, message.clone());
+                    // Its request is still saved. Reopening must offer Continue even when
+                    // the last saved feed predates this failed start.
+                    let _ = keep.set_status(Status::Stopped, message.clone());
                     out.push((root, RunEvent::Finished { ok: false, message, paused: false }));
                 }
             }
@@ -360,7 +362,7 @@ mod tests {
             );
             assert_eq!(fake.started(), [blocker.root.clone(), next.root.clone()], "{case}: the unreadable request must not reach the starter");
             assert!(set.get(&queued.root).is_none() && set.position(&queued.root).is_none());
-            assert_eq!(Workspace::open(&queued.root).unwrap().manifest.status, Status::NeedsYou);
+            assert_eq!(Workspace::open(&queued.root).unwrap().manifest.status, Status::Stopped);
             if let Some(contents) = contents {
                 assert_eq!(std::fs::read(&record).unwrap(), contents, "{case}: the saved bytes remain unchanged");
             } else {
@@ -524,12 +526,31 @@ mod tests {
         let hub = hub();
         let mut set = RunSet::new(1).with_starter(fake.starter());
         set.start(&hub, a.clone(), RunOptions::default()).unwrap();
-        assert_eq!(set.start(&hub, b.clone(), RunOptions::default()).unwrap(), Started::Queued { position: 1 });
+        let request = "Add a search box using the attached layout";
+        let shown = "Add search";
+        let pictures = vec![b.root.join("attachments/search.png")];
+        let asked = std::time::UNIX_EPOCH + Duration::from_nanos(1_234_567_890);
+        let opts = RunOptions { message: Some(request.into()), shown: Some(shown.into()), shown_pictures: pictures.clone(), asked, ..Default::default() };
+        assert_eq!(set.start(&hub, b.clone(), opts).unwrap(), Started::Queued { position: 1 });
         fake.finish(&a.root);
         let events = set.poll(&hub);
         assert!(events.contains(&(b.root.clone(), RunEvent::Finished { ok: false, message: "No coding agent.".into(), paused: false })), "{events:?}");
         assert!(!set.any_busy());
-        assert_eq!(Workspace::open(&b.root).unwrap().manifest.status, Status::NeedsYou);
+        assert_eq!(Workspace::open(&b.root).unwrap().manifest.status, Status::Stopped);
+        // No failed RunOptions survive in memory. A manual start after reopening still owns the
+        // complete request, including its attachments and time, and consumes it only on success.
+        drop(set);
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let captured = seen.clone();
+        let mut starter = StandIns::new().starter();
+        let mut reopened = RunSet::new(1).with_starter(Box::new(move |hub, ws, opts| {
+            captured.lock().unwrap().push((opts.message.clone(), opts.shown.clone(), opts.shown_pictures.clone(), opts.asked));
+            starter(hub, ws, opts)
+        }));
+        let ws = Workspace::open(&b.root).unwrap();
+        assert_eq!(reopened.start(&hub, ws.clone(), RunOptions::default()).unwrap(), Started::Running);
+        assert_eq!(*seen.lock().unwrap(), [(Some(request.into()), Some(shown.into()), pictures, asked)]);
+        assert!(queued_request::restore(&ws, &mut RunOptions::default()).unwrap().is_none());
     }
 
     #[test]

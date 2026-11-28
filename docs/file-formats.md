@@ -7,8 +7,9 @@ is `crates/engine/src/versioned.rs`.
 
 | File | Owner | Current version | Older files | Newer files |
 |---|---|---|---|---|
-| `<project>/craft.json` | `engine::workspace` (`Manifest`) | `MANIFEST_VERSION` = 6 (`version`; missing = 0; 3 adds `approvals`, 4 adds the saved builder session's mode `agent_session_deep`, 5 adds the current capture's mode `capture_deep`, 6 adds the toolchain a move to another language was confirmed with, `toolchain`; a version-3 session and a version-4 capture migrate as Deep) | brought forward, saved as current | opened read-only: saving is refused, also by a build that read the file before a newer one brought it forward (builds before version 6 don't check this, so close them before running a newer one on the same project) |
+| `<project>/craft.json` | `engine::workspace` (`Manifest`) | `MANIFEST_VERSION` = 8 (`version`; missing = 0; 3 adds `approvals`, 4 adds the saved builder session's mode `agent_session_deep`, 5 adds the current capture's mode `capture_deep`, 6 adds the toolchain a move to another language was confirmed with, `toolchain`, 7 adds the saved `website_language` choice, 8 records its `website_language_request_id`; language fields already written by early version-6/7 builds are preserved without inventing an absent request id; a version-3 session and a version-4 capture migrate as Deep) | brought forward, saved as current | opened read-only: saving is refused, also by a build that read the file before a newer one brought it forward (builds before version 6 don't check this, so close them before running a newer one on the same project) |
 | `<project>/inbox/build-progress.json` | `engine::workspace::progress` (`BuildProgress`; written only by the rebuild run) | `BUILD_PROGRESS_VERSION` = 2 (`version`; missing = 0; 2 adds `checked`, the round kept while nothing it looked at changes) | brought forward; an absent file starts with no counted turns | the build stops and the record is left unchanged |
+| `<project>/inbox/notes/<id>*.json` | `ai::rebuild::notes` (`NoteFile`, JSON Schema derived with `JsonSchema`) | 1 (`{version, id, text, left}`; `left` is the person's `{text, shown, pictures}` and optional original `added` time) | unversioned waiting notes keep their original words; legacy `.read.json` files remain excluded from replay | not claimed; restart stops with the notes directory unchanged |
 | `<project>/inbox/queued-request.json` | `ai::rebuild::queued_request` (`QueuedRequest`; written before a run joins the queue) | 3 (`version`, required; `message` and original request time `asked`, optional `shown`, `shown_pictures` and `carried_notes` defaulting to empty lists; carried notes record their id and original text, shown text, pictures and known time; schema derived from the record type) | version 1 has no carried-note identities, so separately waiting notes are preserved; versions 1 and 2 have no request time and migrate with the Unix epoch; an absent file means no queued request | the start stops and the record is left unchanged |
 | `config.toml` (`settings::config_dir()`) | `engine::settings` (`Settings`) | `SETTINGS_VERSION` = 2 (`version`; missing = 0; 2 moved `[engines.ghidra] enabled` to `deep_mode`) | brought forward | loaded, never saved over |
 | `<name>.cany/project.toml` | `engine::project` (`ProjectMeta`) | `FORMAT_VERSION` = 1 (`format_version`, required) | brought forward | refused, with "update Craft Anything" |
@@ -26,18 +27,101 @@ A saved `User` message with pictures is `{text, pictures: [paths]}`, where the p
 copies in the project's `attachments/`; one without pictures stays the plain string earlier
 versions wrote.
 
-Other JSON in a project (`assets.json`, `inbox/` except `build-progress.json` and `queued-request.json`, `checks/`,
+Other JSON in a project (`assets.json`, `inbox/` except `build-progress.json`, `queued-request.json` and `notes/`, `checks/`,
 evidence records) has no version yet; add one the first time its shape changes.
 
+## Manifest updates
+
+Writers of an existing project's `craft.json` share the operating-system lock in
+`craft-manifest.lock`. Ordinary saves read and preserve the latest person-owned fields while
+holding it. Person edits and website-language recording hold the same lock through their
+comparison and atomic manifest replacement, so a delayed decision is checked against the
+current language choice and request id before it is accepted. Automatic request ids are also
+recomputed when that saved state changed. A rejected person-field proposal leaves the saved
+manifest and the caller's handle unchanged.
+
+The first manifest in a newly allocated or accepted folder is published before this
+coordination file is needed. If that initial write fails, it does not leave a lock-file clash
+that prevents creating the project in the folder again.
+
+The sidecar remains in the project after unlocking; a new writer and one already waiting must
+lock the same file. Opening it does not create a missing project directory. It is a Craft-owned
+record, excluded from an app-in-place copy and removed when the project is deleted. This
+coordinates manifest writers using this API; it does not make older builds or external editors
+participate, or protect against concurrent project deletion or replacement of the directory or
+lock file. A successful save keeps the existing manifest format and version.
+
+## Waiting builder notes
+
+A version-1 note is first saved as `<id>.json`. The builder's hook claims it with no-replace
+publication to `<id>.read.json`; that proves hand-over, while recording request state such as
+the website language can still fail. A hard link is preferred; when unavailable, the pinned
+`tempfile` implementation attempts a no-clobber rename (native exclusive rename on supported
+Windows, Linux and Apple filesystems). The full claim path is probed with disposable files on the
+project's drive before a new note is accepted: if neither operation is supported, sending fails
+with the person's draft retained. A successful exclusive rename moves the source, so a completed withdrawal cannot
+be copied back into a new claim. An existing claim is never overwritten, and a failed publication
+retains the waiting record. A failed claim-directory sync keeps both names after a hard link,
+or the recoverable read name after an exclusive rename. Once request recording
+succeeds, the worker syncs the read link, removes its matching waiting name and syncs that removal
+before renaming the read file to `<id>.recorded.json`. A failure before that rename keeps the claim
+recoverable; completion never leaves a waiting alias beside its marker. The completed marker is
+synced before cleanup, and cleanup errors are reported instead of discarded. A completed record
+left after a cleanup failure is excluded from replay.
+
+Restart validates the full waiting/claimed/completed set before changing any record. Version-1
+waiting and claimed notes with kept original words are recovered in id order. An active and a
+completed record sharing an id stop startup even if the active record has no recovery words;
+the live hook also refuses to claim that collision. A lone completed record does not replay.
+Unreadable entries or newer formats stop startup with the directory unchanged. Legacy claimed
+notes carry no evidence that request recording was unfinished, so they remain excluded.
+
+The initial message carries each note's id and original request boundaries. Recovered notes are
+merged between those parts in id order, before an unrelated new message. The language choice
+and the id of its latest explicit request are saved together in `craft.json`. A delayed older
+note can still reach the builder after a restart, but it cannot replace a newer saved language
+choice. New request ids advance beyond that saved id and all occupied note filenames; exhaustion
+returns an error. An older language choice without a recorded request id migrates without
+inventing one; the next explicit request establishes its ordering record.
+
+Known note times survive recovery and joined-message handoff unchanged, so a request from
+before a Ghidra stop cannot clear it just because the app restarted. A genuine new message
+keeps its own request time. Legacy notes with no saved time retain the existing treatment as
+new requests when recovered; recovery does not rewrite that absent time in their raw records.
+
+Recovery remains at-least-once: a builder can receive a previously claimed note again after an
+interrupted recording. Carried initial notes and notes prepared for a follow-up prompt remain
+claimed until their builder turn succeeds; a failed intervening progress save leaves them
+recoverable. Claiming uses no-replace publication so an existing read record is preserved for
+inspection. During a builder turn, only a continuous read prefix of the id-ordered queue is
+recorded, so a claim arriving during a scan cannot apply a newer language before an earlier
+request. Before the following prompt is sent, notes already claimed by the hook are confirmed
+without including their text again. The worker remembers claims it reserved for an unsent
+prompt separately: a partial preparation failure cannot mistake those claims for hook delivery.
+This ownership is local to the worker; restart continues to use the saved records above.
+
+A batch completion failure keeps only its unfinished notes in the next handoff. A completion
+marker this writer published or fully validated is excluded from that handoff even if its final
+directory sync fails; the persistence error is still reported. Successful builder turns save
+their reply and check-only state before note cleanup, so a final cleanup sync failure cannot
+make a message-free retry repeat a completed builder turn.
+
 The queued request keeps the person's words, attachment paths and original request time, not a
-builder choice, mode, run budget or queue position. The next manual start restores it when no
-new message was supplied. Version 3 requires the original `asked` time, including its subsecond
-precision. Versions 1 and 2 lacked it and conservatively use the Unix epoch, so restarting cannot
+builder choice, mode, run budget or queue position. The next manual Continue restores it; a new
+message is refused while that saved request remains, so it cannot silently replace unread words.
+The app keeps the refused message in its prompt box. Version 3 requires the original `asked` time,
+including its subsecond precision. Versions 1 and 2 lacked it and conservatively use the Unix epoch, so restarting cannot
 make an old request clear a later timestamped Ghidra stop. A new explicit message keeps its own
 request time. The file is capped at 16 MiB; malformed, oversized, unreadable and newer records are
 never treated as an absent request or overwritten. Reading does not consume it. Starting a
-worker removes the matching saved record; a failed start or a pause leaves it for retry. This
+worker removes the matching saved record; a failed queued start or a pause leaves it stopped and
+available through Continue after reopening, even when the saved feed predates the failure. This
 backup does not provide exactly-once delivery across a crash after the worker has started.
+
+A queued handoff keeps each complete request part through the same version-3 carried-note
+records. Recovery reconstructs their order only when their combined words, shown words and
+pictures account for the entire message. Older records whose carried notes describe only part
+of a message retain that complete message and omit only exact matching waiting notes.
 
 ## Stand-in cached responses
 

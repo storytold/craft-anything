@@ -1782,10 +1782,14 @@ Owner: open · Status: in progress
 - [x] System-tool and media-player phrases keep the app target: "a low level disk tool",
       "an MPEG 2 player" and "a single player app for movies". Independent game cues still apply
       — claimed: Afloat16, branch bugfix/r2.7-media-and-system-apps
-- [ ] When the request names a language, check the page's declared language rather than the
+- [x] When the request names a language, check the page's declared language rather than the
       original's words: the check lists missing words and the refine message tells the builder
       to add them (`kinds/website.rs`), so a translated rebuild is told to put them back. A
       matching declared language doesn't show the words were translated
+      — claimed: Afloat16, branch feature/r2.7-requested-website-language-20261120
+- [ ] Pair translated opened menu and pop-up states without assuming their labels are unchanged:
+      `pair_states` currently requires the original label even when the page language was
+      explicitly changed. Preserve evidence of which control opened; do not pair by guesswork.
 
 ### R2.8 Clean room means clean room
 Owner: maintainers · Status: in progress
@@ -1941,9 +1945,14 @@ Gaps found while using the app for real projects.
 - [x] A note still waiting when the app closes is sent by the next run instead of deleted when it
       starts (#1620): its hand-over file keeps the person's words (`notes::Left`), and a run started
       without a message takes them as its own waiting notes, so they stay on disk until its builder
-      takes them; a folder it can't read is moved aside (`notes-unread-…`), not deleted. A file
+      takes them. Restart now retains ids and syncs each successor before removing its claimed
+      predecessor; the complete queue is installed before the worker starts. An unreadable or
+      newer batch fails startup and remains in place. A file
       from before this has only the hand-over text, whose Just-ask answers may be from the other
-      mode, so it's still dropped. Unit-tested; not run live
+      mode, so it remains excluded. Explicitly joined notes stay durable through the next initial
+      turn, while an unrelated new message follows the older notes in request order; policy
+      recording preserves the individual request boundaries. Unit and local stand-in restart
+      regressions cover the handoff; not run against a live model
       — claimed: justinjohn0306, branches `bugfix/r2.9-notes-survive-restart`, `bugfix/r2.9-left-notes-kept`
 - [x] Record which mode a builder's session ran in: `agent_session` is kept across modes, so a Clean
       room build or question can resume a session from a Deep build and carry what it read, and such

@@ -28,4 +28,12 @@ list (author, source, license) is in ATTRIBUTION.md.
 Rust crates are listed with their licences in the third-party licence bundle shipped with each
 release (see docs/licences.md).
 
+The website-language parser uses icu_locale_core 2.3.0 (Unicode ICU4X), unmodified, under
+Unicode-3.0. Copyright © 2020-2024 Unicode, Inc. Its complete license and notices ship in the
+third-party licence bundle; the source and exact version are recorded in ATTRIBUTION.md.
+
+No-replace note publication uses tempfile 3.27.0, unmodified, under MIT OR Apache-2.0.
+Copyright (c) 2015 Steven Allen. Its complete licences ship in the third-party licence bundle;
+the source and exact version are recorded in ATTRIBUTION.md.
+
 Builds made with craft-fonts (CRAFT_FONTS_DIR) also embed the fonts listed in ATTRIBUTION.md.

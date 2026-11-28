@@ -497,12 +497,20 @@ fn rebuild_note(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolErro
     refresh(ctx, &mut set);
     match set.get(&ws.root).filter(|r| r.is_running()) {
         Some(run) => {
-            let id = run.add_note(p.text.clone(), p.text, Vec::new());
-            Ok(ToolOutput::Value(json!({"id": id, "queued": run.queued()})))
+            let added = run.add_note(p.text.clone(), p.text, Vec::new())?;
+            Ok(note_output(added, run.queued()))
         }
         None => Err(ToolError::new(ErrorCode::BadInput, "No build is running for this project in this session.")
             .with_remediation("Start a follow-up with rebuild_start (pass project and your message).")),
     }
+}
+
+pub(super) fn note_output(added: super::AddedNote, queued: usize) -> ToolOutput {
+    let mut value = json!({"id": added.id, "queued": queued});
+    if let Some(warning) = added.persistence_warning {
+        value["persistence_warning"] = json!(warning);
+    }
+    ToolOutput::Value(value)
 }
 
 fn rebuild_note_withdraw(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
@@ -511,7 +519,7 @@ fn rebuild_note_withdraw(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput,
     let runs = runs(ctx);
     let mut set = runs.0.lock().unwrap_or_else(PoisonError::into_inner);
     refresh(ctx, &mut set);
-    match set.get(&ws.root).and_then(|r| r.unsend(p.id)) {
+    match set.get(&ws.root).map(|r| r.unsend(p.id)).transpose()?.flatten() {
         Some(note) => Ok(ToolOutput::Value(json!({"withdrawn": note.text}))),
         None => Err(ToolError::new(ErrorCode::BadInput, format!("Note {} isn't waiting: the agent has read it, or it isn't from this session.", p.id))),
     }

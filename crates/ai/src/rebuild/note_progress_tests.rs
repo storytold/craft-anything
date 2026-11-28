@@ -300,6 +300,139 @@ fn consumed_note_resets_survive_failed_and_cancelled_turns() {
 /// #1660 review: an earlier run's notes start the limits again, as a message does, so a run that
 /// carries on a build stopped by either limit reaches its builder.
 #[test]
+fn claimed_request_record_failure_resets_progress_before_try_again() {
+    use crate::agent::{ApiConversation, EngineHost, LoopConfig, ModelSlot};
+    use crate::model::{ChatModel, Delta, Stop, TurnRequest, TurnResult};
+    use std::sync::atomic::AtomicUsize;
+
+    struct RecordingKind(Arc<AtomicBool>);
+    impl TargetKind for RecordingKind {
+        fn id(&self) -> &'static str {
+            "recording-failure"
+        }
+        fn words(&self) -> KindWords {
+            kind("app").words()
+        }
+        fn detect(&self, _: &DetectCx) -> Option<u32> {
+            Some(2000)
+        }
+        fn default_stack(&self, _: &DetectCx) -> &'static str {
+            "Rust (console)"
+        }
+        fn goal(&self) -> &'static str {
+            "an app"
+        }
+        fn checks(&self, _: &Workspace) -> Vec<Box<dyn Check>> {
+            Vec::new()
+        }
+        fn record_requests(&self, ws: &mut Workspace, requests: &[&str]) -> Result<(), ToolError> {
+            if !requests.is_empty() && self.0.load(Ordering::SeqCst) {
+                return Err(ToolError::new(ErrorCode::FileError, "The fixture request recorder refused the note."));
+            }
+            kind("website").record_requests(ws, requests)
+        }
+    }
+    struct FailedNoteTurn {
+        notes: Arc<Mutex<Vec<Note>>>,
+        directory: PathBuf,
+        calls: Arc<AtomicUsize>,
+        inject: bool,
+        blocked_mark: bool,
+    }
+    impl ChatModel for FailedNoteTurn {
+        fn turn(&mut self, _: &TurnRequest<'_>, _: &mut dyn FnMut(Delta), _: &Stop) -> Result<TurnResult, ToolError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            if self.inject {
+                let text = "Build the website in German";
+                self.notes.lock().unwrap().push(Note {
+                    id: 73,
+                    text: text.into(),
+                    shown: text.into(),
+                    pictures: Vec::new(),
+                    questions: Vec::new(),
+                    added: std::time::SystemTime::now(),
+                });
+                let left = notes::Left { text: text.into(), shown: text.into(), pictures: Vec::new(), added: None };
+                notes::hand_over(&self.directory, 73, text, Some(&left)).unwrap();
+                assert_eq!(notes::claim(&self.directory), [text]);
+                if self.blocked_mark {
+                    std::fs::create_dir(self.directory.join("73.recorded.json")).unwrap();
+                }
+            }
+            Err(ToolError::new(ErrorCode::NoPermission, "The fixture provider stopped after delivery."))
+        }
+        fn model(&self) -> String {
+            "scripted".into()
+        }
+    }
+
+    for blocked_mark in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let mut ws = Workspace::create(directory.path(), "Failed request recording", "Build an app", TargetRef::None).unwrap();
+        std::fs::create_dir_all(ws.capture_dir()).unwrap();
+        std::fs::create_dir_all(ws.app_dir()).unwrap();
+        std::fs::write(ws.app_dir().join("app.txt"), b"An unchanged app").unwrap();
+        ws.manifest.stack = "Rust (console)".into();
+        ws.save().unwrap();
+        let mut progress = BuildProgress::default();
+        progress.before_turn(ws.app_fingerprint(&CancelToken::default()).unwrap());
+        progress.unchanged_turns = 1;
+        progress.save(&ws.root).unwrap();
+        let mut worker = check_worker(&ws, false);
+        let refused = Arc::new(AtomicBool::new(!blocked_mark));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let note_dir = notes::notes_dir(&ws.inbox_dir());
+        let make_api = |worker: &Worker, inject| {
+            let slot = ModelSlot {
+                name: "Scripted".into(),
+                model: Box::new(FailedNoteTurn { notes: worker.notes.clone(), directory: note_dir.clone(), calls: calls.clone(), inject, blocked_mark }),
+                local: true,
+                effort: None,
+                max_turns: 10,
+                context_tokens: 0,
+                tools: Default::default(),
+            };
+            ApiConversation::start(Arc::new(EngineHost(worker.engine.clone())), vec![slot], LoopConfig::default()).unwrap()
+        };
+        let entry = crate::BackendEntry {
+            config: crate::BackendConfig {
+                name: "Scripted".into(),
+                kind: BackendKind::OpenaiCompatible,
+                model: "scripted".into(),
+                base_url: None,
+                ssh_host: None,
+                enabled: true,
+            },
+            options: Default::default(),
+        };
+        let mut opts = RunOptions { continuing: true, ..RunOptions::default() };
+        opts.kinds.register(Arc::new(RecordingKind(refused.clone())));
+        let api = make_api(&worker, true);
+        let error = worker.run(&mut ws, entry.clone(), Some(api), None, super::super::KeptHistory::default(), &opts).unwrap_err();
+        assert_ne!(error.code, ErrorCode::ProgramFailed, "retain the local recording error: {error:?}");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(worker.notes.lock().unwrap().len(), 1, "the failed batch stays retryable");
+        assert!(notes::was_read(&notes::notes_dir(&ws.inbox_dir()), 73));
+        assert_eq!(
+            BuildProgress::load(&ws.root).unwrap().unchanged_turns,
+            0,
+            "instructions already handed over reset the allowance even when their record fails"
+        );
+
+        refused.store(false, Ordering::SeqCst);
+        if blocked_mark {
+            std::fs::remove_dir(notes::notes_dir(&ws.inbox_dir()).join("73.recorded.json")).unwrap();
+        }
+        let api = make_api(&worker, false);
+        let error = worker.run(&mut ws, entry, Some(api), None, super::super::KeptHistory::default(), &opts).unwrap_err();
+        assert_eq!(error.code, ErrorCode::ProgramFailed);
+        assert!(error.message.contains("fixture provider stopped after delivery"));
+        assert_eq!(calls.load(Ordering::SeqCst), 2, "Try again reaches its builder instead of being refused by stale progress");
+        assert!(worker.notes.lock().unwrap().is_empty());
+    }
+}
+
+#[test]
 fn notes_left_waiting_start_the_limits_again() {
     let d = tempfile::tempdir().unwrap();
     let mut ws = Workspace::create(d.path(), "x", "y", TargetRef::None).unwrap();

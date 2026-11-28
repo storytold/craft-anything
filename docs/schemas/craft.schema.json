@@ -172,6 +172,26 @@
       "format": "uint32",
       "default": 0,
       "minimum": 0
+    },
+    "website_language": {
+      "description": "The person's most recent explicit website-language request, after it reached the builder.\nNone predates this record or means no language was explicitly requested.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/WebsiteLanguage"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "website_language_request_id": {
+      "description": "The latest explicit language request's persistent id, saved with its choice.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint64",
+      "minimum": 0
     }
   },
   "required": [
@@ -410,6 +430,39 @@
           },
           "required": [
             "kind"
+          ]
+        }
+      ]
+    },
+    "WebsiteLanguage": {
+      "description": "The latest explicit language instruction handed to a website's builder. `Original` is kept\nexplicitly: clearing the field would revive a language named in the initial request.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "original"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "requested"
+            },
+            "tag": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "tag"
           ]
         }
       ]

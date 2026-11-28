@@ -543,6 +543,59 @@ coverage and secrets passed. The companion CLI was built with locked dependencie
 
 | Plan steps stopped at a run's end | A run that finishes (ready, failed or paused) marks still-open steps `Stopped` on the plan card instead of leaving them "Doing" until the card is folded (#504). The stopped steps stay in the saved conversation (`FEED_VERSION` 5); a later run's checklist updates the list again, and a plan left partly unticked still shows with its stopped steps | Regression tests in `ai::rebuild::feed` (ready, paused and no-checklist finishes, a later run taking the list over) and an engine save/load round trip of a stopped step; the checklist draws a warning circle for stopped steps. Not checked: a live desktop run |
 
+### Requested website language (R2.7)
+
+Clear requests such as "Rebuild this website in French", "Use German for the site", or
+"Set the page language to fr-CA" replace original-word and heading feedback with a check of
+the captured HTML language declaration. Explicit language tags use ICU's existing locale
+parser; language names come from an app-specific vocabulary. Arbitrary natural-language
+phrasing is not inferred. Matching is case-insensitive at subtag boundaries: `fr` permits
+`fr-CA`, while `fr-CA` requires that regional tag. A matching declaration does not verify
+translation quality. Missing capture evidence is unknown, and an absent or wrong declaration
+fails its own claim. Layout, screenshots, structure and other health checks remain.
+
+The latest explicit request and its persistent request id are saved together in `craft.json`
+version 8, including "restore the original language". A recovered older request can still reach
+the builder but cannot replace a newer saved choice. Follow-ups and notes prepared for delivery update it; retractable queued notes do not. A stale worker save
+preserves the saved choice, and a failed choice write keeps the note available and stops the
+check. Version-1 note files distinguish builder hand-over from completed request-state recording:
+a claimed note whose recording failed is recovered by a restarted run, while a completed record
+is excluded even if its cleanup did not finish. Recovery may hand a claimed note to the builder
+again; it is at-least-once, not an exactly-once delivery promise. Legacy claimed notes keep their
+earlier excluded behavior. A live scan records only the id-ordered read prefix, so a concurrent
+claim cannot let a later German request be overwritten by an earlier French request. A real
+restart through `RebuildRun::start` with the local builder stand-in, an interleaved real claim,
+and completion/cleanup failures have dedicated regressions.
+Restart inspects the complete note batch without removing it. Recovered notes keep their ids:
+their current-mode waiting copies are synced before old claimed copies are removed, and the
+entire queue is installed before the worker starts. Known request times survive recovery and
+carried-message handoff, so restarting cannot clear a Ghidra stop made later. Legacy notes with
+no saved time keep the existing new-request treatment; genuine new messages keep their own
+request time. Unknown or unreadable batches stop startup
+and stay at their original paths. Legacy waiting records are upgraded before becoming carried
+claimed records; genuine legacy claimed records keep their earlier exclusion. New ids follow every existing numeric record name and the saved language-request id, and refuse
+overflow. The desktop explicitly identifies notes joined into its next message; those records
+remain recoverable until that initial builder turn succeeds. A prepared follow-up prompt keeps
+its records claimed through intervening progress-save failures and until its builder turn succeeds.
+Hooks cannot overwrite occupied read records or claim completed ids; startup rejects every
+active/completed id collision, even without recoverable words. An unrelated follow-up carries
+older waiting words before the new request instead of deleting them or delivering them later
+out of order. Original request ids and boundaries are retained for policy recording and prompt construction,
+so recovered notes keep their place between carried requests, including when an older observation
+contains quoted text. Async delivery failures prepend the earlier draft and restore its attachments
+without replacing a newer draft. A claimed nonempty note resets the unchanged-turn
+allowance even if saving its request state or completion mark fails; notes not yet delivered
+do not claim that reset. File handoff is at-least-once; it is not a transaction with an external
+model's processing, and directory syncing follows the host platform's supported operations.
+The version-6 toolchain record is preserved; version 7 adds the language choice and version 8
+its request id. Existing language fields from early version-6/7 builds remain unchanged, and
+absent choices or request ids are not invented. Policy, persisted
+project, note-delivery and write-failure regressions cover these paths; the original text
+policy fails the translated-page and wrong-declaration regressions. No live browser rebuild
+or translation-quality evaluation is claimed. A captured menu state whose translated label
+cannot be paired is unknown, rather than a claim that the control is absent; independent
+evidence for pairing translated controls remains the separate R2.7 work.
+
 ### Builder retry policy
 
 Builder failures carry a typed reason through `Conversation::last_failure`. Typed authentication,
