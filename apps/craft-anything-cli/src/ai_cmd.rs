@@ -1,12 +1,12 @@
 //! `chat` and `ai list|detect|add|test`.
 
+use crate::error::{KeyError, UsageError};
 use crate::output::Format;
-use crate::{Cli, INTERRUPTED, emit, fail, make_engine, out};
+use crate::{Cli, INTERRUPTED, Io, fail, make_engine_in, usage};
 use clap::{Args, Subcommand};
 use craft_anything_ai::{AgentEvent, AiHub, BackendConfig, BackendEntry, BackendKind, BackendOptions, Effort};
 use craft_anything_evidence::ToolError;
 use serde_json::{Value, json};
-use std::io::{Read as _, Write as _};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
@@ -117,7 +117,7 @@ pub enum AiCommand {
 }
 
 fn hub(cli: &Cli) -> Result<AiHub, ToolError> {
-    let hub = AiHub::new(make_engine(cli.project.as_deref(), cli.deep_for_run())?);
+    let hub = cli.context.hub(make_engine_in(&cli.context, cli.project.as_deref(), cli.deep_for_run())?);
     // Before any command runs, while no session lock is held (#1225).
     if let Err(e) = hub.ensure_session_id() {
         log::warn!("couldn't save the OpenCode Go session id: {e}");
@@ -125,29 +125,24 @@ fn hub(cli: &Cli) -> Result<AiHub, ToolError> {
     Ok(hub)
 }
 
-fn write_raw(s: &str) {
-    let mut o = std::io::stdout().lock();
-    let _ = o.write_all(s.as_bytes()).and_then(|_| o.flush());
-}
-
 /// Headless agent run: stream the answer to stdout, tool activity to stderr.
-pub fn chat(cli: &Cli, a: &ChatArgs) -> u8 {
+pub fn chat(io: &mut Io<'_>, cli: &Cli, a: &ChatArgs) -> i32 {
     let hub = match hub(cli) {
         Ok(h) => h,
-        Err(e) => return fail(&e, cli.format()),
+        Err(e) => return fail(io, &e, cli.format()),
     };
     if let Some(t) = &a.target {
         let abs = match std::path::absolute(t) {
             Ok(p) => p,
-            Err(e) => return fail(&ToolError::io(t, e), cli.format()),
+            Err(e) => return fail(io, &ToolError::io(t, e), cli.format()),
         };
         if let Err(e) = hub.engine.call("core_target_open", json!({"path": abs}), crate::call_options(cli, &Default::default())) {
-            return fail(&e, cli.format());
+            return fail(io, &e, cli.format());
         }
     }
     let mut conv = match hub.start(a.backend.as_deref(), a.beginner) {
         Ok(c) => c,
-        Err(e) => return fail(&e, cli.format()),
+        Err(e) => return fail(io, &e, cli.format()),
     };
     conv.send(&a.question);
     let jsonl = cli.format() == Format::Jsonl;
@@ -169,19 +164,20 @@ pub fn chat(cli: &Cli, a: &ChatArgs) -> u8 {
         let mut done = false;
         for ev in events {
             if jsonl {
-                out(&serde_json::to_string(&ev).unwrap_or_default());
+                io.line(&serde_json::to_string(&ev).unwrap_or_default());
             }
             match &ev {
-                AgentEvent::TextDelta { text } if !jsonl => write_raw(text),
-                AgentEvent::Status { text } if !jsonl => eprintln!("· {text}"),
-                AgentEvent::ToolStarted { tool, .. } if !jsonl => eprintln!("→ {tool}"),
+                AgentEvent::TextDelta { text } if !jsonl => io.raw(text),
+                AgentEvent::Status { text } if !jsonl => errln!(io, "· {text}"),
+                AgentEvent::ToolStarted { tool, .. } if !jsonl => errln!(io, "→ {tool}"),
                 AgentEvent::ToolFinished { tool, ok, summary, evidence_id, .. } if !jsonl => {
                     let ev = evidence_id.as_deref().map(|e| format!(" [{e}]")).unwrap_or_default();
-                    eprintln!("{} {tool}: {summary}{ev}", if *ok { "✓" } else { "✗" });
+                    errln!(io, "{} {tool}: {summary}{ev}", if *ok { "✓" } else { "✗" });
                 }
                 AgentEvent::ConsentNeeded { call_id, title, explanation, .. } => {
                     if !jsonl {
-                        eprintln!(
+                        errln!(
+                            io,
                             "! {title} needs your OK: {explanation} ({})",
                             if cli.allow_run { "allowed by --allow-run" } else { "declined; re-run with --allow-run to allow" }
                         );
@@ -191,12 +187,12 @@ pub fn chat(cli: &Cli, a: &ChatArgs) -> u8 {
                 AgentEvent::Error { message, remediation, log } => {
                     code = 1;
                     if !jsonl {
-                        eprintln!("error: {message}");
+                        errln!(io, "error: {message}");
                         if let Some(r) = remediation {
-                            eprintln!("fix: {r}");
+                            errln!(io, "fix: {r}");
                         }
                         if let Some(l) = log {
-                            eprintln!("log: {}", l.display());
+                            errln!(io, "log: {}", l.display());
                         }
                     }
                 }
@@ -205,9 +201,9 @@ pub fn chat(cli: &Cli, a: &ChatArgs) -> u8 {
                         let cost = cost_usd
                             .map(|c| if *cost_is_estimate { format!(", about ${c:.4} at API prices (an estimate, not a bill)") } else { format!(", ${c:.4}") })
                             .unwrap_or_default();
-                        write_raw("\n");
+                        io.raw("\n");
                         let usage = if *tokens_unknown { "token count unknown".into() } else { format!("{input_tokens} in / {output_tokens} out") };
-                        eprintln!("[{backend}: {usage}{cost}]");
+                        errln!(io, "[{backend}: {usage}{cost}]");
                     }
                     done = true;
                 }
@@ -218,28 +214,27 @@ pub fn chat(cli: &Cli, a: &ChatArgs) -> u8 {
             break;
         }
     }
-    if stopped { 130 } else { code }
+    if stopped { 130 } else { i32::from(code) }
 }
 
-fn read_key(key_env: &Option<String>, key_stdin: bool) -> Result<Option<String>, String> {
+fn read_key(context: &crate::Context, key_env: &Option<String>, key_stdin: bool) -> Result<Option<String>, KeyError> {
     if let Some(var) = key_env {
-        return std::env::var(var).map(Some).map_err(|_| format!("environment variable {var} is not set"));
+        return std::env::var(var).map(Some).map_err(|_| KeyError::EnvNotSet(var.clone()));
     }
     if key_stdin {
-        let mut s = String::new();
-        std::io::stdin().take(64 * 1024).read_to_string(&mut s).map_err(|e| format!("reading the key from stdin: {e}"))?;
+        let s = context.read_to_string(64 * 1024).map_err(KeyError::Stdin)?;
         let k = s.trim().to_string();
-        return if k.is_empty() { Err("no key on stdin".into()) } else { Ok(Some(k)) };
+        return if k.is_empty() { Err(KeyError::EmptyStdin) } else { Ok(Some(k)) };
     }
     Ok(None)
 }
 
 /// Dispatch AI configuration, discovery and model-selection commands through the shared hub.
 /// Render results in the requested format and return an exit status for success or failure.
-pub fn ai(cli: &Cli, c: &AiCommand, f: Format) -> u8 {
+pub fn ai(io: &mut Io<'_>, cli: &Cli, c: &AiCommand, f: Format) -> i32 {
     let hub = match hub(cli) {
         Ok(h) => h,
-        Err(e) => return fail(&e, f),
+        Err(e) => return fail(io, &e, f),
     };
     match c {
         AiCommand::List => {
@@ -255,34 +250,34 @@ pub fn ai(cli: &Cli, c: &AiCommand, f: Format) -> u8 {
                     v
                 })
                 .collect();
-            emit(&Value::Array(v), f);
+            io.emit(&Value::Array(v), f);
             0
         }
         AiCommand::Detect => {
-            emit(&serde_json::to_value(hub.detect()).unwrap_or(Value::Null), f);
+            io.emit(&serde_json::to_value(hub.detect()).unwrap_or(Value::Null), f);
             // On stderr, so the list on stdout stays what scripts read.
             for hint in hub.detect_hints() {
-                eprintln!("note: {} {}", hint.message(), hint.remediation());
+                errln!(io, "note: {} {}", hint.message(), hint.remediation());
             }
             0
         }
         AiCommand::Add { name, kind, model, base_url, ssh_host, program, key_env, key_stdin, acp } => {
             let kind: BackendKind = match serde_json::from_value(json!(kind)) {
                 Ok(k) => k,
-                Err(_) => return crate::usage_error("--kind must be one of anthropic, openai, openrouter, openai_compatible, agent_cli"),
+                Err(_) => return usage(io, UsageError::AiKind),
             };
-            let key = match read_key(key_env, *key_stdin) {
+            let key = match read_key(&cli.context, key_env, *key_stdin) {
                 Ok(k) => k,
-                Err(m) => return crate::usage_error(&m),
+                Err(e) => return usage(io, e),
             };
             // A server by its address with no model named: asked for its models, and one that can chat is used.
             if let (BackendKind::OpenaiCompatible, Some(address), None) = (kind, base_url, model) {
                 return match hub.add_server(name, address, None, key) {
                     Ok(model) => {
-                        emit(&json!({"added": {"name": name, "kind": kind, "model": model, "base_url": address}}), f);
+                        io.emit(&json!({"added": {"name": name, "kind": kind, "model": model, "base_url": address}}), f);
                         0
                     }
-                    Err(e) => fail(&e, f),
+                    Err(e) => fail(io, &e, f),
                 };
             }
             let model = model.clone().or_else(|| kind.suggested_models().first().map(|m| m.to_string())).unwrap_or_default();
@@ -291,59 +286,59 @@ pub fn ai(cli: &Cli, c: &AiCommand, f: Format) -> u8 {
                 BackendEntry { config: cfg.clone(), options: BackendOptions { acp: acp.then_some(true), command: program.clone(), ..Default::default() } };
             match hub.add_backend_with(entry, key) {
                 Ok(()) => {
-                    emit(&json!({"added": cfg}), f);
+                    io.emit(&json!({"added": cfg}), f);
                     0
                 }
-                Err(e) => fail(&e, f),
+                Err(e) => fail(io, &e, f),
             }
         }
         AiCommand::Remove { name } => match hub.remove_backend(name) {
             Ok(removed) => {
-                emit(&json!({"removed": removed, "name": name}), f);
+                io.emit(&json!({"removed": removed, "name": name}), f);
                 if removed { 0 } else { 1 }
             }
-            Err(e) => fail(&e, f),
+            Err(e) => fail(io, &e, f),
         },
         AiCommand::Key { name, key_env, key_stdin, forget } => {
             if *forget {
                 return match hub.remove_backend_key(name) {
                     Ok(()) => {
-                        emit(&json!({"name": name, "key_saved": false, "changed": "forgotten"}), f);
+                        io.emit(&json!({"name": name, "key_saved": false, "changed": "forgotten"}), f);
                         0
                     }
-                    Err(e) => fail(&e, f),
+                    Err(e) => fail(io, &e, f),
                 };
             }
             if key_env.is_some() || *key_stdin {
-                let key = match read_key(key_env, *key_stdin) {
+                let key = match read_key(&cli.context, key_env, *key_stdin) {
                     Ok(Some(k)) => k,
-                    Ok(None) => return crate::usage_error("--key-env or --key-stdin is needed to replace a key"),
-                    Err(m) => return crate::usage_error(&m),
+                    Ok(None) => return usage(io, UsageError::KeyNeeded),
+                    Err(e) => return usage(io, e),
                 };
                 return match hub.set_backend_key(name, &key) {
                     Ok(()) => {
-                        emit(&json!({"name": name, "key_saved": true, "changed": "replaced"}), f);
+                        io.emit(&json!({"name": name, "key_saved": true, "changed": "replaced"}), f);
                         0
                     }
-                    Err(e) => fail(&e, f),
+                    Err(e) => fail(io, &e, f),
                 };
             }
             match hub.saved_backend_key(name) {
                 Ok(saved) => {
-                    emit(&json!({"name": name, "key_saved": saved}), f);
+                    io.emit(&json!({"name": name, "key_saved": saved}), f);
                     0
                 }
-                Err(e) => fail(&e, f),
+                Err(e) => fail(io, &e, f),
             }
         }
         AiCommand::On { name } | AiCommand::Off { name } => {
             let on = matches!(c, AiCommand::On { .. });
             match hub.set_enabled(name, on) {
                 Ok(found) => {
-                    emit(&json!({"name": name, "enabled": on, "found": found}), f);
+                    io.emit(&json!({"name": name, "enabled": on, "found": found}), f);
                     if found { 0 } else { 1 }
                 }
-                Err(e) => fail(&e, f),
+                Err(e) => fail(io, &e, f),
             }
         }
         AiCommand::Model { name, model, thinking, default } if *default || thinking.is_some() => {
@@ -358,18 +353,18 @@ pub fn ai(cli: &Cli, c: &AiCommand, f: Format) -> u8 {
             if claude_code {
                 return match hub.set_model(name, craft_anything_ai::anthropic::CLAUDE_CODE_DEFAULT) {
                     Ok(found) => {
-                        emit(&json!({"name": name, "model": craft_anything_ai::anthropic::CLAUDE_CODE_DEFAULT, "found": found}), f);
+                        io.emit(&json!({"name": name, "model": craft_anything_ai::anthropic::CLAUDE_CODE_DEFAULT, "found": found}), f);
                         if found { 0 } else { 1 }
                     }
-                    Err(e) => fail(&e, f),
+                    Err(e) => fail(io, &e, f),
                 };
             }
             match hub.set_agent_model(name, model.as_deref(), depth) {
                 Ok(found) => {
-                    emit(&json!({"name": name, "model": model, "thinking": depth, "found": found}), f);
+                    io.emit(&json!({"name": name, "model": model, "thinking": depth, "found": found}), f);
                     if found { 0 } else { 1 }
                 }
-                Err(e) => fail(&e, f),
+                Err(e) => fail(io, &e, f),
             }
         }
         AiCommand::Model { name, model: None, .. }
@@ -379,33 +374,34 @@ pub fn ai(cli: &Cli, c: &AiCommand, f: Format) -> u8 {
         {
             match hub.model_context(name).and_then(|c| hub.agent_models(&c)) {
                 Ok(models) => {
-                    emit(&json!({"name": name, "models": models}), f);
+                    io.emit(&json!({"name": name, "models": models}), f);
                     0
                 }
-                Err(e) => fail(&e, f),
+                Err(e) => fail(io, &e, f),
             }
         }
         AiCommand::Model { name, model: None, .. } => match hub.model_choices(name) {
             Ok(models) => {
-                emit(&json!({"name": name, "models": models}), f);
+                io.emit(&json!({"name": name, "models": models}), f);
                 0
             }
-            Err(e) => fail(&e, f),
+            Err(e) => fail(io, &e, f),
         },
         AiCommand::Model { name, model: Some(model), .. } => match hub.set_model(name, model) {
             Ok(found) => {
-                emit(&json!({"name": name, "model": model.trim(), "found": found}), f);
+                io.emit(&json!({"name": name, "model": model.trim(), "found": found}), f);
                 if found { 0 } else { 1 }
             }
-            Err(e) => fail(&e, f),
+            Err(e) => fail(io, &e, f),
         },
         AiCommand::Effort { name, level: None } => {
             let Some(b) = hub.backends().into_iter().find(|b| b.name == *name) else {
-                return fail(&ToolError::invalid(format!("No AI backend named {name:?}")).with_remediation("See `craft-anything-cli ai list`."), f);
+                return fail(io, &ToolError::invalid(format!("No AI backend named {name:?}")).with_remediation("See `craft-anything-cli ai list`."), f);
             };
             let options = hub.options();
             match craft_anything_ai::effort_levels(&b) {
                 [] => fail(
+                    io,
                     &ToolError::invalid(format!("{name} doesn't take an effort level."))
                         .with_remediation("Effort is for the Claude API, Claude Code and OpenAI-style APIs."),
                     f,
@@ -413,7 +409,7 @@ pub fn ai(cli: &Cli, c: &AiCommand, f: Format) -> u8 {
                 levels => {
                     let effort = craft_anything_ai::effort_in_use(&b, options.get(name)).map_or("default", Effort::as_str);
                     let levels: Vec<&str> = levels.iter().map(|e| e.as_str()).collect();
-                    emit(&json!({"name": name, "effort": effort, "levels": levels}), f);
+                    io.emit(&json!({"name": name, "effort": effort, "levels": levels}), f);
                     0
                 }
             }
@@ -426,16 +422,16 @@ pub fn ai(cli: &Cli, c: &AiCommand, f: Format) -> u8 {
                     None => {
                         let e = ToolError::invalid(format!("{l:?} isn't an effort level."))
                             .with_remediation("Use none, minimal, low, medium, high, xhigh, max or default.");
-                        return fail(&e, f);
+                        return fail(io, &e, f);
                     }
                 },
             };
             match hub.set_effort(name, effort) {
                 Ok(found) => {
-                    emit(&json!({"name": name, "effort": effort.map(Effort::as_str), "found": found}), f);
+                    io.emit(&json!({"name": name, "effort": effort.map(Effort::as_str), "found": found}), f);
                     if found { 0 } else { 1 }
                 }
-                Err(e) => fail(&e, f),
+                Err(e) => fail(io, &e, f),
             }
         }
         AiCommand::RequestRate { name, requests_per_minute } => {
@@ -445,10 +441,10 @@ pub fn ai(cli: &Cli, c: &AiCommand, f: Format) -> u8 {
             };
             match result {
                 Ok(rate) => {
-                    emit(&json!({"name": name, "requests_per_minute": rate}), f);
+                    io.emit(&json!({"name": name, "requests_per_minute": rate}), f);
                     0
                 }
-                Err(e) => fail(&e, f),
+                Err(e) => fail(io, &e, f),
             }
         }
         AiCommand::Tools { name, list } => {
@@ -463,55 +459,55 @@ pub fn ai(cli: &Cli, c: &AiCommand, f: Format) -> u8 {
                 Ok((list, by_window)) => {
                     // What Auto works out to here, so the choice can be made beside it.
                     let auto = if by_window { "lean below a 64k window, full from there" } else { "full" };
-                    emit(&json!({"name": name, "tools": list.as_str(), "auto": auto}), f);
+                    io.emit(&json!({"name": name, "tools": list.as_str(), "auto": auto}), f);
                     0
                 }
-                Err(e) => fail(&e, f),
+                Err(e) => fail(io, &e, f),
             }
         }
         AiCommand::Program { name, path } => match hub.set_command(name, path.as_deref()) {
             Ok(found) => {
-                emit(&json!({"name": name, "program": path, "found": found}), f);
+                io.emit(&json!({"name": name, "program": path, "found": found}), f);
                 if found { 0 } else { 1 }
             }
-            Err(e) => fail(&e, f),
+            Err(e) => fail(io, &e, f),
         },
         AiCommand::Folder { name, path } => match hub.set_config_dir(name, path.as_deref()) {
             Ok(found) => {
-                emit(&json!({"name": name, "folder": path, "found": found}), f);
+                io.emit(&json!({"name": name, "folder": path, "found": found}), f);
                 if found { 0 } else { 1 }
             }
-            Err(e) => fail(&e, f),
+            Err(e) => fail(io, &e, f),
         },
         AiCommand::Builder { name } => match hub.set_role(craft_anything_ai::Role::Builder, name.as_deref()) {
             Ok(()) => {
-                emit(&json!({"builder": name}), f);
+                io.emit(&json!({"builder": name}), f);
                 0
             }
-            Err(e) => fail(&e, f),
+            Err(e) => fail(io, &e, f),
         },
         AiCommand::Extractor { name } => match hub.set_role(craft_anything_ai::Role::Extractor, name.as_deref()) {
             Ok(()) => {
-                emit(&json!({"extractor": name}), f);
+                io.emit(&json!({"extractor": name}), f);
                 0
             }
-            Err(e) => fail(&e, f),
+            Err(e) => fail(io, &e, f),
         },
         AiCommand::Test { name } => match hub.test_backend(name) {
             Ok(r) => {
-                emit(&serde_json::to_value(r).unwrap_or(Value::Null), f);
+                io.emit(&serde_json::to_value(r).unwrap_or(Value::Null), f);
                 0
             }
-            Err(e) => fail(&e, f),
+            Err(e) => fail(io, &e, f),
         },
     }
 }
 
 /// AI reachability checks for `doctor` (bounded; each configured backend once).
-pub fn doctor_checks() -> Vec<craft_anything_setup::Check> {
+pub fn doctor_checks(context: &crate::Context) -> Vec<craft_anything_setup::Check> {
     use craft_anything_setup::{Check, CheckStatus};
-    let Ok(engine) = make_engine(None, None) else { return Vec::new() };
-    let hub = AiHub::new(engine);
+    let Ok(engine) = make_engine_in(context, None, None) else { return Vec::new() };
+    let hub = context.hub(engine);
     let results = hub.check_reachability();
     if results.is_empty() {
         return vec![Check::new("ai", CheckStatus::Info, "No AI backend is set up (optional).").fix("Run `craft-anything-cli ai detect`, then `ai add`.")];

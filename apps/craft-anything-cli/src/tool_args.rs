@@ -18,6 +18,37 @@ pub struct ToolInvocation {
     pub help: bool,
 }
 
+/// A tool command line that can't be turned into the tool's parameters: a usage error.
+#[derive(Debug, thiserror::Error)]
+pub enum ToolArgsError {
+    #[error("--{0} needs a value")]
+    NeedsValue(String),
+    #[error("{command} has no option --{flag}. Options: {known}")]
+    UnknownOption { command: String, flag: String, known: String },
+    #[error("--{flag} expects a number, got {got:?}")]
+    ExpectsNumber { flag: String, got: String },
+    #[error("--{flag} expects a whole number, got {got:?}")]
+    ExpectsWholeNumber { flag: String, got: String },
+    #[error("--{flag} expects true or false, got {got:?}")]
+    ExpectsBool { flag: String, got: String },
+    #[error("--{flag} expects JSON: {source}")]
+    ExpectsJson { flag: String, source: serde_json::Error },
+    #[error("params must be a JSON object: {0}")]
+    ParamsNotJson(#[source] serde_json::Error),
+    #[error("params must be a JSON object")]
+    ParamsNotObject,
+    #[error("can't read {path}: {source}")]
+    ReadFile { path: String, source: std::io::Error },
+    #[error("--json - reads parameters from a pipe, but standard input is a terminal; pipe the JSON in, or pass it inline or as @file.json")]
+    StdinIsTerminal,
+    #[error("can't read parameters from standard input: {0}")]
+    StdinRead(#[source] std::io::Error),
+    #[error("parameters on standard input are over the limit of {limit} bytes; use @file.json")]
+    StdinTooBig { limit: u64 },
+    #[error("{command} doesn't take another argument ({arg:?})")]
+    ExtraArgument { command: String, arg: String },
+}
+
 /// `core_target_open` options a target tool accepts for its `<target-path>` (raw binaries, Deep pins).
 const OPEN_OPTIONS: [&str; 3] = ["architecture", "entry_point", "language_id"];
 /// `--format` values that pick how the target is opened rather than how output is printed.
@@ -67,25 +98,29 @@ fn resolve_ref<'a>(schema: &'a Value, prop: &'a Value) -> &'a Value {
     prop
 }
 
-fn convert(ty: &str, key: &str, raw: &str) -> Result<Value, String> {
+fn convert(ty: &str, key: &str, raw: &str) -> Result<Value, ToolArgsError> {
+    let flag = || key.to_string();
+    let got = || raw.to_string();
     match ty {
         "integer" => {
             let t = raw.trim();
             if let Some(h) = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
                 // `from_str_radix` accepts a leading sign, so check the digits first.
                 let digits = !h.is_empty() && h.bytes().all(|b| b.is_ascii_hexdigit());
-                u64::from_str_radix(h, 16).ok().filter(|_| digits).map(|n| json!(n)).ok_or_else(|| format!("--{key} expects a number, got {raw:?}"))
+                u64::from_str_radix(h, 16).ok().filter(|_| digits).map(|n| json!(n)).ok_or_else(|| ToolArgsError::ExpectsNumber { flag: flag(), got: got() })
             } else {
-                t.parse::<i64>().map(|n| json!(n)).map_err(|_| format!("--{key} expects a whole number, got {raw:?}"))
+                t.parse::<i64>().map(|n| json!(n)).map_err(|_| ToolArgsError::ExpectsWholeNumber { flag: flag(), got: got() })
             }
         }
-        "number" => raw.trim().parse::<f64>().ok().filter(|n| n.is_finite()).map(|n| json!(n)).ok_or_else(|| format!("--{key} expects a number, got {raw:?}")),
+        "number" => {
+            raw.trim().parse::<f64>().ok().filter(|n| n.is_finite()).map(|n| json!(n)).ok_or_else(|| ToolArgsError::ExpectsNumber { flag: flag(), got: got() })
+        }
         "boolean" => match raw.trim() {
             "true" | "yes" | "1" => Ok(json!(true)),
             "false" | "no" | "0" => Ok(json!(false)),
-            _ => Err(format!("--{key} expects true or false, got {raw:?}")),
+            _ => Err(ToolArgsError::ExpectsBool { flag: flag(), got: got() }),
         },
-        "object" => serde_json::from_str::<Value>(raw).map_err(|e| format!("--{key} expects JSON: {e}")),
+        "object" => serde_json::from_str::<Value>(raw).map_err(|source| ToolArgsError::ExpectsJson { flag: flag(), source }),
         "array" => Ok(serde_json::from_str::<Value>(raw).ok().filter(Value::is_array).unwrap_or_else(|| json!([raw]))),
         "string" => Ok(json!(raw)),
         _ => Ok(serde_json::from_str::<Value>(raw).unwrap_or_else(|_| json!(raw))),
@@ -93,41 +128,41 @@ fn convert(ty: &str, key: &str, raw: &str) -> Result<Value, String> {
 }
 
 /// Read inline JSON or `@file.json`.
-pub fn read_json_arg(raw: &str) -> Result<Value, String> {
+pub fn read_json_arg(raw: &str) -> Result<Value, ToolArgsError> {
     let text = if raw == "-" {
         read_stdin_json(std::io::stdin())?
     } else {
         match raw.strip_prefix('@') {
-            Some(path) => std::fs::read_to_string(path).map_err(|e| format!("can't read {path}: {e}"))?,
+            Some(path) => std::fs::read_to_string(path).map_err(|source| ToolArgsError::ReadFile { path: path.to_string(), source })?,
             None => raw.to_string(),
         }
     };
     let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
-    serde_json::from_str(text).map_err(|e| format!("params must be a JSON object: {e}"))
+    serde_json::from_str(text).map_err(ToolArgsError::ParamsNotJson)
 }
 
 /// Most bytes of parameters taken from standard input.
 const MAX_STDIN_JSON: u64 = 64 << 20;
 
 /// Parameters piped in (`--json -`). Never waits at a terminal: nobody is going to type JSON there.
-fn read_stdin_json<R: std::io::Read + std::io::IsTerminal>(input: R) -> Result<String, String> {
+fn read_stdin_json<R: std::io::Read + std::io::IsTerminal>(input: R) -> Result<String, ToolArgsError> {
     if input.is_terminal() {
-        return Err("--json - reads parameters from a pipe, but standard input is a terminal; pipe the JSON in, or pass it inline or as @file.json".into());
+        return Err(ToolArgsError::StdinIsTerminal);
     }
     read_bounded_json(input)
 }
 
-fn read_bounded_json<R: std::io::Read>(input: R) -> Result<String, String> {
+fn read_bounded_json<R: std::io::Read>(input: R) -> Result<String, ToolArgsError> {
     use std::io::Read as _;
     let mut text = String::new();
-    let read = input.take(MAX_STDIN_JSON + 1).read_to_string(&mut text).map_err(|e| format!("can't read parameters from standard input: {e}"))?;
+    let read = input.take(MAX_STDIN_JSON + 1).read_to_string(&mut text).map_err(ToolArgsError::StdinRead)?;
     if read as u64 > MAX_STDIN_JSON {
-        return Err(format!("parameters on standard input are over the limit of {MAX_STDIN_JSON} bytes; use @file.json"));
+        return Err(ToolArgsError::StdinTooBig { limit: MAX_STDIN_JSON });
     }
     Ok(text)
 }
 
-pub fn parse(spec: &ToolSpec, schema: &Value, args: &[String]) -> Result<ToolInvocation, String> {
+pub fn parse(spec: &ToolSpec, schema: &Value, args: &[String]) -> Result<ToolInvocation, ToolArgsError> {
     let props = schema_props(schema);
     let mut params = Map::new();
     let mut positionals = Vec::new();
@@ -140,7 +175,7 @@ pub fn parse(spec: &ToolSpec, schema: &Value, args: &[String]) -> Result<ToolInv
             continue;
         }
         if a == "--json" || a == "--params" {
-            let raw = args.get(i).ok_or("--json needs a value")?;
+            let raw = args.get(i).ok_or_else(|| ToolArgsError::NeedsValue("json".into()))?;
             i += 1;
             merge(&mut params, read_json_arg(raw)?)?;
             continue;
@@ -157,7 +192,7 @@ pub fn parse(spec: &ToolSpec, schema: &Value, args: &[String]) -> Result<ToolInv
                 let raw = match inline {
                     Some(v) => v,
                     None => {
-                        let v = args.get(i).ok_or_else(|| format!("--{key} needs a value"))?.clone();
+                        let v = args.get(i).ok_or_else(|| ToolArgsError::NeedsValue(key.clone()))?.clone();
                         i += 1;
                         v
                     }
@@ -171,14 +206,18 @@ pub fn parse(spec: &ToolSpec, schema: &Value, args: &[String]) -> Result<ToolInv
             }
             let prop = props.get(&snake).ok_or_else(|| {
                 let known: Vec<String> = props.keys().map(|k| format!("--{}", k.replace('_', "-"))).collect();
-                format!("{} has no option --{key}. Options: {}", spec.cli_name(), if known.is_empty() { "(none)".into() } else { known.join(", ") })
+                ToolArgsError::UnknownOption {
+                    command: spec.cli_name().to_string(),
+                    flag: key.clone(),
+                    known: if known.is_empty() { "(none)".into() } else { known.join(", ") },
+                }
             })?;
             let ty = prop_type(schema, prop);
             let raw = match inline {
                 Some(v) => v,
                 None if ty == "boolean" && args.get(i).is_none_or(|n| n.starts_with("--")) => "true".to_string(),
                 None => {
-                    let v = args.get(i).ok_or_else(|| format!("--{key} needs a value"))?.clone();
+                    let v = args.get(i).ok_or_else(|| ToolArgsError::NeedsValue(key.clone()))?.clone();
                     i += 1;
                     v
                 }
@@ -225,7 +264,7 @@ pub fn parse(spec: &ToolSpec, schema: &Value, args: &[String]) -> Result<ToolInv
     }
     let mut slots = slots.into_iter();
     for p in positionals {
-        let slot = slots.next().ok_or_else(|| format!("{} doesn't take another argument ({p:?})", spec.cli_name()))?;
+        let slot = slots.next().ok_or_else(|| ToolArgsError::ExtraArgument { command: spec.cli_name().to_string(), arg: p.clone() })?;
         let ty = prop_type(schema, props.get(&slot).unwrap_or(&Value::Null));
         params.insert(slot.clone(), convert(&ty, &slot.replace('_', "-"), &p)?);
     }
@@ -233,13 +272,13 @@ pub fn parse(spec: &ToolSpec, schema: &Value, args: &[String]) -> Result<ToolInv
     Ok(inv)
 }
 
-fn merge(into: &mut Map<String, Value>, v: Value) -> Result<(), String> {
+fn merge(into: &mut Map<String, Value>, v: Value) -> Result<(), ToolArgsError> {
     match v {
         Value::Object(m) => {
             into.extend(m);
             Ok(())
         }
-        _ => Err("params must be a JSON object".into()),
+        _ => Err(ToolArgsError::ParamsNotObject),
     }
 }
 
@@ -315,7 +354,7 @@ mod tests {
     use craft_anything_engine::Registry;
 
     // The tests use built-in tools, whose schema is their own type's.
-    fn parse(spec: &ToolSpec, args: &[String]) -> Result<ToolInvocation, String> {
+    fn parse(spec: &ToolSpec, args: &[String]) -> Result<ToolInvocation, ToolArgsError> {
         super::parse(spec, &(spec.input_schema)(), args)
     }
     fn help(spec: &ToolSpec) -> String {
@@ -326,7 +365,7 @@ mod tests {
     fn integer_hex_rejects_sign() {
         for bad in ["0x+10", "0x-10", "0x", "0x 10"] {
             let e = super::convert("integer", "addr", bad).unwrap_err();
-            assert!(e.contains("expects a number"), "{bad}: {e}");
+            assert!(e.to_string().contains("expects a number"), "{bad}: {e}");
         }
         assert_eq!(super::convert("integer", "addr", "0x10").unwrap(), json!(16));
     }
@@ -335,9 +374,9 @@ mod tests {
     fn number_rejects_non_finite() {
         for raw in ["NaN", "inf", "-inf", "infinity"] {
             let e = convert("number", "x", raw).expect_err(raw);
-            assert!(e.contains("expects a number"), "{e}");
+            assert!(e.to_string().contains("expects a number"), "{e}");
         }
-        assert_eq!(convert("number", "x", "1.5"), Ok(json!(1.5)));
+        assert_eq!(convert("number", "x", "1.5").unwrap(), json!(1.5));
     }
 
     #[test]
@@ -390,7 +429,7 @@ mod tests {
         let upd = r.get("core_plan_update").unwrap();
         let inv = parse(upd, &["--json".into(), r#"{"steps":[]}"#.into(), "--based-on-revision".into(), "3".into()]).unwrap();
         assert_eq!(inv.params, json!({"steps": [], "based_on_revision": 3}));
-        assert!(parse(upd, &["--nope".into(), "1".into()]).unwrap_err().contains("--steps"));
+        assert!(parse(upd, &["--nope".into(), "1".into()]).unwrap_err().to_string().contains("--steps"));
         assert!(parse(upd, &["--based-on-revision".into(), "x".into()]).is_err());
 
         let close = r.get("core_target_close").unwrap();
@@ -453,7 +492,7 @@ mod tests {
         assert_eq!(read_bounded_json(&b"{\"a\":1}"[..]).unwrap(), "{\"a\":1}");
         let big = std::io::repeat(b' ').take(MAX_STDIN_JSON + 10);
         use std::io::Read as _;
-        assert!(read_bounded_json(big).unwrap_err().contains("over the limit"));
+        assert!(read_bounded_json(big).unwrap_err().to_string().contains("over the limit"));
         assert!(read_bounded_json(&[0xffu8, 0xfe][..]).is_err(), "bad text is an error");
     }
 }

@@ -17,10 +17,11 @@ craft-anything-platform = { workspace = true }
 craft-anything-mcp = { workspace = true }
 craft-anything-ai = { workspace = true }
 craft-anything-setup = { workspace = true }
+thiserror = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 log = { workspace = true }
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 ctrlc = { version = "3", features = ["termination"] }
 
 [features]

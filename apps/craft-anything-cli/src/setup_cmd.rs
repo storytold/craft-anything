@@ -1,11 +1,10 @@
 //! `setup`, `doctor`, `uninstall`.
 
 use crate::output::Format;
-use crate::{emit, fail, out};
+use crate::{Io, fail};
 use clap::Args;
-use craft_anything_setup::{ActionKind, CheckStatus, DoctorRequest, Host, PlanRequest};
+use craft_anything_setup::{ActionKind, CheckStatus, DoctorRequest, PlanRequest};
 use serde_json::{Value, json};
-use std::io::IsTerminal as _;
 
 #[derive(Debug, Args)]
 pub struct SetupArgs {
@@ -40,51 +39,50 @@ fn human(f: Format) -> bool {
     matches!(f, Format::Text | Format::Md)
 }
 
-fn confirm(question: &str) -> bool {
-    if !(std::io::stdin().is_terminal() && std::io::stderr().is_terminal()) {
+fn confirm(io: &mut Io<'_>, context: &crate::Context, question: &str) -> bool {
+    if !context.can_ask() {
         return false;
     }
-    eprint!("{question} [y/N] ");
-    let mut line = String::new();
-    std::io::stdin().read_line(&mut line).is_ok() && matches!(line.trim(), "y" | "Y" | "yes")
+    errp!(io, "{question} [y/N] ");
+    matches!(context.read_line().trim(), "y" | "Y" | "yes")
 }
 
-fn print_plan(plan: &craft_anything_setup::Plan) {
-    out(&format!("Register: {}", plan.command.join(" ")));
+fn print_plan(io: &mut Io<'_>, plan: &craft_anything_setup::Plan) {
+    io.line(&format!("Register: {}", plan.command.join(" ")));
     for a in &plan.actions {
         let v = serde_json::to_value(a).unwrap_or(Value::Null);
-        out(&format!("[{}] {} — {}", v["action"].as_str().unwrap_or_default(), a.display, v["path"].as_str().unwrap_or_default()));
+        io.line(&format!("[{}] {} — {}", v["action"].as_str().unwrap_or_default(), a.display, v["path"].as_str().unwrap_or_default()));
         if let Some(r) = v["reason"].as_str() {
-            out(&format!("    {r}"));
+            io.line(&format!("    {r}"));
         }
         if let Some(r) = v["remediation"].as_str() {
-            out(&format!("    → {r}"));
+            io.line(&format!("    → {r}"));
         }
         if matches!(a.action, ActionKind::Create | ActionKind::Update) {
             for l in v["preview"].as_str().unwrap_or_default().lines() {
-                out(&format!("    {l}"));
+                io.line(&format!("    {l}"));
             }
         }
     }
     for s in &plan.skills {
         let v = serde_json::to_value(s).unwrap_or(Value::Null);
-        out(&format!("[skill] {}", v["dir"].as_str().unwrap_or_default()));
+        io.line(&format!("[skill] {}", v["dir"].as_str().unwrap_or_default()));
     }
     for n in &plan.notes {
-        out(&format!("note: {n}"));
+        io.line(&format!("note: {n}"));
     }
 }
 
-pub fn setup(a: &SetupArgs, f: Format) -> u8 {
-    let host = Host::current();
-    let command = match craft_anything_setup::default_command() {
+pub fn setup(io: &mut Io<'_>, context: &crate::Context, a: &SetupArgs, f: Format) -> i32 {
+    let host = context.host();
+    let command = match context.mcp_command() {
         Ok(c) => c,
-        Err(e) => return fail(&e, f),
+        Err(e) => return fail(io, &e, f),
     };
     let req = PlanRequest { clients: a.clients.clone(), all_detected: a.all_detected, command, include_skill: !a.no_skill };
     let plan = match craft_anything_setup::plan(&host, &req) {
         Ok(p) => p,
-        Err(e) => return fail(&e, f),
+        Err(e) => return fail(io, &e, f),
     };
     let status = if plan.blocked {
         "blocked"
@@ -97,24 +95,24 @@ pub fn setup(a: &SetupArgs, f: Format) -> u8 {
     };
     if !status.is_empty() {
         if human(f) {
-            print_plan(&plan);
-            out(&format!("status: {status}"));
+            print_plan(io, &plan);
+            io.line(&format!("status: {status}"));
         } else {
-            emit(&json!({"status": status, "plan": plan}), f);
+            io.emit(&json!({"status": status, "plan": plan}), f);
         }
         return if plan.blocked { 1 } else { 0 };
     }
     let approved = a.yes || {
         if human(f) {
-            print_plan(&plan);
+            print_plan(io, &plan);
         }
-        confirm(&format!("Apply these {} changes?", plan.change_count()))
+        confirm(io, context, &format!("Apply these {} changes?", plan.change_count()))
     };
     if !approved {
         if human(f) {
-            out("status: needs_confirmation (re-run with --yes to apply)");
+            io.line("status: needs_confirmation (re-run with --yes to apply)");
         } else {
-            emit(&json!({"status": "needs_confirmation", "plan": plan}), f);
+            io.emit(&json!({"status": "needs_confirmation", "plan": plan}), f);
         }
         return 1;
     }
@@ -122,26 +120,26 @@ pub fn setup(a: &SetupArgs, f: Format) -> u8 {
     if human(f) {
         for r in &report.results {
             let v = serde_json::to_value(r).unwrap_or(Value::Null);
-            out(&format!(
+            io.line(&format!(
                 "[{}] {} {}",
                 v["outcome"].as_str().unwrap_or_default(),
                 v["client"].as_str().unwrap_or_default(),
                 v["error"].as_str().unwrap_or_default()
             ));
         }
-        out(&format!("status: {}", report.status));
+        io.line(&format!("status: {}", report.status));
         if !report.restart.is_empty() {
-            out(&format!("Restart {} to load Craft Anything.", report.restart.join(", ")));
+            io.line(&format!("Restart {} to load Craft Anything.", report.restart.join(", ")));
         }
     } else {
-        emit(&serde_json::to_value(&report).unwrap_or(Value::Null), f);
+        io.emit(&serde_json::to_value(&report).unwrap_or(Value::Null), f);
     }
     if matches!(report.status, "configured" | "unchanged") { 0 } else { 1 }
 }
 
-pub fn doctor(a: &DoctorArgs, f: Format) -> u8 {
-    let host = Host::current();
-    let req = DoctorRequest { clients: a.clients.clone(), extra: crate::ai_cmd::doctor_checks(), ..DoctorRequest::default() };
+pub fn doctor(io: &mut Io<'_>, context: &crate::Context, a: &DoctorArgs, f: Format) -> i32 {
+    let host = context.host();
+    let req = DoctorRequest { clients: a.clients.clone(), extra: crate::ai_cmd::doctor_checks(context), ..DoctorRequest::default() };
     let report = craft_anything_setup::doctor(&host, &req);
     if human(f) {
         for c in &report.checks {
@@ -151,23 +149,23 @@ pub fn doctor(a: &DoctorArgs, f: Format) -> u8 {
                 CheckStatus::Fail => "FAIL",
                 CheckStatus::Info => "info",
             };
-            out(&format!("[{st}] {}: {}", c.name, c.message));
+            io.line(&format!("[{st}] {}: {}", c.name, c.message));
             if let Some(r) = &c.remediation {
-                out(&format!("       → {r}"));
+                io.line(&format!("       → {r}"));
             }
         }
-        out(if report.healthy { "healthy" } else { "problems found" });
+        io.line(if report.healthy { "healthy" } else { "problems found" });
     } else {
-        emit(&serde_json::to_value(&report).unwrap_or(Value::Null), f);
+        io.emit(&serde_json::to_value(&report).unwrap_or(Value::Null), f);
     }
     if report.healthy { 0 } else { 1 }
 }
 
-pub fn uninstall(_a: &UninstallArgs, f: Format) -> u8 {
-    let report = craft_anything_setup::uninstall(&Host::current());
+pub fn uninstall(io: &mut Io<'_>, context: &crate::Context, _a: &UninstallArgs, f: Format) -> i32 {
+    let report = craft_anything_setup::uninstall(&context.host());
     // Coding-agent sessions a build left running when the app was killed, which the agent's own
     // service would otherwise resume after we're gone (#1115).
-    let logs = craft_anything_ai::failure_log::dir_in(&craft_anything_engine::settings::config_dir());
+    let logs = craft_anything_ai::failure_log::dir_in(&context.config_dir());
     let sessions = craft_anything_ai::cli_agents::unfinished::sweep(
         &craft_anything_ai::cli_agents::unfinished::dir_in(&logs),
         &craft_anything_ai::cli_agents::adapters::AgentAdapters::default(),
@@ -178,24 +176,24 @@ pub fn uninstall(_a: &UninstallArgs, f: Format) -> u8 {
     }
     if human(f) {
         for s in &sessions {
-            out(s);
+            io.line(s);
         }
         for r in &report.removed_entries {
             let e = serde_json::to_value(r).unwrap_or(Value::Null);
-            out(&format!("removed {} ({})", e["client"].as_str().unwrap_or_default(), e["path"].as_str().unwrap_or_default()));
+            io.line(&format!("removed {} ({})", e["client"].as_str().unwrap_or_default(), e["path"].as_str().unwrap_or_default()));
         }
         for p in &report.removed_skill_files {
-            out(&format!("removed {}", p.display()));
+            io.line(&format!("removed {}", p.display()));
         }
         for b in &report.blocking {
-            out(&format!("blocked by {}: {}", b.display, b.reason.as_deref().unwrap_or("its config can't be changed safely")));
+            io.line(&format!("blocked by {}: {}", b.display, b.reason.as_deref().unwrap_or("its config can't be changed safely")));
             if let Some(fix) = &b.remediation {
-                out(&format!("  {fix}"));
+                io.line(&format!("  {fix}"));
             }
         }
-        out(&format!("status: {}", report.status));
+        io.line(&format!("status: {}", report.status));
     } else {
-        emit(&v, f);
+        io.emit(&v, f);
     }
     if matches!(report.status, "removed" | "nothing_to_remove") { 0 } else { 1 }
 }

@@ -2,7 +2,6 @@
 
 use clap::ValueEnum;
 use serde_json::{Map, Value};
-use std::io::IsTerminal as _;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum, Default)]
 pub enum Format {
@@ -15,10 +14,10 @@ pub enum Format {
     Tsv,
 }
 
-pub fn render(v: &Value, f: Format) -> String {
+pub fn render(v: &Value, f: Format, pretty: bool) -> String {
     match f {
         Format::Json => {
-            if std::io::stdout().is_terminal() {
+            if pretty {
                 serde_json::to_string_pretty(v).unwrap_or_default()
             } else {
                 serde_json::to_string(v).unwrap_or_default()
@@ -171,14 +170,14 @@ mod tests {
     #[test]
     fn formats() {
         let v = json!({"a": 1, "b": {"c": [1, "x"]}});
-        assert_eq!(render(&v, Format::Jsonl), r#"{"a":1,"b":{"c":[1,"x"]}}"#);
-        let t = render(&v, Format::Text);
+        assert_eq!(render(&v, Format::Jsonl, false), r#"{"a":1,"b":{"c":[1,"x"]}}"#);
+        let t = render(&v, Format::Text, false);
         assert!(t.contains("a: 1") && t.contains("- x"), "{t}");
-        assert!(render(&v, Format::Md).starts_with("```json"));
+        assert!(render(&v, Format::Md, false).starts_with("```json"));
         let e = json!({"error": {"code": "bad_input", "message": "bad", "remediation": "fix it"}});
-        assert!(render(&e, Format::Text).contains("fix: fix it"));
-        assert!(render(&e, Format::Md).contains("What to do"));
-        assert_eq!(render(&json!([1, 2]), Format::Jsonl), "1\n2");
+        assert!(render(&e, Format::Text, false).contains("fix: fix it"));
+        assert!(render(&e, Format::Md, false).contains("What to do"));
+        assert_eq!(render(&json!([1, 2]), Format::Jsonl, false), "1\n2");
     }
 
     fn evidence(result: Value) -> Value {
@@ -188,49 +187,49 @@ mod tests {
     #[test]
     fn tables_show_the_largest_list_of_rows() {
         let v = evidence(json!({"total": 2, "notes": [{"a": 1}], "entries": [{"path": "a,b", "size": 1}, {"path": "c\"d", "kind": "x"}]}));
-        assert_eq!(render(&v, Format::Csv), "path,size,kind\n\"a,b\",1,\n\"c\"\"d\",,x");
-        assert_eq!(render(&v, Format::Tsv), "path\tsize\tkind\na,b\t1\t\nc\"d\t\tx");
+        assert_eq!(render(&v, Format::Csv, false), "path,size,kind\n\"a,b\",1,\n\"c\"\"d\",,x");
+        assert_eq!(render(&v, Format::Tsv, false), "path\tsize\tkind\na,b\t1\t\nc\"d\t\tx");
     }
 
     #[test]
     fn a_bare_array_and_a_plain_object_are_tables_too() {
-        assert_eq!(render(&json!([{"a": 1}, {"a": 2}]), Format::Csv), "a\n1\n2");
-        assert_eq!(render(&json!({"a": 1, "b": "x"}), Format::Csv), "a,b\n1,x");
-        assert_eq!(render(&json!([1, 2]), Format::Csv), "");
+        assert_eq!(render(&json!([{"a": 1}, {"a": 2}]), Format::Csv, false), "a\n1\n2");
+        assert_eq!(render(&json!({"a": 1, "b": "x"}), Format::Csv, false), "a,b\n1,x");
+        assert_eq!(render(&json!([1, 2]), Format::Csv, false), "");
     }
 
     #[test]
     fn a_plain_tools_wrapped_value_is_unwrapped() {
-        assert_eq!(render(&json!({"result": {"count": 0, "projects": [{"id": "a"}]}}), Format::Csv), "id\na");
-        assert_eq!(render(&json!({"result": {"count": 0}}), Format::Csv), "count\n0");
+        assert_eq!(render(&json!({"result": {"count": 0, "projects": [{"id": "a"}]}}), Format::Csv, false), "id\na");
+        assert_eq!(render(&json!({"result": {"count": 0}}), Format::Csv, false), "count\n0");
     }
 
     #[test]
     fn nested_values_stay_json_in_one_cell() {
-        assert_eq!(render(&json!([{"a": {"b": [1, 2]}}]), Format::Csv), "a\n\"{\"\"b\"\":[1,2]}\"");
+        assert_eq!(render(&json!([{"a": {"b": [1, 2]}}]), Format::Csv, false), "a\n\"{\"\"b\"\":[1,2]}\"");
     }
 
     #[test]
     fn text_from_a_hostile_file_cannot_become_a_spreadsheet_formula() {
         for evil in ["=cmd|' /C calc'!A0", "+1+1", "-2", "@SUM(A1)", "\t=1"] {
-            let csv = render(&json!([{"name": evil}]), Format::Csv);
+            let csv = render(&json!([{"name": evil}]), Format::Csv, false);
             let cell = csv.lines().nth(1).unwrap().trim_start_matches('"');
             assert!(cell.starts_with('\''), "{csv}");
-            let tsv = render(&json!([{"name": evil}]), Format::Tsv);
+            let tsv = render(&json!([{"name": evil}]), Format::Tsv, false);
             assert!(tsv.lines().nth(1).unwrap().starts_with('\''), "{tsv}");
         }
-        assert_eq!(render(&json!([{"n": -2}]), Format::Csv), "n\n-2", "real numbers stay numbers");
+        assert_eq!(render(&json!([{"n": -2}]), Format::Csv, false), "n\n-2", "real numbers stay numbers");
     }
 
     #[test]
     fn line_breaks_and_tabs_cannot_add_rows_or_columns() {
-        assert_eq!(render(&json!([{"a": "x\ny"}]), Format::Csv), "a\n\"x\ny\"");
-        assert_eq!(render(&json!([{"a": "x\n\ty"}]), Format::Tsv), "a\nx  y");
+        assert_eq!(render(&json!([{"a": "x\ny"}]), Format::Csv, false), "a\n\"x\ny\"");
+        assert_eq!(render(&json!([{"a": "x\n\ty"}]), Format::Tsv, false), "a\nx  y");
     }
 
     #[test]
     fn errors_stay_readable_in_table_formats() {
         let e = json!({"error": {"code": "x", "message": "boom"}});
-        assert!(render(&e, Format::Csv).contains("boom"));
+        assert!(render(&e, Format::Csv, false).contains("boom"));
     }
 }

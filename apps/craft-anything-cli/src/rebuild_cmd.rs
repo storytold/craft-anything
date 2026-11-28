@@ -2,14 +2,13 @@
 //! answered on the terminal, or automatically with `--unattended` (first choice; approvals are
 //! refused, so nothing outside the project happens without a person).
 
-use crate::{Cli, INTERRUPTED, make_engine};
+use crate::{Cli, INTERRUPTED, Io, make_engine_in};
 use clap::Args;
 use craft_anything_ai::rebuild::{self, RebuildRun, RunEvent, RunOptions};
 use craft_anything_ai::{AgentEvent, AiHub, BackendKind};
 use craft_anything_engine::inbox::{Answer, Request, RequestKind};
 use craft_anything_engine::workspace::Workspace;
 use craft_anything_evidence::ToolError;
-use std::io::{BufRead as _, Write as _};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -61,14 +60,14 @@ pub struct RebuildArgs {
     pub generate_assets: bool,
 }
 
-pub fn rebuild(cli: &Cli, a: &RebuildArgs) -> u8 {
-    match run(cli, a) {
+pub fn rebuild(io: &mut Io<'_>, cli: &Cli, a: &RebuildArgs) -> i32 {
+    match run(io, cli, a) {
         Ok(true) => 0,
         Ok(false) => 1,
         Err(e) => {
-            eprintln!("rebuild: {}", e.message);
+            errln!(io, "rebuild: {}", e.message);
             if let Some(r) = e.remediation {
-                eprintln!("  {r}");
+                errln!(io, "  {r}");
             }
             1
         }
@@ -76,7 +75,7 @@ pub fn rebuild(cli: &Cli, a: &RebuildArgs) -> u8 {
 }
 
 /// Add the agent app this run asks for, or the first one found when no enabled AI can build.
-fn ensure_agent(hub: &AiHub, requested: Option<&str>) -> Result<(), ToolError> {
+fn ensure_agent(io: &mut Io<'_>, hub: &AiHub, requested: Option<&str>) -> Result<(), ToolError> {
     let configured = hub.backends();
     // An enabled backend can build, so a run that names none needs no agent app.
     if requested.is_none() && configured.iter().any(|b| b.enabled) {
@@ -90,16 +89,16 @@ fn ensure_agent(hub: &AiHub, requested: Option<&str>) -> Result<(), ToolError> {
     // An explicit name may be an installed agent that isn't added yet: add only that one. With no
     // name, add the first agent found.
     if let Some(d) = hub.detect().into_iter().find(|d| d.suggestion.kind == BackendKind::AgentCli && requested.is_none_or(|name| d.suggestion.name == name)) {
-        eprintln!("Using {} ({}).", d.suggestion.name, d.reason);
+        errln!(io, "Using {} ({}).", d.suggestion.name, d.reason);
         hub.add_backend(d.suggestion, None)?;
     }
     Ok(())
 }
 
 /// The `rebuild` command: open or make the project, start the run, and print its events until it ends.
-fn run(cli: &Cli, a: &RebuildArgs) -> Result<bool, ToolError> {
-    let engine = make_engine(None, cli.deep_for_run())?;
-    let hub = AiHub::new(engine.clone());
+fn run(io: &mut Io<'_>, cli: &Cli, a: &RebuildArgs) -> Result<bool, ToolError> {
+    let engine = make_engine_in(&cli.context, None, cli.deep_for_run())?;
+    let hub = cli.context.hub(engine.clone());
     // Before the build starts, while no session lock is held (#1225).
     if let Err(e) = hub.ensure_session_id() {
         log::warn!("couldn't save the OpenCode Go session id: {e}");
@@ -111,7 +110,7 @@ fn run(cli: &Cli, a: &RebuildArgs) -> Result<bool, ToolError> {
     if a.generate_assets && a.continue_in.is_some() {
         return Err(ToolError::invalid("--generate-assets is for new projects.").with_remediation("Use project-assets-allow for an existing project."));
     }
-    ensure_agent(&hub, a.backend.as_deref())?;
+    ensure_agent(io, &hub, a.backend.as_deref())?;
     // Refuse an unknown or switched-off name before opening or making a project: a command that
     // can't build must not leave a new folder behind.
     if let Some(name) = a.backend.as_deref() {
@@ -152,7 +151,7 @@ fn run(cli: &Cli, a: &RebuildArgs) -> Result<bool, ToolError> {
             (ws, rebuild::project::attached_request(attached, &a.request))
         }
     };
-    println!("Project: {}", ws.root.display());
+    outln!(io, "Project: {}", ws.root.display());
     // The saved builder may be off or gone; say who builds once the run has started, so a failed
     // start doesn't claim an AI that never ran.
     let replacement = rebuild::builder_replacement(&hub.config(), &ws, a.backend.as_deref());
@@ -172,7 +171,7 @@ fn run(cli: &Cli, a: &RebuildArgs) -> Result<bool, ToolError> {
     };
     let mut run = RebuildRun::start(&hub, ws, opts)?;
     if let Some(replacement) = replacement {
-        eprintln!("{}", rebuild::replaced_builder_notice(&replacement.saved, &replacement.used));
+        errln!(io, "{}", rebuild::replaced_builder_notice(&replacement.saved, &replacement.used));
     }
     let mut ok = false;
     let mut line_open = false;
@@ -183,48 +182,49 @@ fn run(cli: &Cli, a: &RebuildArgs) -> Result<bool, ToolError> {
         for e in run.poll() {
             match e {
                 RunEvent::Step { step, text } => {
-                    end_line(&mut line_open);
-                    println!("[{}] {text}", step.label());
+                    end_line(io, &mut line_open);
+                    outln!(io, "[{}] {text}", step.label());
                 }
                 RunEvent::Agent(AgentEvent::TextDelta { text }) => {
-                    print!("{text}");
+                    outp!(io, "{text}");
                     line_open = !text.ends_with('\n');
                 }
                 RunEvent::Agent(AgentEvent::ToolStarted { tool, input, .. }) => {
-                    end_line(&mut line_open);
-                    println!("  · {}", rebuild::activity::describe(&tool, &input, &[]).words());
+                    end_line(io, &mut line_open);
+                    outln!(io, "  · {}", rebuild::activity::describe(&tool, &input, &[]).words());
                 }
                 RunEvent::Agent(AgentEvent::Error { message, remediation, log }) => {
-                    end_line(&mut line_open);
-                    println!("  ! {message}");
+                    end_line(io, &mut line_open);
+                    outln!(io, "  ! {message}");
                     if let Some(r) = remediation {
-                        println!("{r}");
+                        outln!(io, "{r}");
                     }
                     if let Some(l) = log {
-                        println!("  log: {}", l.display());
+                        outln!(io, "  log: {}", l.display());
                     }
                 }
                 RunEvent::Agent(_) => {}
                 RunEvent::Note { shown, .. } => {
-                    end_line(&mut line_open);
-                    println!("  + {shown}");
+                    end_line(io, &mut line_open);
+                    outln!(io, "  + {shown}");
                 }
                 RunEvent::Ask(r) => {
-                    end_line(&mut line_open);
-                    let answer = if a.unattended { auto_answer(&r) } else { prompt_answer(&r) };
+                    end_line(io, &mut line_open);
+                    let answer = if a.unattended { auto_answer(io, &r) } else { prompt_answer(io, &cli.context, &r) };
                     run.answer(&r.id, &answer)?;
                 }
                 RunEvent::Checked(c) => {
-                    end_line(&mut line_open);
+                    end_line(io, &mut line_open);
                     match c.similarity {
-                        Some(s) => println!("[Check {}] {s:.0}% alike — {}", c.round, c.note),
-                        None => println!("[Check {}] {}", c.round, c.note),
+                        Some(s) => outln!(io, "[Check {}] {s:.0}% alike — {}", c.round, c.note),
+                        None => outln!(io, "[Check {}] {}", c.round, c.note),
                     }
                 }
-                RunEvent::Preview(url) => println!("Preview: {url}"),
+                RunEvent::Preview(url) => outln!(io, "Preview: {url}"),
                 RunEvent::Finished { ok: o, message, paused } => {
-                    end_line(&mut line_open);
-                    println!(
+                    end_line(io, &mut line_open);
+                    outln!(
+                        io,
                         "{}",
                         if o {
                             format!("Done. {message}")
@@ -243,21 +243,20 @@ fn run(cli: &Cli, a: &RebuildArgs) -> Result<bool, ToolError> {
         }
         std::thread::sleep(Duration::from_millis(100));
     }
-    let _ = std::io::stdout().flush();
     Ok(ok)
 }
 
-fn end_line(open: &mut bool) {
+fn end_line(io: &mut Io<'_>, open: &mut bool) {
     if *open {
-        println!();
+        outln!(io);
         *open = false;
     }
 }
 
-fn auto_answer(r: &Request) -> Answer {
+pub(crate) fn auto_answer(io: &mut Io<'_>, r: &Request) -> Answer {
     match r.kind {
         RequestKind::Question => {
-            println!("? {} → {} (unattended)", r.title, r.choices.first().map(String::as_str).unwrap_or("no preference"));
+            outln!(io, "? {} → {} (unattended)", r.title, r.choices.first().map(String::as_str).unwrap_or("no preference"));
             Answer {
                 choice: r.choices.first().cloned(),
                 text: r.choices.is_empty().then(|| "No preference; use your best judgement.".to_string()),
@@ -265,40 +264,36 @@ fn auto_answer(r: &Request) -> Answer {
             }
         }
         RequestKind::Approval => {
-            println!("? {} → refused (unattended)", r.title);
+            outln!(io, "? {} → refused (unattended)", r.title);
             Answer { allow: Some(false), text: Some("Unattended run: actions outside the project aren't allowed.".into()), ..Default::default() }
         }
     }
 }
 
-fn read_line() -> String {
-    let mut s = String::new();
-    let _ = std::io::stdin().lock().read_line(&mut s);
-    s.trim().to_string()
+fn read_line(context: &crate::Context) -> String {
+    context.read_line().trim().to_string()
 }
 
-fn prompt_answer(r: &Request) -> Answer {
-    println!("\n? {}", r.title);
+pub(crate) fn prompt_answer(io: &mut Io<'_>, context: &crate::Context, r: &Request) -> Answer {
+    outln!(io, "\n? {}", r.title);
     if !r.detail.is_empty() {
-        println!("  {}", r.detail.lines().take(12).collect::<Vec<_>>().join("\n  "));
+        outln!(io, "  {}", r.detail.lines().take(12).collect::<Vec<_>>().join("\n  "));
     }
     match r.kind {
         RequestKind::Question => {
             for (i, c) in r.choices.iter().enumerate() {
-                println!("  {}) {c}", i + 1);
+                outln!(io, "  {}) {c}", i + 1);
             }
-            print!("Your answer (number or text): ");
-            let _ = std::io::stdout().flush();
-            let line = read_line();
+            outp!(io, "Your answer (number or text): ");
+            let line = read_line(context);
             match line.parse::<usize>().ok().and_then(|n| n.checked_sub(1)).and_then(|i| r.choices.get(i)) {
                 Some(c) => Answer { choice: Some(c.clone()), ..Default::default() },
                 None => Answer { text: Some(line), ..Default::default() },
             }
         }
         RequestKind::Approval => {
-            print!("Allow? [y]es / [a]lways for this project / [n]o: ");
-            let _ = std::io::stdout().flush();
-            let line = read_line().to_lowercase();
+            outp!(io, "Allow? [y]es / [a]lways for this project / [n]o: ");
+            let line = read_line(context).to_lowercase();
             Answer { allow: Some(line.starts_with('y') || line.starts_with('a')), always: line.starts_with('a'), ..Default::default() }
         }
     }
