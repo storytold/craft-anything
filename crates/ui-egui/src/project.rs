@@ -121,7 +121,8 @@ impl CraftApp {
     }
 
     /// A project from [`Self::start_make`] was made: its build starts.
-    pub(crate) fn created(&mut self, ws: Workspace, request: String, backend: String, pictures: Option<String>, attached: bool) {
+    pub(crate) fn created(&mut self, mut ws: Workspace, request: String, backend: String, pictures: Option<String>, attached: bool) {
+        let creation_warning = ws.creation_warning.take();
         if let Some(e) = pictures {
             self.toast(format!("{} {}", tr("Couldn't add the pictures:"), e), true);
         }
@@ -130,15 +131,20 @@ impl CraftApp {
         self.projects.retain(|p| p.root != ws.root);
         self.projects.insert(0, ws.clone());
         let root = ws.root.clone();
+        let identity = craft_anything_engine::feed::ProjectIdentity::from_workspace(&ws).ok();
+        if let Some(identity) = &identity {
+            self.runs.detach_other_project(&root, identity);
+        }
         let message = rebuild::project::attached_request(attached, &request);
         // A project already building keeps its live conversation; the request stays in Make for
         // the person to send later, because a second start can't run beside it.
         if self.runs.is_running(&root) || self.runs.position(&root).is_some() {
-            self.state.feed = match self.runs.get_mut(&root).filter(|r| r.is_running()) {
+            self.state.feed = match self.runs.get_mut(&root).filter(|r| identity.is_some() && r.is_running()) {
                 Some(run) => run.feed_now(),
-                None => feed::load(&ws),
+                None => feed::for_display(&ws),
             };
             self.start_run(ws, Some(backend), message, None, Vec::new());
+            self.show_creation_warning(creation_warning);
             return;
         }
         // An attached project uses the builder it saved; a new one uses the one Make was started with.
@@ -151,7 +157,7 @@ impl CraftApp {
         if attached {
             // The project already has a conversation: keep it, and append the request. The run
             // records the request in the feed when it starts; the app only reads the feed.
-            self.state.feed = feed::load(&ws);
+            self.state.feed = feed::for_display(&ws);
             self.state.feed.push(FeedItem::User(UserItem::Text(request.clone())));
         } else {
             self.state.feed = vec![FeedItem::User(UserItem::Text(request.clone()))];
@@ -160,6 +166,13 @@ impl CraftApp {
         // Keep an edited draft; clear it only once this request is running or queued.
         if self.state.make.request.trim() == request && (self.runs.is_running(&root) || self.runs.position(&root).is_some()) {
             self.state.make = MakeDraft::default();
+        }
+        self.show_creation_warning(creation_warning);
+    }
+
+    fn show_creation_warning(&mut self, warning: Option<String>) {
+        if let Some(warning) = warning {
+            self.toast(format!("{} {warning}", tr("The project was created, but cleanup needs attention.")), true);
         }
     }
 
@@ -208,6 +221,7 @@ impl CraftApp {
             Ok(Started::Queued { .. }) => self.toast(tr("Another build is working, so this one waits its turn."), false),
             Err(e) => self.state.feed.push(FeedItem::Error { message: e.message, remediation: e.remediation, log: None }),
         }
+        self.workspace_identity = craft_anything_engine::feed::ProjectIdentity::from_workspace(&ws).ok();
         self.workspace = Some(ws);
         self.refresh_projects();
     }
@@ -223,25 +237,51 @@ impl CraftApp {
     /// unlisted folder (#2340).
     pub(crate) fn open_workspace_mode(&mut self, ws: Workspace, remember: bool) {
         let root = ws.root.clone();
-        let same = self.workspace.as_ref().is_some_and(|w| w.root == ws.root);
+        let identity = craft_anything_engine::feed::ProjectIdentity::from_workspace(&ws).ok();
+        let detached = identity.as_ref().is_some_and(|identity| self.runs.detach_other_project(&root, identity));
+        let same_path = self.workspace.as_ref().is_some_and(|w| w.root == ws.root);
+        let same = !detached && same_path && self.workspace_identity.as_ref().zip(identity.as_ref()).is_some_and(|(old, current)| old.is_same_project(current));
+        let replaced = detached
+            || (same_path && self.workspace_identity.as_ref().zip(identity.as_ref()).is_some_and(|(old, current)| !old.is_same_project(current)))
+            || self.unsent_projects.get(&root).zip(identity.as_ref()).is_some_and(|(old, current)| !old.is_same_project(current));
         if !same {
             // What was typed here stays with this project; the next one's comes back.
             let typed = (std::mem::take(&mut self.state.project_input), std::mem::take(&mut self.state.project_attachments));
             if let Some(old) = &self.workspace
+                && !(same_path && replaced)
                 && (!typed.0.trim().is_empty() || !typed.1.is_empty())
             {
                 self.state.unsent.insert(old.root.clone(), typed);
+                if let Some(project) = &self.workspace_identity {
+                    self.unsent_projects.insert(old.root.clone(), project.clone());
+                }
             }
-            (self.state.project_input, self.state.project_attachments) = self.state.unsent.remove(&ws.root).unwrap_or_default();
+            if replaced {
+                self.state.unsent.remove(&root);
+                self.unsent_projects.remove(&root);
+                self.send_after_checks.remove(&root);
+                self.pending_attach_checks.remove(&root);
+                self.last_run.remove(&root);
+                self.usage.remove(&root);
+                self.asking.remove(&root);
+                self.pausing.remove(&root);
+                self.drafts.retain(|_, draft| draft.root != root);
+            }
+            // An unreadable identity leaves the saved draft in place until it can be checked.
+            let restore = self.unsent_projects.get(&root).is_none_or(|old| identity.as_ref().is_some_and(|current| old.is_same_project(current)));
+            if restore {
+                (self.state.project_input, self.state.project_attachments) = self.state.unsent.remove(&root).unwrap_or_default();
+            }
             // Events so far go to the project they belong to before the screen changes.
             self.poll_run();
             self.preview = None;
-            self.state.feed = match self.runs.get_mut(&ws.root).filter(|r| r.is_running()) {
+            self.state.feed = match self.runs.get_mut(&ws.root).filter(|r| identity.is_some() && r.is_running()) {
                 Some(run) => run.feed_now(),
-                None => feed::load(&ws),
+                None => feed::for_display(&ws),
             };
             self.load_asked(&ws);
         }
+        self.workspace_identity = identity;
         self.workspace = Some(ws.clone());
         if remember {
             if !self.projects.iter().any(|p| p.root == ws.root) {
@@ -254,7 +294,11 @@ impl CraftApp {
         self.refresh_side_panel();
         self.state.screen = Screen::Project;
         // A Send pressed before its picture checks finished, on a project they left: send now.
-        if !self.pending_attach_checks.contains_key(&root) && self.send_after_checks.remove(&root) {
+        if !self.pending_attach_checks.contains_key(&root)
+            && let Some(owner) = self.send_after_checks.remove(&root)
+            && self.workspace_identity.as_ref().is_some_and(|current| owner.is_same_project(current))
+            && owner.check_current(&root).is_ok()
+        {
             self.send_message();
         }
     }
@@ -297,21 +341,39 @@ impl CraftApp {
 
     /// Answer a question or approval card. `shown` is what the feed says was answered.
     pub fn answer_request(&mut self, id: &str, answer: Answer, shown: String) {
+        self.answer_request_using(id, answer, shown, || {});
+    }
+
+    fn answer_request_using(&mut self, id: &str, answer: Answer, shown: String, after_answer: impl FnOnce()) {
         let r = match (self.open_run(), &self.workspace) {
             (Some(run), _) => run.answer_as(id, &answer, &shown),
-            (None, Some(ws)) => {
-                // The question, taken before it's answered: whoever asked may remove it right after.
-                let inbox = Inbox::new(ws.inbox_dir());
-                let question = inbox.pending().into_iter().find(|r| r.id == id);
-                inbox.answer(id, &answer).and_then(|()| question.map_or(Ok(()), |q| feed::record_answer(ws, &q, &shown)))
-            }
+            (None, Some(ws)) => Inbox::new(ws.inbox_dir()).answer_recorded(ws, id, &answer, &shown),
             _ => return,
         };
         if let Err(e) = r {
-            self.toast(e.message, true);
+            self.toast(e.for_people(), true);
             return;
         }
-        feed::answered(&mut self.state.feed, id, &shown);
+        after_answer();
+        let current = match (self.open_run(), &self.workspace) {
+            (Some(run), _) => run.display_feed(),
+            (None, Some(ws)) => feed::for_display(ws),
+            _ => Vec::new(),
+        };
+        let updated = current.into_iter().find(|item| matches!(item, FeedItem::Ask { request, answer: Some(_) } if request.id == id));
+        if let Some(card) = self.state.feed.iter_mut().find(|item| matches!(item, FeedItem::Ask { request, .. } if request.id == id)) {
+            // The display may have added an undelivered-reply hint to the old request.
+            // Replace that card only; pending events still need their usual polling effects.
+            if let Some(updated) = updated {
+                *card = updated;
+            } else if let FeedItem::Ask { request, answer } = card {
+                // Submission succeeded even if another writer removed this row before refresh.
+                // The answered card shows the submitted words; omit the obsolete detail and
+                // its delivery warning until a canonical card is available again.
+                request.detail.clear();
+                *answer = Some(shown);
+            }
+        }
         self.state.answers.remove(id);
         if !self.state.feed.iter().any(|f| matches!(f, FeedItem::Ask { answer: None, .. }))
             && let Some(ws) = &self.workspace
@@ -323,20 +385,39 @@ impl CraftApp {
     /// Every run's events: the open project's go to the screen (each run keeps its own
     /// project's feed). Queued runs start as others finish.
     pub fn poll_run(&mut self) {
+        self.poll_run_using(|_| {});
+    }
+
+    fn poll_run_using(&mut self, after_poll: impl FnOnce(&mut Self)) {
+        if self.workspace_identity.is_none()
+            && let Some(ws) = &self.workspace
+        {
+            // Confirm the selected project before consuming a batch. A temporary read failure
+            // leaves every event, including Finished, available for the next successful poll.
+            let Ok(identity) = craft_anything_engine::feed::ProjectIdentity::from_workspace(ws) else { return };
+            self.workspace_identity = Some(identity);
+        }
         self.runs.set_limit(self.settings.build.parallel);
-        let events = self.runs.poll(&self.hub);
+        let mut events = self.runs.poll_with_snapshots(&self.hub);
+        after_poll(self);
         if events.is_empty() {
             return;
         }
         let open = self.workspace.as_ref().map(|w| w.root.clone());
+        let mut updated_open = false;
         let mut finished = Vec::new();
-        for (root, e) in &events {
-            if open.as_ref() == Some(root) {
-                apply(&mut self.state.feed, e);
-                if matches!(e, RunEvent::Agent(AgentEvent::ToolFinished { .. } | AgentEvent::TurnDone { .. })) {
+        for update in &mut events {
+            if open.as_ref() == Some(&update.root) {
+                if !self.workspace_identity.as_ref().is_some_and(|identity| update.is_for_project(&update.root, identity)) {
+                    continue;
+                }
+                updated_open = true;
+                update.update_feed(&mut self.state.feed);
+                if matches!(&update.event, RunEvent::Agent(AgentEvent::ToolFinished { .. } | AgentEvent::TurnDone { .. })) {
                     self.view_dirty = true;
                 }
             }
+            let (root, e) = (&update.root, &update.event);
             // The run saves its usage at each agent turn and when it ends; read it again then.
             if matches!(e, RunEvent::Ask(_)) {
                 self.asking.insert(root.clone());
@@ -360,7 +441,7 @@ impl CraftApp {
                 _ => {}
             }
         }
-        if events.iter().any(|(root, _)| open.as_ref() == Some(root)) {
+        if updated_open {
             self.refresh_side_panel();
         }
         if finished.is_empty() {
@@ -432,8 +513,14 @@ impl CraftApp {
     /// Read picture sizes off the UI thread, then apply the result on it.
     fn check_pictures(&mut self, files: Vec<PathBuf>, target: PictureTarget) {
         match &target {
-            PictureTarget::Attach(Some(root)) => *self.pending_attach_checks.entry(root.clone()).or_default() += 1,
-            PictureTarget::Attach(None) => {}
+            PictureTarget::Attach(Some(root), Some(project)) => {
+                let pending = self.pending_attach_checks.entry(root.clone()).or_insert_with(|| (project.clone(), 0));
+                if !pending.0.is_same_project(project) {
+                    *pending = (project.clone(), 0);
+                }
+                pending.1 += 1;
+            }
+            PictureTarget::Attach(_, _) => {}
             PictureTarget::Make => self.pending_make_checks += 1,
             PictureTarget::Project(_) => {}
         }
@@ -455,7 +542,8 @@ impl CraftApp {
 
     /// Keep checked pictures with a project the person switched away from, so their saved Send
     /// can use them when they come back.
-    fn keep_attachments(&mut self, root: &Path, files: Vec<PathBuf>) {
+    fn keep_attachments(&mut self, root: &Path, project: &craft_anything_engine::feed::ProjectIdentity, files: Vec<PathBuf>) {
+        self.unsent_projects.insert(root.to_path_buf(), project.clone());
         let saved = self.state.unsent.entry(root.to_path_buf()).or_default();
         for f in files {
             if !saved.1.contains(&f) {
@@ -482,18 +570,27 @@ impl CraftApp {
     /// The worker checked the pictures: refuse them, attach them, keep them for Make, or copy
     /// them into the project that is still open.
     pub(crate) fn pictures_checked(&mut self, files: Vec<PathBuf>, refused: Option<String>, target: PictureTarget) {
+        if let PictureTarget::Attach(Some(root), project) = &target
+            && project.as_ref().is_none_or(|owner| owner.check_current(root).is_err())
+        {
+            self.picture_check_finished(&target, true);
+            return;
+        }
         if let Some(name) = refused {
             self.show_picture_refused(&name);
             self.picture_check_finished(&target, true);
             return;
         }
         match &target {
-            PictureTarget::Attach(root) => {
-                let showing = root.as_ref().is_none_or(|r| self.workspace.as_ref().is_some_and(|w| &w.root == r));
+            PictureTarget::Attach(root, project) => {
+                let showing = root.as_ref().is_none_or(|r| {
+                    self.workspace.as_ref().is_some_and(|w| &w.root == r)
+                        && project.as_ref().zip(self.workspace_identity.as_ref()).is_some_and(|(owner, current)| owner.is_same_project(current))
+                });
                 if showing {
                     self.attach_checked(files);
-                } else if let Some(root) = root {
-                    self.keep_attachments(root, files);
+                } else if let Some((root, project)) = root.as_ref().zip(project.as_ref()) {
+                    self.keep_attachments(root, project, files);
                 }
             }
             PictureTarget::Make => {
@@ -522,18 +619,25 @@ impl CraftApp {
     /// One worker check finished: clear its wait, then send or start if that was the last check for
     /// the destination the person is waiting on.
     fn picture_check_finished(&mut self, target: &PictureTarget, refused: bool) {
-        if let PictureTarget::Attach(Some(root)) = target {
-            if let Some(left) = self.pending_attach_checks.get_mut(root) {
+        if let PictureTarget::Attach(Some(root), Some(project)) = target {
+            if self.pending_attach_checks.get(root).is_some_and(|(owner, _)| !owner.is_same_project(project)) {
+                return;
+            }
+            if let Some((_, left)) = self.pending_attach_checks.get_mut(root) {
                 *left = left.saturating_sub(1);
                 if *left == 0 {
                     self.pending_attach_checks.remove(root);
                 }
             }
             if refused {
-                self.send_after_checks.remove(root);
+                if self.send_after_checks.get(root).is_some_and(|owner| project.is_same_project(owner)) {
+                    self.send_after_checks.remove(root);
+                }
             } else if !self.pending_attach_checks.contains_key(root)
-                && self.send_after_checks.contains(root)
                 && self.workspace.as_ref().is_some_and(|w| &w.root == root)
+                && self.workspace_identity.as_ref().is_some_and(|current| project.is_same_project(current))
+                && self.send_after_checks.get(root).is_some_and(|owner| project.is_same_project(owner))
+                && project.check_current(root).is_ok()
             {
                 self.send_after_checks.remove(root);
                 self.send_message();
@@ -2112,6 +2216,7 @@ fn questions_controls(app: &mut CraftApp, ui: &mut Ui, now: craft_anything_engin
 pub struct PendingPaste {
     pub job: u64,
     pub root: PathBuf,
+    pub project: Option<craft_anything_engine::feed::ProjectIdentity>,
     pub send: bool,
     /// The pasted picture was actually attached (false when it was refused, e.g. over 20 MB).
     pub attached: bool,
@@ -2119,8 +2224,8 @@ pub struct PendingPaste {
 
 /// Where pictures that passed the worker check go.
 pub enum PictureTarget {
-    /// `Some(root)`: only attach while that project is still open.
-    Attach(Option<PathBuf>),
+    /// Retain the original project identity while the size check runs.
+    Attach(Option<PathBuf>, Option<craft_anything_engine::feed::ProjectIdentity>),
     Make,
     Project(PathBuf),
 }
@@ -2146,7 +2251,7 @@ impl CraftApp {
     pub fn attach(&mut self, files: Vec<PathBuf>) {
         if !files.is_empty() {
             let root = self.workspace.as_ref().map(|w| w.root.clone());
-            self.check_pictures(files, PictureTarget::Attach(root));
+            self.check_pictures(files, PictureTarget::Attach(root, self.workspace_identity.clone()));
         }
     }
 
@@ -2188,17 +2293,18 @@ impl CraftApp {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let root = project.clone();
+            let project_identity = self.workspace_identity.clone();
             let job = self.jobs.spawn(tr("Paste pictures"), false, move |_| {
                 let files = crate::paste::read_pictures(&craft_anything_engine::workspace::pasted_dir(), &keep)?;
                 if files.is_empty() {
                     return Err(tr("There's no picture on the clipboard to paste."));
                 }
                 let refused = oversized_picture_name(&files);
-                Ok(Done::Pasted { project, files, refused })
+                Ok(Done::Pasted { project, project_identity, files, refused })
             });
             // A message sent before the picture is in waits for it (`send_message`).
             if let Some(root) = root {
-                self.pending_paste = Some(PendingPaste { job, root, send: false, attached: false });
+                self.pending_paste = Some(PendingPaste { job, root, project: self.workspace_identity.clone(), send: false, attached: false });
             }
         }
     }
@@ -2213,15 +2319,33 @@ impl CraftApp {
     /// typed stays in the box to send again.
     pub(crate) fn paste_done(&mut self, job: u64, ok: bool) {
         let Some(p) = self.pending_paste.take_if(|p| p.job == job) else { return };
-        if p.send && ok && p.attached && self.state.screen == Screen::Project && self.workspace.as_ref().is_some_and(|w| w.root == p.root) {
+        if p.send
+            && ok
+            && p.attached
+            && self.state.screen == Screen::Project
+            && self.workspace.as_ref().is_some_and(|w| w.root == p.root)
+            && p.project.as_ref().zip(self.workspace_identity.as_ref()).is_some_and(|(owner, current)| owner.is_same_project(current))
+            && p.project.as_ref().is_some_and(|owner| owner.check_current(&p.root).is_ok())
+        {
             self.send_message();
         }
     }
 
     /// Pasted pictures were read: attached to the project they were pasted in while its screen is
     /// still showing, or added to Make's pictures while Make is still showing.
-    pub(crate) fn pasted(&mut self, project: Option<PathBuf>, files: Vec<PathBuf>, refused: Option<String>) {
-        let showing = |root: &PathBuf| self.state.screen == Screen::Project && self.workspace.as_ref().is_some_and(|w| &w.root == root);
+    pub(crate) fn pasted(
+        &mut self,
+        project: Option<PathBuf>,
+        project_identity: Option<craft_anything_engine::feed::ProjectIdentity>,
+        files: Vec<PathBuf>,
+        refused: Option<String>,
+    ) {
+        let showing = |root: &PathBuf| {
+            self.state.screen == Screen::Project
+                && self.workspace.as_ref().is_some_and(|w| &w.root == root)
+                && project_identity.as_ref().zip(self.workspace_identity.as_ref()).is_some_and(|(owner, current)| owner.is_same_project(current))
+                && project_identity.as_ref().is_some_and(|owner| owner.check_current(root).is_ok())
+        };
         match project {
             Some(root) if showing(&root) => {
                 let attached = match refused {
@@ -2258,8 +2382,12 @@ impl CraftApp {
             return self.toast(tr("This project is waiting its turn. Send your message once it starts."), true);
         }
         // Attached pictures are still being checked: send this project's text once they finish.
-        if self.pending_attach_checks.get(&ws.root).is_some_and(|left| *left > 0) {
-            self.send_after_checks.insert(ws.root.clone());
+        if let Some((owner, left)) = self.pending_attach_checks.get(&ws.root)
+            && *left > 0
+        {
+            if self.workspace_identity.as_ref().is_some_and(|current| owner.is_same_project(current)) && owner.check_current(&ws.root).is_ok() {
+                self.send_after_checks.insert(ws.root.clone(), owner.clone());
+            }
             return;
         }
         // A picture still being pasted goes with the message: it's sent once the picture is in.
@@ -2400,6 +2528,189 @@ mod tests {
     }
 
     #[test]
+    fn reopening_a_replaced_path_detaches_its_old_conversation_and_late_events() {
+        for replace_directory in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let original = Workspace::create(directory.path(), "Project", "An old project", TargetRef::None).unwrap();
+            let fake = rebuild::StandIns::new();
+            let mut app = crate::demo::app(crate::demo::engine(craft_anything_engine::Mode::Beginner, true));
+            app.runs = rebuild::RunSet::new(1).with_starter(fake.starter());
+            app.open_workspace(original.clone());
+            app.runs.start(&app.hub, original.clone(), RunOptions::default()).unwrap();
+            fake.send(&original.root, RunEvent::Agent(AgentEvent::TextDelta { text: "Old conversation".into() }));
+            app.poll_run();
+            assert!(app.state.feed.iter().any(|item| matches!(item, FeedItem::Agent { text, .. } if text == "Old conversation")));
+            app.state.project_input = "A draft for the old project".into();
+            let manifest = original.root.join("craft.json");
+            let bytes = std::fs::read(&manifest).unwrap();
+            if replace_directory {
+                move_project_with_open_run(&original, &directory.path().join("retired"));
+                let replacement = Workspace::create(directory.path(), "Project", "A replacement", TargetRef::None).unwrap();
+                assert_eq!(replacement.root, original.root);
+                std::fs::write(&manifest, bytes).unwrap();
+            } else {
+                let mut replacement: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                replacement["generation"] = serde_json::json!("ffffffffffffffffffffffffffffffff");
+                std::fs::write(&manifest, serde_json::to_vec(&replacement).unwrap()).unwrap();
+                std::fs::remove_file(original.root.join(feed::FEED_FILE)).unwrap();
+            }
+            let replacement = Workspace::open(&original.root).unwrap();
+
+            app.open_workspace(replacement);
+
+            assert!(app.runs.get(&original.root).is_none());
+            assert!(app.state.project_input.is_empty(), "a draft must not follow a replacement at the same path");
+            assert!(!app.state.feed.iter().any(|item| matches!(item, FeedItem::Agent { text, .. } if text.contains("Old conversation"))));
+            let current = app.state.feed.clone();
+            fake.send(&original.root, RunEvent::Agent(AgentEvent::TextDelta { text: "Late old text".into() }));
+            fake.finish(&original.root);
+            app.poll_run();
+            assert_eq!(app.state.feed, current, "detached events cannot replace the current project's feed");
+        }
+    }
+
+    fn move_project_with_open_run(ws: &Workspace, destination: &Path) {
+        // Retain the live writer, but move its opened descendants before their directory so
+        // this replacement fixture exercises the same identity boundary on Windows too.
+        for (name, retained) in [(feed::FEED_FILE, "retired-feed.json"), (craft_anything_engine::workspace::ACTIVITY_LOG, "retired-activity.log")] {
+            let source = ws.root.join(name);
+            if source.exists() {
+                std::fs::rename(source, destination.parent().unwrap().join(retained)).unwrap();
+            }
+        }
+        std::fs::rename(&ws.root, destination).unwrap();
+    }
+
+    #[test]
+    fn a_manifest_read_failure_after_polling_does_not_drop_finished_lifecycle() {
+        let directory = tempfile::tempdir().unwrap();
+        let ws = Workspace::create(directory.path(), "Project", "A game", TargetRef::None).unwrap();
+        let fake = rebuild::StandIns::new();
+        let mut app = crate::demo::app(crate::demo::engine(craft_anything_engine::Mode::Beginner, true));
+        app.runs = rebuild::RunSet::new(1).with_starter(fake.starter());
+        app.open_workspace(ws.clone());
+        app.runs.start(&app.hub, ws.clone(), RunOptions::default()).unwrap();
+        fake.send(&ws.root, RunEvent::Agent(AgentEvent::TextDelta { text: "A completed answer".into() }));
+        app.poll_run();
+        app.asking.insert(ws.root.clone());
+        fake.finish(&ws.root);
+        let manifest = ws.root.join("craft.json");
+        let bytes = std::fs::read(&manifest).unwrap();
+
+        app.poll_run_using(|_| std::fs::remove_file(&manifest).unwrap());
+
+        assert!(!app.asking.contains(&ws.root), "the validated Finished event still runs its lifecycle effects");
+        assert!(app.state.feed.iter().any(|item| matches!(item, FeedItem::Agent { text, streaming: false } if text == "A completed answer")));
+        std::fs::write(&manifest, bytes).unwrap();
+    }
+
+    #[test]
+    fn a_missing_selected_identity_leaves_finished_events_for_a_later_poll() {
+        let directory = tempfile::tempdir().unwrap();
+        let ws = Workspace::create(directory.path(), "Project", "A game", TargetRef::None).unwrap();
+        let fake = rebuild::StandIns::new();
+        let mut app = crate::demo::app(crate::demo::engine(craft_anything_engine::Mode::Beginner, true));
+        app.runs = rebuild::RunSet::new(1).with_starter(fake.starter());
+        app.workspace = Some(ws.clone());
+        app.runs.start(&app.hub, ws.clone(), RunOptions::default()).unwrap();
+        fake.send(&ws.root, RunEvent::Agent(AgentEvent::TextDelta { text: "A completed answer".into() }));
+        fake.finish(&ws.root);
+        app.asking.insert(ws.root.clone());
+        let manifest = ws.root.join("craft.json");
+        let bytes = std::fs::read(&manifest).unwrap();
+        std::fs::remove_file(&manifest).unwrap();
+
+        app.poll_run();
+
+        assert!(app.asking.contains(&ws.root));
+        assert!(!app.state.feed.iter().any(|item| matches!(item, FeedItem::Agent { text, .. } if text == "A completed answer")));
+        std::fs::write(&manifest, bytes).unwrap();
+        app.poll_run();
+        assert!(!app.asking.contains(&ws.root));
+        assert!(app.state.feed.iter().any(|item| matches!(item, FeedItem::Agent { text, streaming: false } if text == "A completed answer")));
+        app.asking.insert(ws.root.clone());
+        app.poll_run();
+        assert!(app.asking.contains(&ws.root), "Finished is delivered only once");
+    }
+
+    #[test]
+    fn a_captured_batch_cannot_replace_a_new_directory_with_the_same_manifest() {
+        let directory = tempfile::tempdir().unwrap();
+        let original = Workspace::create(directory.path(), "Project", "An old project", TargetRef::None).unwrap();
+        let fake = rebuild::StandIns::new();
+        let mut app = crate::demo::app(crate::demo::engine(craft_anything_engine::Mode::Beginner, true));
+        app.runs = rebuild::RunSet::new(1).with_starter(fake.starter());
+        app.open_workspace(original.clone());
+        app.runs.start(&app.hub, original.clone(), RunOptions::default()).unwrap();
+        fake.send(&original.root, RunEvent::Agent(AgentEvent::TextDelta { text: "An old captured answer".into() }));
+        fake.finish(&original.root);
+        let manifest = original.root.join("craft.json");
+        let bytes = std::fs::read(&manifest).unwrap();
+
+        app.poll_run_using(|app| {
+            move_project_with_open_run(&original, &directory.path().join("retired"));
+            let replacement = Workspace::create(directory.path(), "Project", "A replacement", TargetRef::None).unwrap();
+            assert_eq!(replacement.root, original.root);
+            std::fs::write(&manifest, &bytes).unwrap();
+            let replacement = Workspace::open(&original.root).unwrap();
+            assert_eq!(replacement.manifest.created_ms, original.manifest.created_ms);
+            assert_eq!(replacement.manifest.generation, original.manifest.generation);
+            app.open_workspace(replacement);
+            app.state.feed.push(FeedItem::User(UserItem::Text("The new project's message".into())));
+            app.asking.insert(original.root.clone());
+        });
+
+        assert!(!app.state.feed.iter().any(|item| matches!(item, FeedItem::Agent { text, .. } if text == "An old captured answer")));
+        assert!(app.state.feed.iter().any(|item| matches!(item, FeedItem::User(user) if user.text() == "The new project's message")));
+        assert!(app.asking.contains(&original.root), "an old Finished event cannot clear the replacement's question");
+    }
+
+    #[test]
+    fn completed_snapshots_keep_followups_waiting_behind_another_project() {
+        use craft_anything_ai::{AiConfig, BackendConfig, BackendEntry, BackendKind};
+        for composer in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let ws = Workspace::create(directory.path(), "Project", "A game", TargetRef::None).unwrap();
+            let other = Workspace::create(directory.path(), "Other", "Another game", TargetRef::None).unwrap();
+            let mut app = crate::demo::app(crate::demo::engine(craft_anything_engine::Mode::Beginner, true));
+            let backend =
+                BackendConfig { name: "Agent".into(), kind: BackendKind::AgentCli, model: "claude-code".into(), base_url: None, ssh_host: None, enabled: true };
+            app.backends = vec![backend.clone()];
+            app.builder = Some("Agent".into());
+            let mut cfg = AiConfig::default();
+            cfg.upsert(BackendEntry { config: backend, options: Default::default() });
+            app.hub.save_config(&cfg).unwrap();
+            app.settings.build.parallel = 1;
+            let fake = rebuild::StandIns::new();
+            app.runs = rebuild::RunSet::new(1).with_starter(fake.starter());
+            app.open_workspace(ws.clone());
+            app.runs.start(&app.hub, ws.clone(), RunOptions::default()).unwrap();
+            app.runs.start(&app.hub, other.clone(), RunOptions::default()).unwrap();
+            fake.finish(&ws.root);
+            if composer {
+                app.state.project_input = "Keep this queued follow-up visible".into();
+                app.send_message();
+            } else {
+                app.follow_up(Some("Keep this queued follow-up visible".into()));
+            }
+            assert!(app.runs.position(&ws.root).is_some());
+
+            app.poll_run();
+
+            let count = |items: &[FeedItem]| {
+                items.iter().filter(|item| matches!(item, FeedItem::User(user) if user.text() == "Keep this queued follow-up visible")).count()
+            };
+            assert!(app.runs.is_running(&other.root));
+            assert_eq!(count(&app.state.feed), 1, "the finished snapshot keeps the newer queued row");
+            fake.finish(&other.root);
+            app.poll_run();
+            fake.send(&ws.root, RunEvent::Step { step: Step::Build, text: "Working on the follow-up".into() });
+            app.poll_run();
+            assert_eq!(count(&app.state.feed), 1, "starting the queued run must not duplicate its already visible row");
+        }
+    }
+
+    #[test]
     fn automatically_forwarded_notes_keep_their_saved_identities() {
         use craft_anything_ai::{AiConfig, BackendConfig, BackendEntry, BackendKind};
         use craft_anything_platform::sync::Mutex;
@@ -2478,11 +2789,12 @@ mod tests {
         std::fs::write(&shot, b"\x89PNG\r\n\x1a\n").unwrap();
         let (go, wait) = std::sync::mpsc::channel::<()>();
         let (project, files) = (Some(root.clone()), vec![shot.clone()]);
+        let project_identity = app.workspace_identity.clone();
         let job = app.jobs.spawn("Paste pictures", false, move |_| {
             let _ = wait.recv_timeout(std::time::Duration::from_secs(10));
-            Ok(Done::Pasted { project, files, refused: None })
+            Ok(Done::Pasted { project, project_identity, files, refused: None })
         });
-        app.pending_paste = Some(PendingPaste { job, root, send: false, attached: false });
+        app.pending_paste = Some(PendingPaste { job, root, project: app.workspace_identity.clone(), send: false, attached: false });
         // While it's read, it's the one paste: another Ctrl+V waits (`paste_pictures` checks this).
         assert!(app.pasting().is_some_and(|p| p.job == job));
         app.state.project_input = "Like this".into();
@@ -2562,10 +2874,10 @@ mod tests {
         let mut app = crate::demo::app(crate::demo::engine(craft_anything_engine::Mode::Beginner, true));
         app.open_workspace(a.clone());
         app.state.screen = Screen::Project;
-        app.pending_attach_checks.insert(ra.clone(), 1);
+        app.pending_attach_checks.insert(ra.clone(), (app.workspace_identity.clone().unwrap(), 1));
         app.state.project_input = "For A".into();
         app.send_message();
-        assert!(app.send_after_checks.contains(&ra));
+        assert!(app.send_after_checks.contains_key(&ra));
 
         app.open_workspace(b.clone());
         app.state.project_input = "For B".into();
@@ -2573,8 +2885,12 @@ mod tests {
         assert_eq!(app.state.project_input, "", "B sends without waiting for A's check");
         let pic = d.path().join("shot.png");
         std::fs::write(&pic, b"\x89PNG\r\n\x1a\n").unwrap();
-        app.pictures_checked(vec![pic], None, PictureTarget::Attach(Some(ra.clone())));
-        assert!(app.send_after_checks.contains(&ra), "A's Send is kept");
+        app.pictures_checked(
+            vec![pic],
+            None,
+            PictureTarget::Attach(Some(ra.clone()), Some(craft_anything_engine::feed::ProjectIdentity::from_workspace(&a).unwrap())),
+        );
+        assert!(app.send_after_checks.contains_key(&ra), "A's Send is kept");
         assert!(app.state.project_attachments.is_empty(), "B's box is untouched");
 
         app.open_workspace(a);
@@ -2592,6 +2908,55 @@ mod tests {
         );
     }
 
+    /// A retained draft and its waiting Send belong to the original project identity.
+    #[test]
+    fn returning_to_a_replaced_project_does_not_restore_or_send_its_old_draft() {
+        for replace_directory in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let a = Workspace::create(directory.path(), "Alpha", "Original", TargetRef::None).unwrap();
+            let b = Workspace::create(directory.path(), "Beta", "Other", TargetRef::None).unwrap();
+            let mut app = crate::demo::app(crate::demo::engine(craft_anything_engine::Mode::Beginner, true));
+            app.open_workspace(a.clone());
+            let owner = app.workspace_identity.clone().unwrap();
+            app.pending_attach_checks.insert(a.root.clone(), (owner.clone(), 1));
+            app.state.project_input = "Only for the original Alpha".into();
+            app.state.project_attachments.push(directory.path().join("original.png"));
+            app.send_message();
+            assert!(app.send_after_checks.contains_key(&a.root));
+            app.open_workspace(b.clone());
+            app.state.project_input = "Keep Beta's draft".into();
+            let manifest = a.root.join("craft.json");
+            let bytes = std::fs::read(&manifest).unwrap();
+            if replace_directory {
+                std::fs::rename(&a.root, directory.path().join("retired")).unwrap();
+                Workspace::create(directory.path(), "Alpha", "Replacement", TargetRef::None).unwrap();
+                std::fs::write(&manifest, &bytes).unwrap();
+            } else {
+                let mut document: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                document["generation"] = serde_json::json!("ffffffffffffffffffffffffffffffff");
+                std::fs::write(&manifest, serde_json::to_vec(&document).unwrap()).unwrap();
+            }
+
+            app.open_workspace(Workspace::open(&a.root).unwrap());
+
+            assert!(app.state.project_input.is_empty());
+            assert!(app.state.project_attachments.is_empty());
+            assert!(!app.send_after_checks.contains_key(&a.root));
+            assert!(!app.state.feed.iter().any(|item| matches!(item, FeedItem::User(user) if user.text().contains("Only for the original Alpha"))));
+            // An old worker finishing after new checks started cannot attach to the replacement
+            // or consume its wait counter.
+            let replacement = app.workspace_identity.clone().unwrap();
+            app.pending_attach_checks.insert(a.root.clone(), (replacement, 1));
+            app.pasted(Some(a.root.clone()), Some(owner.clone()), vec![directory.path().join("late-paste.png")], None);
+            assert!(app.state.project_attachments.is_empty(), "paste completion uses its original identity without borrowing a newer slot");
+            app.pictures_checked(vec![directory.path().join("late.png")], None, PictureTarget::Attach(Some(a.root.clone()), Some(owner)));
+            assert!(app.state.project_attachments.is_empty());
+            assert_eq!(app.pending_attach_checks.get(&a.root).unwrap().1, 1);
+            app.open_workspace(b);
+            assert_eq!(app.state.project_input, "Keep Beta's draft");
+        }
+    }
+
     /// A refused picture clears Send's wait and leaves the message in the box.
     #[test]
     fn a_refused_picture_clears_the_waiting_send() {
@@ -2601,12 +2966,12 @@ mod tests {
         let mut app = crate::demo::app(crate::demo::engine(craft_anything_engine::Mode::Beginner, true));
         app.open_workspace(ws);
         app.state.screen = Screen::Project;
-        app.pending_attach_checks.insert(root.clone(), 1);
+        app.pending_attach_checks.insert(root.clone(), (app.workspace_identity.clone().unwrap(), 1));
         app.state.project_input = "Like this".into();
         app.send_message();
-        assert!(app.send_after_checks.contains(&root));
-        app.pictures_checked(Vec::new(), Some("big.png".into()), PictureTarget::Attach(Some(root.clone())));
-        assert!(!app.send_after_checks.contains(&root));
+        assert!(app.send_after_checks.contains_key(&root));
+        app.pictures_checked(Vec::new(), Some("big.png".into()), PictureTarget::Attach(Some(root.clone()), app.workspace_identity.clone()));
+        assert!(!app.send_after_checks.contains_key(&root));
         assert_eq!(app.state.project_input, "Like this");
         assert!(app.state.project_attachments.is_empty());
     }
@@ -2698,11 +3063,12 @@ mod tests {
         std::fs::File::create(&big).unwrap().set_len(20 * 1024 * 1024 + 1).unwrap();
         let (go, wait) = std::sync::mpsc::channel::<()>();
         let (project, files) = (Some(root.clone()), vec![big]);
+        let project_identity = app.workspace_identity.clone();
         let job = app.jobs.spawn("Paste pictures", false, move |_| {
             let _ = wait.recv_timeout(std::time::Duration::from_secs(10));
-            Ok(Done::Pasted { project, files, refused: Some("big.png".into()) })
+            Ok(Done::Pasted { project, project_identity, files, refused: Some("big.png".into()) })
         });
-        app.pending_paste = Some(PendingPaste { job, root, send: false, attached: false });
+        app.pending_paste = Some(PendingPaste { job, root, project: app.workspace_identity.clone(), send: false, attached: false });
         app.state.project_input = "Like this".into();
         app.send_message();
         assert_eq!(app.state.project_input, "Like this", "it waits for the picture");
@@ -2730,11 +3096,12 @@ mod tests {
         app.open_workspace(ws);
         let shot = vec![PathBuf::from("pasted-1.png")];
         app.state.screen = Screen::Home;
-        app.pasted(Some(root.clone()), shot.clone(), None);
+        let owner = app.workspace_identity.clone();
+        app.pasted(Some(root.clone()), owner.clone(), shot.clone(), None);
         assert!(app.state.project_attachments.is_empty());
         assert!(app.state.toasts.iter().any(|(t, error)| *error && t.contains("another screen")), "{:?}", app.state.toasts);
         app.state.screen = Screen::Project;
-        app.pasted(Some(root), shot.clone(), None);
+        app.pasted(Some(root), owner, shot.clone(), None);
         assert_eq!(app.state.project_attachments, shot);
     }
 
@@ -2791,6 +3158,49 @@ mod tests {
         assert_eq!(app.projects[0].root, ws.root);
     }
 
+    #[test]
+    fn a_created_project_keeps_running_and_shows_cleanup_guidance() {
+        use egui_kittest::{Harness, kittest::Queryable};
+        for already_running in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let mut ws = Workspace::create(directory.path(), "Notes", "A notes app", TargetRef::None).unwrap();
+            let root = ws.root.clone();
+            let warning = format!("Inspect {} before retrying cleanup.", root.join("retained-cleanup").display());
+            ws.creation_warning = Some(warning.clone());
+            let stand_ins = rebuild::StandIns::new();
+            let mut app = crate::demo::app(crate::demo::engine(craft_anything_engine::Mode::Beginner, true));
+            app.runs = rebuild::RunSet::new(1).with_starter(stand_ins.starter());
+            if already_running {
+                app.runs.start(&app.hub, ws.clone(), RunOptions::default()).unwrap();
+            }
+
+            app.created(ws, "A notes app".into(), "test-backend".into(), None, false);
+
+            assert_eq!(app.workspace.as_ref().map(|workspace| &workspace.root), Some(&root));
+            assert!(app.projects.iter().any(|workspace| workspace.root == root));
+            assert!(app.runs.is_running(&root));
+            assert_eq!(stand_ins.started().as_slice(), std::slice::from_ref(&root), "the warning neither cancels nor repeats the start");
+            assert!(app.state.toasts.iter().any(|(text, persistent)| *persistent && text.contains(&warning)));
+            let mut harness = Harness::builder().with_size(egui::vec2(1280.0, 820.0)).with_max_steps(32).build_eframe(move |cc| {
+                crate::CraftApp::setup_context(&cc.egui_ctx);
+                app
+            });
+            harness.run_steps(3);
+            let warning_rect = harness.get_by_label_contains(&warning).rect();
+            harness
+                .query_all_by_label("Dismiss")
+                .find(|button| {
+                    let rect = button.rect();
+                    rect.left() >= warning_rect.right() && rect.center().y >= warning_rect.top() && rect.center().y <= warning_rect.bottom()
+                })
+                .expect("the dismiss control beside this cleanup warning")
+                .click();
+            harness.run_steps(2);
+            assert!(harness.state().state.toasts.iter().all(|(text, _)| !text.contains(&warning)));
+            assert!(harness.state().runs.is_running(&root), "dismissing cleanup guidance does not stop the build");
+        }
+    }
+
     /// #966: opening a project ensures it is listed in app.projects immediately.
     #[test]
     fn opening_project_adds_to_projects_list() {
@@ -2801,6 +3211,107 @@ mod tests {
         app.open_workspace(ws.clone());
         assert!(!app.projects.is_empty(), "open project is listed in app.projects");
         assert_eq!(app.projects[0].root, ws.root);
+    }
+
+    #[test]
+    fn a_project_answer_stays_pending_after_a_failed_feed_save() {
+        let d = tempfile::tempdir().unwrap();
+        let ws = Workspace::create(d.path(), "x", "A game", TargetRef::None).unwrap();
+        let inbox = Inbox::new(ws.inbox_dir());
+        let id = inbox.post(RequestKind::Question, "Blue?", "", vec![], true, None).unwrap();
+        let path = ws.root.join(feed::FEED_FILE);
+        std::fs::create_dir(&path).unwrap();
+        let mut app = crate::demo::app(crate::demo::engine(craft_anything_engine::Mode::Beginner, true));
+        app.open_workspace(ws.clone());
+        let answer = Answer { choice: Some("Blue".into()), ..Default::default() };
+        app.state.answers.insert(id.clone(), "Blue".into());
+        app.answer_request(&id, answer.clone(), "Blue".into());
+        assert_eq!(inbox.pending().len(), 1);
+        assert!(!inbox.dir().join(format!("{id}.answer.json")).exists());
+        assert!(app.state.feed.iter().any(|item| matches!(item, FeedItem::Ask { request, answer: None } if request.id == id)));
+        assert_eq!(app.state.answers.get(&id).map(String::as_str), Some("Blue"));
+        assert!(app.state.toasts.iter().any(|(text, error)| *error && text.contains("Make it readable, then reopen the project")), "{:?}", app.state.toasts);
+        std::fs::remove_dir(&path).unwrap();
+        app.answer_request(&id, answer, "Blue".into());
+        assert!(inbox.pending().is_empty());
+        assert!(!app.state.answers.contains_key(&id));
+        assert!(app.state.feed.iter().any(|item| matches!(item, FeedItem::Ask { request, answer: Some(answer) } if request.id == id && answer == "Blue")));
+        assert!(feed::load(&ws).iter().any(|item| matches!(item, FeedItem::Ask { request, answer: Some(answer) } if request.id == id && answer == "Blue")));
+    }
+
+    #[test]
+    fn a_delivered_answer_loses_its_retry_control_when_the_display_changes() {
+        for (live, consume_before_refresh) in [(false, true), (true, true), (false, false), (true, false)] {
+            let directory = tempfile::tempdir().unwrap();
+            let ws = Workspace::create(directory.path(), "Colour", "Pick a colour", TargetRef::None).unwrap();
+            let other = Workspace::create(directory.path(), "Other", "Another project", TargetRef::None).unwrap();
+            let inbox = Inbox::new(ws.inbox_dir());
+            let id = inbox.post(RequestKind::Question, "Blue or red?", "Choose a colour.", vec![], true, None).unwrap();
+            let mut app = crate::demo::app(crate::demo::engine(craft_anything_engine::Mode::Beginner, true));
+            if live {
+                let runs = rebuild::StandIns::new();
+                app.runs = rebuild::RunSet::new(1).with_starter(runs.starter());
+                app.runs.start(&app.hub, ws.clone(), RunOptions::default()).unwrap();
+            }
+            app.open_workspace(ws.clone());
+            let blocked = inbox.dir().join(format!("{id}.answer.json"));
+            std::fs::create_dir(&blocked).unwrap();
+            app.answer_request(&id, Answer { text: Some("Blue".into()), ..Default::default() }, "Blue".into());
+            app.open_workspace(other);
+            app.open_workspace(ws.clone());
+            assert!(app.state.feed.iter().any(|item| matches!(item,
+                FeedItem::Ask { request, answer: None } if request.id == id && request.detail.contains("has not been delivered"))));
+            std::fs::remove_dir(blocked).unwrap();
+            app.state.answers.insert(id.clone(), "Red".into());
+            let mut delivered = None;
+            app.answer_request_using(&id, Answer { text: Some("Red".into()), ..Default::default() }, "Red".into(), || {
+                if consume_before_refresh {
+                    delivered = inbox.try_wait(&id, std::time::Duration::ZERO, &|| false).unwrap();
+                    assert!(delivered.is_some());
+                }
+                let mut changed = craft_anything_engine::feed::load(&ws);
+                changed.retain(|item| !matches!(item, FeedItem::Ask { request, .. } if request.id == id));
+                craft_anything_engine::feed::save(&ws.root, &mut changed).unwrap();
+            });
+            assert!(
+                app.state.feed.iter().any(|item| matches!(item,
+                FeedItem::Ask { request, answer: Some(answer) } if request.id == id && answer == "Red" && !request.detail.contains("has not been delivered"))),
+                "a successful reply must not retain an old retry control: {:?}",
+                app.state.feed
+            );
+            assert!(!app.state.answers.contains_key(&id));
+            if !consume_before_refresh {
+                delivered = inbox.try_wait(&id, std::time::Duration::ZERO, &|| false).unwrap();
+            }
+            assert_eq!(delivered.unwrap().as_text(), "Red");
+        }
+    }
+
+    #[test]
+    fn a_project_answer_stays_pending_after_delivery_fails() {
+        let directory = tempfile::tempdir().unwrap();
+        let ws = Workspace::create(directory.path(), "Colour", "Pick a colour", TargetRef::None).unwrap();
+        let inbox = Inbox::new(ws.inbox_dir());
+        let id = inbox.post(RequestKind::Question, "Blue or red?", "", vec![], true, None).unwrap();
+        let mut app = crate::demo::app(crate::demo::engine(craft_anything_engine::Mode::Beginner, true));
+        app.open_workspace(ws.clone());
+        app.state.answers.insert(id.clone(), "Blue".into());
+        let answer_path = inbox.dir().join(format!("{id}.answer.json"));
+        std::fs::create_dir(&answer_path).unwrap();
+        app.answer_request(&id, Answer { text: Some("Blue".into()), ..Default::default() }, "Blue".into());
+        assert!(app.state.toasts.iter().any(|(_, error)| *error));
+        assert_eq!(app.state.answers.get(&id).map(String::as_str), Some("Blue"));
+        assert_eq!(inbox.pending().len(), 1, "a directory is not a delivered answer");
+        assert!(feed::load(&ws).iter().any(|item| matches!(item, FeedItem::Ask { request, answer: Some(answer) } if request.id == id && answer == "Blue")));
+        assert!(feed::for_display(&ws).iter().any(|item| matches!(item, FeedItem::Ask { request, answer: None } if request.id == id)));
+        assert!(app.state.feed.iter().any(|item| matches!(item, FeedItem::Ask { request, answer: None } if request.id == id)));
+        std::fs::remove_dir(&answer_path).unwrap();
+        app.answer_request(&id, Answer { text: Some("Red".into()), ..Default::default() }, "Red".into());
+        assert!(!app.state.answers.contains_key(&id));
+        assert_eq!(inbox.wait(&id, std::time::Duration::ZERO, &|| false).unwrap().as_text(), "Red");
+        assert!(
+            feed::for_display(&ws).iter().any(|item| matches!(item, FeedItem::Ask { request, answer: Some(answer) } if request.id == id && answer == "Red"))
+        );
     }
 
     /// An attached folder keeps its saved settings, and its typed request starts the run as a
@@ -2818,7 +3329,10 @@ mod tests {
         .unwrap();
         ws.manifest.stack = "Godot".into();
         ws.save().unwrap();
-        craft_anything_ai::rebuild::feed::save(&ws.root, &[FeedItem::User(UserItem::Text("earlier message".into()))]).unwrap();
+        let mut initial_feed = feed::load(&ws);
+        initial_feed.clear();
+        initial_feed.push(FeedItem::User(UserItem::Text("earlier message".into())));
+        feed::save(&ws.root, &mut initial_feed).unwrap();
         let mut app = crate::demo::app(crate::demo::engine(craft_anything_engine::Mode::Beginner, true));
         let local = BackendConfig {
             name: "Local".into(),

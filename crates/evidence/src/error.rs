@@ -139,7 +139,7 @@ impl ToolError {
     pub fn io(context: impl std::fmt::Display, e: std::io::Error) -> Self {
         let code = match e.kind() {
             std::io::ErrorKind::NotFound => ErrorCode::NotFound,
-            std::io::ErrorKind::PermissionDenied => ErrorCode::NoPermission,
+            std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::ReadOnlyFilesystem => ErrorCode::NoPermission,
             _ => ErrorCode::FileError,
         };
         Self::new(code, format!("{context}: {e}"))
@@ -175,6 +175,21 @@ mod tests {
         assert_eq!(v["code"], "not_found");
         assert_eq!(v["category"], "missing");
         assert!(v["remediation"].is_string());
+    }
+
+    #[test]
+    fn read_only_filesystems_refuse_writes_without_hiding_other_io_errors() {
+        use std::io::ErrorKind;
+        for (kind, code) in [
+            (ErrorKind::ReadOnlyFilesystem, ErrorCode::NoPermission),
+            (ErrorKind::PermissionDenied, ErrorCode::NoPermission),
+            (ErrorKind::NotFound, ErrorCode::NotFound),
+            (ErrorKind::Other, ErrorCode::FileError),
+        ] {
+            let error = ToolError::io("project/inbox", std::io::Error::from(kind));
+            assert_eq!(error.code, code, "{kind:?}");
+            assert!(error.message.starts_with("project/inbox: "));
+        }
     }
 
     #[test]

@@ -747,6 +747,85 @@ fn a_note_left_before_a_stop_keeps_it_across_a_restart() {
 }
 
 #[test]
+fn a_live_run_can_answer_after_another_client_recovers_its_conversation() {
+    use craft_anything_engine::inbox::RequestKind;
+    let d = tempfile::tempdir().unwrap();
+    let ws = Workspace::create(d.path(), "x", "A game", TargetRef::None).unwrap();
+    let inbox = Inbox::new(ws.inbox_dir());
+    let first = inbox.post(RequestKind::Question, "Blue?", "", vec![], true, None).unwrap();
+    let question = inbox.pending().pop().unwrap();
+    std::fs::write(ws.root.join(feed::FEED_FILE), b"damaged conversation").unwrap();
+    let feed = Arc::new(Mutex::new(feed::FeedLog::open(&ws)));
+    let activity = feed.lock().unwrap_or_else(PoisonError::into_inner).activity();
+    let (_tx, rx) = std::sync::mpsc::channel();
+    let run = RebuildRun {
+        rx,
+        stop: CancelToken::default(),
+        inbox: inbox.clone(),
+        running: Arc::new(AtomicBool::new(true)),
+        preview: Arc::default(),
+        notes: Arc::default(),
+        clean_room: false,
+        feed,
+        root: ws.root.clone(),
+        started: Instant::now(),
+        activity,
+    };
+    let blue = Answer { choice: Some("Blue".into()), ..Default::default() };
+    feed::record_answer(&ws, &question, "Blue").unwrap();
+    inbox.answer(&first, &blue).unwrap();
+    let mut repaired = feed::load(&ws);
+    repaired.push(feed::FeedItem::User(feed::UserItem::Text("Keep the repaired conversation".into())));
+    feed::save(&ws.root, &mut repaired).unwrap();
+    let second = inbox.post(RequestKind::Question, "Green?", "", vec![], true, None).unwrap();
+    run.answer_as(&second, &Answer { choice: Some("Green".into()), ..Default::default() }, "Green").unwrap();
+    assert!(inbox.pending().is_empty());
+    let saved = feed::load(&ws);
+    for (id, shown) in [(first, "Blue"), (second, "Green")] {
+        assert!(saved.iter().any(|item| matches!(item, feed::FeedItem::Ask { request, answer: Some(answer) } if request.id == id && answer == shown)));
+    }
+    assert!(saved.iter().any(|item| matches!(item, feed::FeedItem::User(note) if note.text() == "Keep the repaired conversation")));
+    assert_eq!(std::fs::read(ws.root.join("feed.json.broken")).unwrap(), b"damaged conversation");
+    assert!(!ws.root.join("feed.json.broken.1").exists());
+}
+
+#[test]
+fn a_live_run_keeps_an_answer_pending_until_the_feed_is_saved() {
+    use craft_anything_engine::inbox::RequestKind;
+    let d = tempfile::tempdir().unwrap();
+    let ws = Workspace::create(d.path(), "x", "A game", TargetRef::None).unwrap();
+    let inbox = Inbox::new(ws.inbox_dir());
+    let id = inbox.post(RequestKind::Question, "Blue?", "", vec![], true, None).unwrap();
+    let feed = Arc::new(Mutex::new(feed::FeedLog::open(&ws)));
+    let activity = feed.lock().unwrap_or_else(PoisonError::into_inner).activity();
+    let (_tx, rx) = std::sync::mpsc::channel();
+    let mut run = RebuildRun {
+        rx,
+        stop: CancelToken::default(),
+        inbox: inbox.clone(),
+        running: Arc::new(AtomicBool::new(true)),
+        preview: Arc::default(),
+        notes: Arc::default(),
+        clean_room: false,
+        feed,
+        root: ws.root.clone(),
+        started: Instant::now(),
+        activity,
+    };
+    let path = ws.root.join(feed::FEED_FILE);
+    std::fs::create_dir(&path).unwrap();
+    let answer = Answer { choice: Some("Blue".into()), ..Default::default() };
+    assert!(run.answer_as(&id, &answer, "Blue").is_err());
+    assert_eq!(inbox.pending().len(), 1);
+    assert!(!inbox.dir().join(format!("{id}.answer.json")).exists());
+    assert!(run.feed_now().iter().any(|item| matches!(item, feed::FeedItem::Ask { request, answer: None } if request.id == id)));
+    std::fs::remove_dir(&path).unwrap();
+    run.answer_as(&id, &answer, "Blue").unwrap();
+    assert!(inbox.pending().is_empty());
+    assert!(feed::load(&ws).iter().any(|item| matches!(item, feed::FeedItem::Ask { request, answer: Some(answer) } if request.id == id && answer == "Blue")));
+}
+
+#[test]
 fn pictures_of_the_original_reach_the_builder() {
     let d = tempfile::tempdir().unwrap();
     let ws = Workspace::create(d.path(), "Game", "Copy this game", TargetRef::None).unwrap();
@@ -2173,7 +2252,7 @@ mod picking_up_a_build {
                 Err(e) => panic!("the run went away: {e}"),
             }
         }
-        (ok.unwrap(), feed::load(&Workspace::open(&ws.root).unwrap()))
+        (ok.unwrap(), feed::load(&Workspace::open(&ws.root).unwrap()).into_items())
     }
 
     fn prompts_given(b: &Bench) -> usize {
@@ -4672,6 +4751,8 @@ fn a_new_project_gets_the_settings_it_started_with() {
     assert!(ws.manifest.generate_assets, "the asset choice is written");
     assert_eq!(ws.manifest.asset_budget_usd, session.settings.assets.budget(), "the budget comes from settings");
     assert_eq!(ws.manifest.request, "A game");
+    let reopened = Workspace::open(&folder).unwrap();
+    assert_eq!(serde_json::to_value(&reopened.manifest).unwrap(), serde_json::to_value(&ws.manifest).unwrap(), "all initial choices are persisted together");
 }
 
 #[test]

@@ -8,6 +8,86 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
+fn check_child_name(name: &Path) -> std::io::Result<()> {
+    let mut components = name.components();
+    if !matches!(components.next(), Some(std::path::Component::Normal(component)) if component == name.as_os_str()) || components.next().is_some() {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "expected a single child name"));
+    }
+    Ok(())
+}
+
+/// Open one existing child directory relative to its retained parent, without following links.
+pub fn open_child_directory(parent: &std::fs::File, name: &Path) -> std::io::Result<std::fs::File> {
+    check_child_name(name)?;
+    #[cfg(any(unix, windows))]
+    {
+        #[cfg(unix)]
+        let file = {
+            use nix::fcntl::{OFlag, openat};
+            use nix::sys::stat::Mode;
+            let flags = OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK | OFlag::O_CLOEXEC;
+            std::fs::File::from(openat(parent, name, flags, Mode::empty()).map_err(std::io::Error::from)?)
+        };
+        #[cfg(windows)]
+        let file = {
+            use fs_at::os::windows::OpenOptionsExt as _;
+            use windows::Win32::Storage::FileSystem::{FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_TRAVERSE};
+            // Keep the no-follow handle in a File before rejecting links below: fs_at 0.2.1's
+            // own link check can fail before taking ownership. open_path_at needs explicit access.
+            fs_at::OpenOptions::default().desired_access((FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | FILE_TRAVERSE).0).open_path_at(parent, name)?
+        };
+        let metadata = file.metadata()?;
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "the child is not a directory"));
+        }
+        Ok(file)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = parent;
+        Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "directory-relative opening is unavailable"))
+    }
+}
+
+/// Open one regular child for updating, optionally creating it exclusively.
+/// New Unix files request owner read/write permissions (0600). Windows creation does not set an
+/// explicit private security descriptor and uses the default access-control settings.
+/// The parent handle is authoritative even if its former pathname now names another directory.
+/// Existing special files cannot block a Unix open before their type is checked.
+pub fn open_child_file_for_update(parent: &std::fs::File, name: &Path, create_new: bool) -> std::io::Result<std::fs::File> {
+    check_child_name(name)?;
+    #[cfg(any(unix, windows))]
+    {
+        #[cfg(unix)]
+        let file = {
+            use nix::fcntl::{OFlag, openat};
+            use nix::sys::stat::Mode;
+            let mut flags = OFlag::O_RDWR | OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK | OFlag::O_CLOEXEC;
+            if create_new {
+                flags |= OFlag::O_CREAT | OFlag::O_EXCL;
+            }
+            std::fs::File::from(openat(parent, name, flags, Mode::S_IRUSR | Mode::S_IWUSR).map_err(std::io::Error::from)?)
+        };
+        #[cfg(windows)]
+        let file = {
+            use fs_at::os::windows::OpenOptionsExt as _;
+            use windows::Win32::Storage::FileSystem::{FILE_GENERIC_READ, FILE_GENERIC_WRITE};
+            // As above, validate the owned no-follow File and retain read/write and exclusive creation.
+            fs_at::OpenOptions::default().desired_access((FILE_GENERIC_READ | FILE_GENERIC_WRITE).0).create_new(create_new).open_path_at(parent, name)?
+        };
+        let metadata = file.metadata()?;
+        if !metadata.is_file() || metadata.file_type().is_symlink() {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "the child is not a regular file"));
+        }
+        Ok(file)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (parent, create_new);
+        Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "directory-relative opening is unavailable"))
+    }
+}
+
 /// Open a regular file and return metadata from the opened handle. Symlinks to regular files
 /// are allowed. On Unix, a path replaced by a FIFO cannot block the open before its type is checked.
 pub fn open_regular_file(path: &Path) -> Result<(std::fs::File, std::fs::Metadata), ToolError> {
@@ -183,6 +263,78 @@ pub fn backup_once(from: &Path, to: &Path) -> Result<bool, ToolError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(any(unix, windows))]
+    fn open_test_directory(path: &Path) -> std::fs::File {
+        let mut options = std::fs::File::options();
+        options.read(true);
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt as _;
+            // FILE_FLAG_BACKUP_SEMANTICS permits an ordinary handle to a directory.
+            options.custom_flags(0x0200_0000);
+        }
+        options.open(path).unwrap()
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn retained_child_handles_do_not_follow_reused_directory_names() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("project");
+        std::fs::create_dir_all(root.join("inbox")).unwrap();
+        let directory = open_test_directory(&root);
+        let original = temporary.path().join("original");
+        std::fs::rename(&root, &original).unwrap();
+        std::fs::create_dir_all(root.join("inbox")).unwrap();
+
+        let inbox = open_child_directory(&directory, Path::new("inbox")).unwrap();
+        std::fs::write(original.join("inbox/feed.lock"), b"existing").unwrap();
+        let retained = original.join("retained");
+        std::fs::rename(original.join("inbox"), &retained).unwrap();
+        std::fs::create_dir(original.join("inbox")).unwrap();
+        let mut existing = open_child_file_for_update(&inbox, Path::new("feed.lock"), false).unwrap();
+        let mut bytes = Vec::new();
+        existing.read_to_end(&mut bytes).unwrap();
+        assert_eq!(bytes, b"existing");
+        assert_eq!(open_child_file_for_update(&inbox, Path::new("feed.lock"), true).unwrap_err().kind(), std::io::ErrorKind::AlreadyExists);
+        drop(existing);
+        std::fs::remove_file(retained.join("feed.lock")).unwrap();
+        let mut created = open_child_file_for_update(&inbox, Path::new("feed.lock"), true).unwrap();
+        created.write_all(b"created").unwrap();
+        drop(created);
+
+        assert_eq!(std::fs::read(retained.join("feed.lock")).unwrap(), b"created");
+        assert_eq!(std::fs::read_dir(root.join("inbox")).unwrap().count(), 0);
+        assert_eq!(std::fs::read_dir(original.join("inbox")).unwrap().count(), 0);
+        for name in ["", ".", "..", "../outside", "inbox/feed.lock", "inbox/.", "inbox/"] {
+            assert_eq!(open_child_directory(&directory, Path::new(name)).unwrap_err().kind(), std::io::ErrorKind::InvalidInput);
+            assert_eq!(open_child_file_for_update(&inbox, Path::new(name), true).unwrap_err().kind(), std::io::ErrorKind::InvalidInput);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn relative_children_reject_links_and_special_files_without_blocking() {
+        use nix::sys::stat::Mode;
+        use std::os::unix::fs::FileTypeExt as _;
+        let temporary = tempfile::tempdir().unwrap();
+        let directory = open_test_directory(temporary.path());
+        let personal = temporary.path().join("personal");
+        std::fs::create_dir(&personal).unwrap();
+        std::os::unix::fs::symlink(&personal, temporary.path().join("inbox")).unwrap();
+        for name in ["inbox", "inbox/.", "inbox/"] {
+            assert!(open_child_directory(&directory, Path::new(name)).is_err());
+        }
+        std::fs::write(personal.join("keep"), b"Keep these words").unwrap();
+        std::os::unix::fs::symlink(personal.join("keep"), temporary.path().join("feed.lock")).unwrap();
+        assert!(open_child_file_for_update(&directory, Path::new("feed.lock"), false).is_err());
+        assert_eq!(std::fs::read(personal.join("keep")).unwrap(), b"Keep these words");
+        std::fs::remove_file(temporary.path().join("feed.lock")).unwrap();
+        nix::unistd::mkfifo(&temporary.path().join("feed.lock"), Mode::S_IRUSR | Mode::S_IWUSR).unwrap();
+        assert_eq!(open_child_file_for_update(&directory, Path::new("feed.lock"), false).unwrap_err().kind(), std::io::ErrorKind::InvalidInput);
+        assert!(std::fs::symlink_metadata(temporary.path().join("feed.lock")).unwrap().file_type().is_fifo());
+    }
 
     #[test]
     fn atomic_write_replaces_and_private_is_0600() {

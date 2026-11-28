@@ -234,7 +234,11 @@ fn project_duplicate(_ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, To
     let ws = open(&p.project)?;
     let name = p.name.filter(|n| !n.trim().is_empty()).unwrap_or_else(|| format!("{} copy", ws.manifest.name));
     let copy = ws.duplicate(&name)?;
-    Ok(ToolOutput::Value(json!({"project": copy.root, "name": copy.manifest.name})))
+    let mut result = json!({"project": copy.root, "name": copy.manifest.name});
+    if let Some(warning) = copy.creation_warning {
+        result["creation_warning"] = warning.into();
+    }
+    Ok(ToolOutput::Value(result))
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -354,13 +358,21 @@ pub struct FinishParams {
 pub const CALLED_DONE: &str = "Ready: you called it done. Everything so far is kept; a new message carries on from here.";
 
 fn project_build_finish(_ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
-    use crate::workspace::{Status, Step};
     let p: FinishParams = parse_params(params)?;
-    let mut ws = open(&p.project)?;
-    ws.set_status(Status::Ready, CALLED_DONE)?;
+    finish_build_after_feed_save(open(&p.project)?, |_| {})
+}
+
+fn finish_build_after_feed_save(mut ws: Workspace, after_feed_save: impl FnOnce(&Workspace)) -> Result<ToolOutput, ToolError> {
+    use crate::workspace::{Status, Step};
+    ws.ensure_writable()?;
     let mut items = feed::load(&ws);
-    items.push(feed::FeedItem::Step { step: Step::Done, text: CALLED_DONE.into() });
-    feed::save(&ws.root, &items)?;
+    // A previous attempt may have saved the conversation before the status write failed.
+    if !matches!(items.last(), Some(feed::FeedItem::Step { step: Step::Done, text }) if text == CALLED_DONE) {
+        items.push(feed::FeedItem::Step { step: Step::Done, text: CALLED_DONE.into() });
+    }
+    feed::save(&ws.root, &mut items)?;
+    after_feed_save(&ws);
+    ws.set_status(Status::Ready, CALLED_DONE)?;
     Ok(ToolOutput::Value(json!({"project": ws.root, "status": ws.manifest.status})))
 }
 
@@ -578,7 +590,7 @@ fn project_list(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolErro
 fn project_show(_ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
     let p: ShowParams = parse_params(params)?;
     let ws = open(&p.project)?;
-    let items = feed::load(&ws);
+    let items = feed::for_display(&ws);
     let limit = p.limit.unwrap_or(MAX_ITEMS).clamp(1, MAX_ITEMS);
     let offset = p.offset.unwrap_or_else(|| items.len().saturating_sub(limit)).min(items.len());
     let page: Vec<&feed::FeedItem> = items.iter().skip(offset).take(limit).collect();
@@ -596,11 +608,6 @@ fn project_inbox_answer(_ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput,
     let p: AnswerParams = parse_params(params)?;
     let ws = open(&p.project)?;
     let inbox = Inbox::new(ws.inbox_dir());
-    // Taken before it's answered: the session that asked may read and remove it right after.
-    let Some(question) = inbox.pending().into_iter().find(|r| r.id == p.id) else {
-        return Err(ToolError::new(ErrorCode::NotFound, format!("No question {} is waiting in this project.", p.id))
-            .with_remediation("Use project_show to see the questions still waiting."));
-    };
     let answer = Answer { choice: p.choice, text: p.text, allow: p.allow, always: p.always };
     let shown = match answer.allow {
         Some(true) if answer.always => "Always allowed".to_string(),
@@ -608,11 +615,7 @@ fn project_inbox_answer(_ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput,
         Some(false) => "Not allowed".to_string(),
         None => answer.as_text(),
     };
-    inbox.answer(&p.id, &answer)?;
-    // Into the saved conversation; a running build keeps answers it finds there when it saves.
-    if let Err(e) = feed::record_answer(&ws, &question, &shown) {
-        log::warn!("answer not added to the conversation: {}", e.message);
-    }
+    inbox.answer_recorded(&ws, &p.id, &answer, &shown)?;
     Ok(ToolOutput::Value(json!({"answered": p.id, "shown": shown})))
 }
 
@@ -713,6 +716,133 @@ mod tests {
     }
 
     #[test]
+    fn finishing_a_build_cannot_overwrite_a_project_recreated_after_its_feed_save() {
+        use crate::workspace::{ExistingFiles, MANIFEST, Status, Step};
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("site");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(root.join("index.html"), b"Keep the app").unwrap();
+        let mut original = Workspace::create_at(&root, "Original", "Original request", TargetRef::None, Some(ExistingFiles::Edit)).unwrap();
+        original.set_status(Status::Stopped, "The original is paused.").unwrap();
+        let mut replacement_bytes = None;
+
+        let error = finish_build_after_feed_save(original, |old| {
+            assert!(matches!(feed::load(old).last(), Some(feed::FeedItem::Step { step: Step::Done, text }) if text == CALLED_DONE));
+            let old_generation = old.manifest.generation.clone();
+            old.clone().delete().unwrap();
+            let mut replacement = Workspace::create_at(&root, "Replacement", "Replacement request", TargetRef::None, Some(ExistingFiles::Edit)).unwrap();
+            assert_ne!(replacement.manifest.generation, old_generation);
+            replacement.set_status(Status::Stopped, "The replacement is paused.").unwrap();
+            feed::save(&root, &mut feed::load(&replacement)).unwrap();
+            replacement_bytes = Some((std::fs::read(root.join(MANIFEST)).unwrap(), std::fs::read(root.join(feed::FEED_FILE)).unwrap()));
+        })
+        .unwrap_err();
+
+        assert_eq!(error.code, craft_anything_evidence::ErrorCode::FileChanged);
+        let (manifest, conversation) = replacement_bytes.unwrap();
+        assert_eq!(std::fs::read(root.join(MANIFEST)).unwrap(), manifest);
+        assert_eq!(std::fs::read(root.join(feed::FEED_FILE)).unwrap(), conversation);
+        let replacement = Workspace::open(&root).unwrap();
+        assert_eq!((replacement.manifest.request.as_str(), replacement.manifest.status), ("Replacement request", Status::Stopped));
+        feed::save(&root, &mut feed::load(&replacement)).unwrap();
+        assert_eq!(std::fs::read(root.join("index.html")).unwrap(), b"Keep the app");
+    }
+
+    #[test]
+    fn a_failed_conversation_save_keeps_a_builds_status_unchanged() {
+        use crate::workspace::{MANIFEST, Status, Step};
+        let d = tempfile::tempdir().unwrap();
+        let mut ws = Workspace::create(d.path(), "Site", "A website", TargetRef::None).unwrap();
+        ws.set_status(Status::Stopped, "Paused.").unwrap();
+        let original_manifest = std::fs::read(ws.root.join(MANIFEST)).unwrap();
+        let path = ws.root.join(feed::FEED_FILE);
+        std::fs::create_dir(&path).unwrap();
+        let engine = Engine::new(crate::testing::session());
+        let finish = || engine.call("project_build_finish", json!({"project": ws.root}), CallOptions::new(Caller::Cli));
+
+        assert!(finish().is_err(), "the unreadable conversation must prevent completion");
+        assert_eq!(std::fs::read(ws.root.join(MANIFEST)).unwrap(), original_manifest, "a failed feed save must not mark the project Ready");
+        assert!(path.is_dir(), "the unreadable conversation is left alone");
+
+        std::fs::remove_dir(&path).unwrap();
+        finish().unwrap();
+        let ws = Workspace::open(&ws.root).unwrap();
+        assert_eq!((ws.manifest.status, ws.manifest.note.as_str()), (Status::Ready, CALLED_DONE));
+        let items = feed::load(&ws);
+        assert!(matches!(&items[0], feed::FeedItem::User(user) if user.text() == "A website"));
+        assert_eq!(items.iter().filter(|item| matches!(item, feed::FeedItem::Step { step: Step::Done, text } if text == CALLED_DONE)).count(), 1);
+    }
+
+    #[test]
+    fn a_read_only_project_cannot_change_its_conversation_when_called_done() {
+        use crate::workspace::{MANIFEST, MANIFEST_VERSION, Status};
+        let valid = serde_json::to_vec(&json!({"version": feed::FEED_VERSION, "items": [{"User": "Keep this conversation"}]})).unwrap();
+        for (case, original) in [("missing", None), ("valid", Some(valid.as_slice())), ("damaged", Some(b"damaged conversation".as_slice()))] {
+            let directory = tempfile::tempdir().unwrap();
+            let mut ws = Workspace::create(directory.path(), "Site", "A website", TargetRef::None).unwrap();
+            ws.set_status(Status::Stopped, "Paused.").unwrap();
+            let manifest_path = ws.root.join(MANIFEST);
+            let mut document: Value = serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
+            document["version"] = json!(MANIFEST_VERSION + 1);
+            document["future_setting"] = json!({"keep": true});
+            let manifest = serde_json::to_vec_pretty(&document).unwrap();
+            std::fs::write(&manifest_path, &manifest).unwrap();
+            let feed_path = ws.root.join(feed::FEED_FILE);
+            if let Some(bytes) = original {
+                std::fs::write(&feed_path, bytes).unwrap();
+            }
+            assert!(Workspace::open(&ws.root).unwrap().is_read_only());
+            let entries = || {
+                let mut entries: Vec<_> = std::fs::read_dir(&ws.root).unwrap().map(|entry| entry.unwrap().file_name()).collect();
+                entries.sort();
+                entries
+            };
+            let before = entries();
+            let engine = Engine::new(crate::testing::session());
+
+            let error = engine.call("project_build_finish", json!({"project": ws.root}), CallOptions::new(Caller::Cli)).unwrap_err();
+
+            assert_eq!(error.code, craft_anything_evidence::ErrorCode::NotSupported, "{case}: {error:?}");
+            assert!(error.remediation.is_some(), "{case}: the person is told how to open this project for editing");
+            assert_eq!(std::fs::read(&manifest_path).unwrap(), manifest, "{case}: the newer manifest remains byte-for-byte unchanged");
+            assert_eq!(std::fs::read(&feed_path).ok().as_deref(), original, "{case}: no Done entry was saved");
+            assert_eq!(entries(), before, "{case}: no recovery backup or other record was created");
+        }
+    }
+
+    #[test]
+    fn a_build_finish_retry_does_not_repeat_a_saved_done_entry() {
+        use crate::workspace::{MANIFEST, Status, Step};
+        let d = tempfile::tempdir().unwrap();
+        let mut ws = Workspace::create(d.path(), "Site", "A website", TargetRef::None).unwrap();
+        ws.set_status(Status::Stopped, "Paused.").unwrap();
+        let original_manifest = std::fs::read(ws.root.join(MANIFEST)).unwrap();
+        let mut items = feed::load(&ws);
+        items.push(feed::FeedItem::Step { step: Step::Done, text: CALLED_DONE.into() });
+        feed::save(&ws.root, &mut items).unwrap();
+        let saved_feed = std::fs::read(ws.root.join(feed::FEED_FILE)).unwrap();
+
+        // Exercise a real status-write failure after the conversation was saved, without
+        // relying on permissions or a race between the tool's two writes.
+        std::fs::remove_file(ws.root.join(MANIFEST)).unwrap();
+        std::fs::create_dir(ws.root.join(MANIFEST)).unwrap();
+        assert!(ws.set_status(Status::Ready, CALLED_DONE).is_err());
+        assert_eq!(std::fs::read(ws.root.join(feed::FEED_FILE)).unwrap(), saved_feed);
+        std::fs::remove_dir(ws.root.join(MANIFEST)).unwrap();
+        std::fs::write(ws.root.join(MANIFEST), original_manifest).unwrap();
+
+        let engine = Engine::new(crate::testing::session());
+        let finish = || engine.call("project_build_finish", json!({"project": ws.root}), CallOptions::new(Caller::Cli));
+        finish().unwrap();
+        finish().unwrap();
+        let ws = Workspace::open(&ws.root).unwrap();
+        assert_eq!((ws.manifest.status, ws.manifest.note.as_str()), (Status::Ready, CALLED_DONE));
+        let items = feed::load(&ws);
+        assert_eq!(items.iter().filter(|item| matches!(item, feed::FeedItem::Step { step: Step::Done, text } if text == CALLED_DONE)).count(), 1);
+        assert_eq!(std::fs::read(ws.root.join(feed::FEED_FILE)).unwrap(), saved_feed);
+    }
+
+    #[test]
     fn list_show_and_answer_a_project_without_the_app() {
         let d = tempfile::tempdir().unwrap();
         let ws = Workspace::create(d.path(), "Snake", "A snake game", TargetRef::None).unwrap();
@@ -763,6 +893,31 @@ mod tests {
     }
 
     #[test]
+    fn an_answer_stays_pending_when_the_conversation_cannot_be_saved() {
+        let d = tempfile::tempdir().unwrap();
+        let ws = Workspace::create(d.path(), "Snake", "A snake game", TargetRef::None).unwrap();
+        let inbox = Inbox::new(ws.inbox_dir());
+        let id = inbox.post(RequestKind::Question, "Blue or red?", "", vec![], true, None).unwrap();
+        let path = ws.root.join(feed::FEED_FILE);
+        std::fs::create_dir(&path).unwrap();
+        let engine = Engine::new(crate::testing::session());
+        let answer = || engine.call("project_inbox_answer", json!({"project": ws.root, "id": id, "choice": "Blue"}), CallOptions::new(Caller::Cli));
+        assert!(answer().is_err(), "a failed conversation save must reach the caller");
+        assert_eq!(inbox.pending().len(), 1, "the person can retry the same request");
+        assert!(!inbox.dir().join(format!("{id}.answer.json")).exists());
+        std::fs::remove_dir(&path).unwrap();
+        std::fs::write(&path, br#"{"version":5,"items":[{"User":"Keep the earlier conversation"}]}"#).unwrap();
+        answer().unwrap();
+        assert!(inbox.pending().is_empty());
+        let saved = feed::load(&ws);
+        assert!(matches!(&saved[0], feed::FeedItem::User(user) if user.text() == "Keep the earlier conversation"));
+        assert_eq!(
+            saved.iter().filter(|item| matches!(item, feed::FeedItem::Ask { request, answer: Some(value) } if request.id == id && value == "Blue")).count(),
+            1
+        );
+    }
+
+    #[test]
     fn a_projects_asset_budget_is_read_and_set() {
         let d = tempfile::tempdir().unwrap();
         let ws = Workspace::create(d.path(), "Game", "A game", TargetRef::None).unwrap();
@@ -780,11 +935,13 @@ mod tests {
     /// it folded anything.
     #[test]
     fn a_plan_is_folded_by_its_tool_and_says_whether_it_did() {
-        use crate::feed::{FeedItem, PlanStep, UserItem, save, visible_plan};
+        use crate::feed::{FeedItem, PlanStep, save, visible_plan};
         let d = tempfile::tempdir().unwrap();
         let ws = Workspace::create(d.path(), "Game", "A game", TargetRef::None).unwrap();
         let steps = vec![PlanStep { text: "Lay out".into(), doing: "Laying out".into(), status: crate::feed::PlanStatus::Todo }];
-        save(&ws.root, &[FeedItem::User(UserItem::Text("A game".into())), FeedItem::Plan(steps)]).unwrap();
+        let mut initial = feed::load(&ws);
+        initial.push(FeedItem::Plan(steps));
+        save(&ws.root, &mut initial).unwrap();
         let e = Engine::new(crate::testing::session());
         let fold = || e.call("project_plan_fold", json!({"project": ws.root}), CallOptions::new(Caller::Cli)).map(|o| o.to_json()["result"]["folded"].clone());
         assert_eq!(fold().unwrap(), true);

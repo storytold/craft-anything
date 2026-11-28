@@ -511,7 +511,18 @@ impl RebuildRun {
     pub fn feed_now(&mut self) -> Vec<feed::FeedItem> {
         let feed = self.feed.lock().unwrap_or_else(PoisonError::into_inner);
         while self.rx.try_recv().is_ok() {}
-        feed.items().to_vec()
+        feed.display_items(&self.inbox)
+    }
+
+    /// Keep snapshots bound to the project the run opened, even if its path is reused.
+    pub(super) fn project_identity(&self) -> Option<feed::ProjectIdentity> {
+        self.feed.lock().unwrap_or_else(PoisonError::into_inner).project_identity()
+    }
+
+    /// Read the current display without consuming queued workflow events. A final save notice
+    /// remains separate from whether the build succeeded, paused, or failed.
+    pub fn display_feed(&self) -> Vec<feed::FeedItem> {
+        self.feed.lock().unwrap_or_else(PoisonError::into_inner).display_items(&self.inbox)
     }
 
     /// Answer a question or approval card.
@@ -521,9 +532,9 @@ impl RebuildRun {
 
     /// Answer a card; `shown` is how the answer appears in the project's feed.
     pub fn answer_as(&self, id: &str, answer: &Answer, shown: &str) -> Result<(), ToolError> {
-        self.inbox.answer(id, answer)?;
-        self.feed.lock().unwrap_or_else(PoisonError::into_inner).answered(id, shown);
-        Ok(())
+        let mut feed = self.feed.lock().unwrap_or_else(PoisonError::into_inner);
+        let prepare = feed.prepare_answer();
+        self.inbox.answer_with_guard(id, answer, prepare, |guard, request| feed.answered(guard, request, shown, || Ok(())))
     }
 
     pub fn stop(&self) {
@@ -646,7 +657,7 @@ const RATE_LIMIT_WAIT: u64 = 5 * 60;
 fn emit_event(feed: &Mutex<feed::FeedLog>, tx: &Sender<RunEvent>, wake: &Wake, e: RunEvent) {
     let mut feed = feed.lock().unwrap_or_else(PoisonError::into_inner);
     feed.record(&e);
-    let _ = tx.send(e);
+    let _ = tx.send(feed.completion_event(e));
     drop(feed);
     wake.call();
 }
@@ -722,6 +733,20 @@ impl Worker {
     /// Recorded and sent under one lock, so [`RebuildRun::feed_now`] sees each event once.
     fn emit(&self, e: RunEvent) {
         emit_event(&self.feed, &self.tx, &self.wake, e);
+    }
+
+    /// Reconcile a manifest's complete check round before any individual event can flush its feed.
+    fn emit_checks(&self, checks: &[CheckResult]) {
+        if checks.is_empty() {
+            return;
+        }
+        let mut feed = self.feed.lock().unwrap_or_else(PoisonError::into_inner);
+        feed.record_checks(checks);
+        for check in checks {
+            let _ = self.tx.send(RunEvent::Checked(check.clone()));
+        }
+        drop(feed);
+        self.wake.call();
     }
 
     fn step(&self, ws: &mut Workspace, step: Step, status: Status, text: &str) -> Result<(), ToolError> {
@@ -1158,9 +1183,7 @@ impl Worker {
             // Kept for the next prompt when every check worked; saved after craft.json has the round.
             progress.checked = self.kept_checks.lock().unwrap_or_else(PoisonError::into_inner).saved_for(round);
             progress.save(&ws.root)?;
-            for c in &checks {
-                self.emit(RunEvent::Checked(c.clone()));
-            }
+            self.emit_checks(&checks);
             if let Some((p, more)) = self.added(ws, deep, sees_pictures) {
                 asked.extend(more);
                 progress.reset();

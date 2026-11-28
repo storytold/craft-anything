@@ -86,9 +86,8 @@ impl StandIns {
     pub fn send(&self, root: &Path, e: RunEvent) -> bool {
         let all = self.started.lock().unwrap_or_else(PoisonError::into_inner);
         let Some(h) = all.iter().rev().find(|h| h.root == root) else { return false };
-        h.feed.lock().unwrap_or_else(PoisonError::into_inner).record(&e);
         let done = matches!(e, RunEvent::Finished { .. });
-        let _ = h.tx.send(e);
+        emit_event(&h.feed, &h.tx, &Wake::default(), e);
         if done {
             h.running.store(false, Ordering::SeqCst);
         }

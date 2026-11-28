@@ -429,6 +429,7 @@ fn rebuild_start(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolErr
             .with_remediation("Add to it with rebuild_note, or stop it with rebuild_stop."));
     }
     let root = ws.root.clone();
+    let creation_warning = ws.creation_warning.clone();
     let opts = RunOptions {
         backend: p.backend,
         shown: message.clone(),
@@ -442,7 +443,7 @@ fn rebuild_start(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolErr
     // A tool runs with the session locked, so the hub reads the saved file: use this session's
     // config file (the person's own in the app), not the machine's default one.
     let hub = AiHub::with_stores(engine, ctx.session.config_dir().join("config.toml"), crate::KeyStore::system());
-    let mut out = match set.start(&hub, ws, opts)? {
+    let mut out = match start_with_creation_warning(&mut set, &hub, ws, opts)? {
         Started::Running => json!({"project": root.display().to_string(), "started": true}),
         Started::Queued { position } => {
             // It starts when a place comes free, whether or not another tool is called.
@@ -454,7 +455,27 @@ fn rebuild_start(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolErr
     if let Some(notice) = builder_notice {
         out["builder_notice"] = json!(notice);
     }
+    if let Some(warning) = creation_warning {
+        out["creation_warning"] = json!(warning);
+    }
     Ok(ToolOutput::Value(out))
+}
+
+/// A project can be published successfully even when its build cannot start. Keep its one-time
+/// cleanup guidance with that failure, since opening the saved project no longer carries it.
+fn start_with_creation_warning(set: &mut RunSet, hub: &AiHub, ws: Workspace, opts: RunOptions) -> Result<Started, ToolError> {
+    let root = ws.root.clone();
+    let creation_warning = ws.creation_warning.clone();
+    set.start(hub, ws, opts).map_err(|mut error| {
+        if let Some(warning) = creation_warning {
+            let guidance = format!("The project was created at {}. {warning}", root.display());
+            error.remediation = Some(match error.remediation {
+                Some(previous) => format!("{previous}\n\n{guidance}"),
+                None => guidance,
+            });
+        }
+        error
+    })
 }
 
 fn rebuild_status(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
@@ -551,14 +572,14 @@ fn rebuild_check(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolErr
     let id = asks.post(craft_anything_engine::inbox::RequestKind::Question, "Check the build", "", Vec::new(), false, None)?;
     ctx.report(None, "Checking the build against the original…");
     let cancel = ctx.cancel.clone();
-    let answer = asks.wait(&id, Duration::from_secs(p.wait_minutes.saturating_mul(60)), &|| cancel.is_cancelled());
+    let answer = asks.try_wait(&id, Duration::from_secs(p.wait_minutes.saturating_mul(60)), &|| cancel.is_cancelled());
     // The run marks a request it has taken: without the mark, no run took it.
     let mark = self_check::taken_mark(&ws.root, &id);
     let taken = mark.as_ref().is_some_and(|m| m.is_file());
     if let Some(mark) = &mark {
         let _ = std::fs::remove_file(mark);
     }
-    match answer {
+    match answer? {
         Some(a) => Ok(ToolOutput::Value(json!({"project": ws.root.display().to_string(), "report": a.text.unwrap_or_default()}))),
         None if ctx.cancel.is_cancelled() => Err(ToolError::new(ErrorCode::Cancelled, "Stopped.")),
         None => Err(unanswered(taken, p.wait_minutes)),
@@ -749,6 +770,45 @@ mod tests {
             assert!(err.message.contains(expected), "{backend}: {err:?}");
             assert_eq!(std::fs::read_dir(d.path()).unwrap().count(), 0, "{backend}: a refused start must not make a project");
         }
+    }
+
+    #[test]
+    fn a_failed_build_start_keeps_the_created_project_and_its_cleanup_guidance() {
+        let d = tempfile::tempdir().unwrap();
+        let mut session = craft_anything_engine::testing::session();
+        session.settings.ai = crate::AiConfig::default().to_table().unwrap();
+        let config = d.path().join("config.toml");
+        session.settings.save_to(&config).unwrap();
+        let hub = AiHub::with_stores(Engine::shared(session, specs()), config, crate::KeyStore::file_only(d.path().join("keys.toml")));
+        let mut set = RunSet::new(1);
+        let mut ws = Workspace::create(d.path(), "Notes", "A notes app", TargetRef::None).unwrap();
+        let root = ws.root.clone();
+        let manifest = std::fs::read(root.join(craft_anything_engine::workspace::MANIFEST)).unwrap();
+
+        // Exercise the real starter's missing-backend error, before a worker or process starts.
+        let original = set.start(&hub, ws.clone(), RunOptions::default()).unwrap_err();
+        assert_eq!(original.code, ErrorCode::BadSettings);
+        let original_remediation = original.remediation.as_deref().expect("the backend error gives recovery advice");
+        assert!(!original_remediation.trim().is_empty());
+        let unchanged = start_with_creation_warning(&mut set, &hub, ws.clone(), RunOptions::default()).unwrap_err();
+        assert_eq!(unchanged, original, "without a creation warning the original error is returned intact");
+
+        // An original synthetic warning isolates this consumer from the separately tested cleanup.
+        let warning = format!("Cleanup needs attention: inspect {} before removing retained files.", d.path().join("retained-reservation").display());
+        ws.creation_warning = Some(warning.clone());
+        let error = start_with_creation_warning(&mut set, &hub, ws, RunOptions::default()).unwrap_err();
+
+        assert_eq!(error.code, original.code);
+        assert_eq!(error.category, original.category);
+        assert_eq!(error.message, original.message);
+        assert_eq!(error.retryable, original.retryable);
+        assert_eq!(error.details, original.details);
+        let remediation = error.remediation.expect("the created project and cleanup advice stay visible");
+        assert!(remediation.starts_with(original_remediation), "{remediation}");
+        assert!(remediation.contains(&root.display().to_string()), "{remediation}");
+        assert!(remediation.contains(&warning), "{remediation}");
+        assert!(Workspace::open(&root).is_ok(), "the created project remains usable after the failed start");
+        assert_eq!(std::fs::read(root.join(craft_anything_engine::workspace::MANIFEST)).unwrap(), manifest);
     }
 
     /// A project's builder is chosen by name, a name it can't use is refused before anything is

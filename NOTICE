@@ -27,5 +27,10 @@ list (author, source, license) is in ATTRIBUTION.md.
 
 Rust crates are listed with their licences in the third-party licence bundle shipped with each
 release (see docs/licences.md).
+The Windows directory-relative file operations use fs_at 0.2.1 by Robert Collins, under
+Apache-2.0 (https://github.com/rbtcollins/fs_at).
+The Windows coordination cleanup uses atomicwrites 0.4.4, Copyright (c) 2015 Markus
+Unterwaditzer, under MIT (https://github.com/untitaker/rust-atomicwrites). Its licence
+text is included in the release third-party licence bundle (docs/licences.md).
 
 Builds made with craft-fonts (CRAFT_FONTS_DIR) also embed the fonts listed in ATTRIBUTION.md.

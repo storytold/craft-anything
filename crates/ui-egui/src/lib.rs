@@ -208,6 +208,7 @@ pub enum Done {
     /// Pictures were pasted: for the project open then (`Some`), or for Make (`None`).
     Pasted {
         project: Option<PathBuf>,
+        project_identity: Option<craft_anything_engine::feed::ProjectIdentity>,
         files: Vec<PathBuf>,
         /// The first picture over 20 MB, if any (checked on the worker that read the paste).
         refused: Option<String>,
@@ -531,10 +532,12 @@ pub struct CraftApp {
     pub pending_paste: Option<project::PendingPaste>,
     /// Picture-size checks still running for each project's prompt box, and for Make. Send and
     /// Make Start wait only for their own destination.
-    pending_attach_checks: std::collections::BTreeMap<PathBuf, usize>,
+    pending_attach_checks: std::collections::BTreeMap<PathBuf, (craft_anything_engine::feed::ProjectIdentity, usize)>,
     pending_make_checks: usize,
     /// Projects whose Send is waiting for their own picture checks to finish.
-    send_after_checks: std::collections::BTreeSet<PathBuf>,
+    send_after_checks: std::collections::BTreeMap<PathBuf, craft_anything_engine::feed::ProjectIdentity>,
+    /// Identities retained with prompt text and pictures while another project is selected.
+    unsent_projects: std::collections::BTreeMap<PathBuf, craft_anything_engine::feed::ProjectIdentity>,
     /// The Make draft Start was pressed for, while its picture checks finish.
     start_after_pictures: Option<state::MakeDraft>,
     /// Each project's building time and AI use, every build together (read from its usage.json).
@@ -545,6 +548,8 @@ pub struct CraftApp {
     last_run: std::collections::HashMap<PathBuf, usage::RunTally>,
     /// The project shown on the Project screen.
     pub workspace: Option<craft_anything_engine::workspace::Workspace>,
+    /// The selected project's directory and manifest identity, captured before polling runs.
+    pub(crate) workspace_identity: Option<craft_anything_engine::feed::ProjectIdentity>,
     /// Every project in the projects folder, newest first.
     pub projects: Vec<craft_anything_engine::workspace::Workspace>,
     /// A preview server for a project opened without a run.
@@ -695,11 +700,13 @@ impl CraftApp {
             pending_attach_checks: Default::default(),
             pending_make_checks: 0,
             send_after_checks: Default::default(),
+            unsent_projects: Default::default(),
             start_after_pictures: None,
             usage: Default::default(),
             session_usage: Default::default(),
             last_run: Default::default(),
             workspace: None,
+            workspace_identity: None,
             projects: Vec::new(),
             preview: None,
             pins: Vec::new(),
@@ -1986,7 +1993,7 @@ impl CraftApp {
             }
             Done::Pictures(files) => self.add_pictures(files),
             Done::ToAttach(files) => self.attach(files),
-            Done::Pasted { project, files, refused } => self.pasted(project, files, refused),
+            Done::Pasted { project, project_identity, files, refused } => self.pasted(project, project_identity, files, refused),
             Done::PicturesChecked { files, refused, target } => self.pictures_checked(files, refused, target),
             Done::Attached { root, text, attachments, files } => self.deliver(root, text, attachments, files),
             Done::GameEngines(inv) => self.engines_found(inv),
@@ -2121,7 +2128,7 @@ impl CraftApp {
         // (`RunOptions::wake`), so only a slow check covers them.
         if self.conversation.as_ref().is_some_and(|c| c.is_busy()) || self.jobs.busy() {
             ctx.request_repaint_after(Duration::from_millis(100));
-        } else if self.runs.any_busy() {
+        } else if self.runs.any_busy() || self.runs.has_pending_events() {
             ctx.request_repaint_after(Duration::from_secs(1));
         }
         // Dropped pictures go to the prompt box on Make or a project; anything else opens.

@@ -29,6 +29,8 @@ toml = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
 regex = { workspace = true }
+same-file = "1.0.6"
+getrandom = "0.4"
 dirs = "6"
 # Browser (Chrome DevTools Protocol) client: hand-rolled WebSocket framing needs only a SHA-1 and
 # base64 for the loopback handshake; PNG decoding is for screenshot pixel diffs. All pure Rust.
@@ -36,6 +38,10 @@ base64 = "0.22"
 png = "0.17"
 # The person's reference pictures may be JPEG, WebP or GIF (decoders only; pure Rust, MIT/Apache).
 image = { version = "0.25", default-features = false, features = ["jpeg", "webp", "gif"] }
+
+[target.'cfg(windows)'.dependencies]
+# Safe no-replace file moves retain late source replacements during inbox cleanup.
+atomicwrites = "=0.4.4"
 
 [features]
 # WASM component plugins (R1.8): compiles wasmtime, so off by default.

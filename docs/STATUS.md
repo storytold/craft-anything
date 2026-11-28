@@ -781,6 +781,135 @@ Rebuild runs save the project's conversation in the versioned `feed.json`, inclu
 the CLI. `project_show` reads it with `offset`/`limit` paging, and `project_inbox_answer` answers
 waiting questions and approvals. These tools are available through the engine, CLI and MCP.
 
+Saving a conversation first reads its existing `feed.json` to check the format version. A filesystem
+read failure leaves the saved bytes or link unchanged and returns the read error; only a path confirmed
+absent can be initialized without that check. The loaded value retains a read failure, so making the
+file readable later cannot let an earlier fallback replace it. Damaged readable bytes are copied to
+an unused `feed.json.broken` backup before replacement; backup failure stops the save, and the
+conversation names the recovery copy. Questions are saved before inbox delivery in the tool and
+app paths. Failed saves leave them pending; failed delivery remains retryable without discarding
+the recorded answer when another writer saves. All application feed writes compare their loaded
+source while holding a bounded cross-process lock through replacement, including an originally
+absent file. Ordinary answer transactions load and apply their reply under that lock. A changed
+replacement keeps the journal for another load; a retry after failed replacement reuses a recovery
+copy only when both its receipt and current bytes match the damaged source. Recovery
+provenance survives later manifest updates, and only this run's own errors suppress its failure note.
+The explanation and stream state calculated during replay are installed when the guarded replacement
+becomes visible, including when a later directory sync or answer delivery fails. Unix feed saves
+sync the parent before delivery; a sync failure keeps the new source and clears only the journal
+already written, reports unconfirmed durability and blocks delivery. A final run still archives
+that state even with an empty journal. Non-Unix directory sync keeps its existing no-op behavior.
+Replay also retains the run's saved stream position across an intervening CLI answer, without
+appending its later deltas to a replaced or separately added external message. New questions retain
+their original event boundary during replay; repeated Ask events leave an existing row and stream
+alone, but restore a missing question at its event boundary without reopening an expired request.
+Saved-answer merging verifies the loaded project identity before adopting replacement rows.
+If the final save still fails, the worker keeps a separate versioned recovery copy before sending
+the completion event. The copy contains the folded conversation and its source context, without raw
+tool-event input or output. Releasing the CLI run or replacing a desktop run leaves that copy on
+disk, and reopening shows its path as a historical notice. Those notices are display-only and cached
+once when a run opens; writer saves and later archives do not persist them. Unix archive creation
+syncs both parent entries and the archive directory, and retries repeat failed parent syncs.
+Archive serialization and sync occur in private staging before exclusive publication. Partial
+staging files remain inspectable without consuming completed-archive discovery budgets. Failure
+reports identify retained files and explain how to inspect and move them before retrying; a changed
+entry is identified as unverified. Once the final archive is durable, private cleanup failures keep
+its usable path and report cleanup separately.
+Copies are bounded and never imported
+automatically; a failure of both writes reports that a complete recovery copy could not be confirmed.
+Polling and dropping a run do not retry persistence or archive writes. The desktop's final
+display retains the separate save notice for successful, paused and failed builds without changing
+the build outcome. A successful reply refreshes its own question card without consuming queued events.
+Expired staged replies remain visibly undelivered; unreadable delivery evidence is shown as unknown
+without advising another submission. A display snapshot rechecks its opened feed identity and
+metadata after reading delivery evidence, so an old reply cannot inherit a later retry's delivery;
+refreshing loads the current reply. An unrelated feed change does not remove an already unconfirmed
+pending question's retry control in the same project. Regular-file probes cannot block on a named
+pipe substituted for the conversation. Existing answer I/O errors stop a new persistence attempt.
+Timeout and cancellation invalidate a locked request even when its directory prevents unlinking it;
+restoring directory access cannot make that withdrawn request answerable again. Checked waits report
+I/O failures instead of presenting them as confirmed withdrawal or a person's refusal.
+Recorded answers reserve their request, acquire and validate the loaded project's guard, recheck
+the request's file identity, then stage, save and publish while retaining both locks. Deletion
+cannot run between saving and delivery, or recreate a stale receipt after it completes.
+On Unix, consumed delivery receipts are directory-synced before either request or answer is removed;
+a failed sync preserves both while returning the accepted answer, without offering resubmission.
+Delivered receipts survive request cleanup. Project deletion atomically claims each selected
+recovery copy before checking its ownership; changed entries survive in their original or reported
+quarantine location. In-place duplication holds the feed lock across discovery, copying and final
+manifest publication. It classifies backup-shaped files through the handle it copies, recognizing
+equivalent case spellings only when they are the same file. New or changed unverified entries
+require a retry; stable personal files and directories are retained, and verified recovery copies
+are excluded. New version-2 backup receipts retain a private same-file anchor after final publication,
+so equal bytes in a replacement file remain personal. Version-1 final receipts retain their historical
+length/hash proof; version-1 interrupted receipts still require their private file identity, including
+when an old final JSON was truncated. Complete synced receipts are published exclusively. An
+unpublished failure cleans only its own unchanged staging entries, preserving replacements and the
+original error. A complete matching version-2 staged pair resumes publication after checking both
+opened identities, source bytes and receipt; even the last backup slot remains usable after that
+interruption. Unverifiable pairs are kept with both exact paths reported. Absent backup candidates
+do not read unrelated receipts, and ownership hashing checks
+cancellation between chunks. Readable legacy sources without an inbox can still be copied when lock creation is denied,
+including a directory whose owner can write but whose current caller cannot. The fallback checks
+the same project and an absent inbox before copying and before destination publication; an observed
+publisher prevents publication of the unfinished copy; partial files are retained if empty cleanup
+cannot complete safely. A readable existing coordination file supports a shared read-only copy guard
+after write access is denied, excluding writers without creating source entries and rechecking both
+inbox and lock identities before publication. Ownership checks
+remain intact. App fingerprints include personal backup-shaped files
+and directories while excluding verified recovery copies. A failed copy claims its destination into
+a private sibling directory and rechecks its identity before removal; an unexpected replacement is
+kept at the reported path, and no partial project manifest is published. Deletion holds the feed
+lock until cleanup completes. It removes inbox payloads while retaining the manifest and lock for a
+normal retry on failure, then removes the manifest and privately claims the inbox before clearing verified coordination
+entries. Once that public name is released, deletion never returns to it; a new creator may use it.
+Late inbox entries are preserved by nonrecursive final cleanup and reported at the retained path. This causes
+waiting or late feed/archive writers to reject the unavailable project. Loading retains the original
+directory identity, manifest creation time and persistent random generation, so an old run also
+refuses to replay or archive into a new project at that path when the directory and timestamp repeat.
+Deletion verifies the workspace the caller loaded against its lock before removing any content.
+`craft.json` version 7 keeps the generation assigned to new projects and copies; legacy projects keep
+none without writes on open. Ordinary manifest updates validate the caller's original identity and
+merge current person-owned fields under the project lock before replacing the file. Person-setting
+updates instead start from the current disk manifest, preserving a newer build's checks, status
+and session while changing a budget or name. New-project choices, including the initial stack,
+are applied together in that disk-based transaction. Neither kind can
+adopt a replacement project's generation or recreate a deleted manifest. Initial publication by a
+new project or duplicate reserves private cleanup space before creating its inbox and holds a
+separate creation guard for the same coordination file throughout copying and publication. A failed
+picked-folder publication reuses that space even when later directory allocations fail; unexpected
+cleanup contents are retained, and successful publication removes only the verified empty reservation. Fingerprinting hashes a personal backup-shaped file through
+the same handle used to classify it, even if recovery publishes a new file at that path meanwhile.
+Earlier version-6 and version-7 projects can carry a generation without an inbox; initialization
+preserves their manifest bytes. A stale initializer refuses conversation, backup, archive or
+recorded-answer payloads. When it created
+the inbox and the manifest is now absent, it releases the unused reservation under the same lock and
+private-claim checks as failed initial creation. Active creators also hold that lock; unknown contents,
+changed identities and failed cleanup remain for inspection.
+Creation rejects dangling reserved links or propagates metadata errors. Newer read-only manifests are rejected
+before build-finish touches their conversations.
+Regression coverage includes sticky read failures, exact recovery copies and occupied backup names,
+tool/live-run answer delivery, intervening writers, cross-process locking, final-save owner release,
+interrupted publication, read-only sources, claimed copy cleanup, deleted-project writers,
+case-sensitive personal files, same-file aliases, dangling/looping links and normal saves.
+Coverage also includes directory-sync failure after visible replacement, late pre-write errors,
+delete/save/delivery boundaries, reused directories and timestamps, stale display replies, failed
+staging cleanup, equal-content replacements and partial archives outside discovery budgets. Further
+regressions cover project replacement between build-finish's feed and status saves, guarded manifest
+updates, classification-to-hash replacement, expired-question replay, answer-card retries, FIFO
+display probes, delivery-directory sync and final desktop notices across all three build outcomes.
+Changed pending-reply snapshots label their words as an earlier reply rather than the current
+saved retry. Successful submission removes the old retry control even if a later display load no
+longer has that question. Completion snapshots belong to their individual run events, so a queued
+follow-up that fails to start preserves its failure and request instead of restoring an older run.
+Cleanup instructions for a changed staging path remain conservative even when its completed archive
+is verified; archive ownership does not authorize moving a different file at the staging path.
+The guarded save and fresh load both use a nonblocking regular-file handle, refusing a named pipe
+without retaining the project lock. Recorded replies sync the inbox directory after staging and
+before saving the conversation; retries repeat that barrier for an existing staged receipt.
+Windows no-sharing and case-insensitive rename regressions are included but have not been run locally. No live desktop or remote
+filesystem run is claimed.
+
 `engines_list` reports external and game-engine readiness; `engines_install` installs Ghidra,
 Godot and pinned engines. Unity and Unreal still need their vendor's installer and account:
 the tool opens an installer where supported, or reports the download page and requirements.

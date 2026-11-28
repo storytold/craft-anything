@@ -153,6 +153,9 @@ fn run(cli: &Cli, a: &RebuildArgs) -> Result<bool, ToolError> {
         }
     };
     println!("Project: {}", ws.root.display());
+    if let Some(warning) = &ws.creation_warning {
+        eprintln!("Project created; cleanup needs attention: {warning}");
+    }
     // The saved builder may be off or gone; say who builds once the run has started, so a failed
     // start doesn't claim an AI that never ran.
     let replacement = rebuild::builder_replacement(&hub.config(), &ws, a.backend.as_deref());

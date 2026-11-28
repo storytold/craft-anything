@@ -965,6 +965,240 @@ result ignored. Only "not found" means there's nothing to lose. Defaults that st
 that is there carry that fact (`Settings::not_loaded`) and refuse to be saved, also through a
 serde round trip that would drop it (`with_setting`); a backup keeps every byte under a name
 nothing else has, and one that fails stops the save.
+The project's conversation needs the same retained load state. Its answer must be saved before
+the inbox can deliver it and let the asker remove the request. An undelivered answer is shown
+as pending only in a display copy: clearing it in the writer lets a save between recording and
+delivery erase the answer. A live writer also keeps the recovery state after a successful save,
+even when delivery fails, and merges a later answer saved by another client before saving again.
+After another client repairs a read failure or recovers damaged bytes, the live writer must load
+actually decoded contents and replay only its unsaved events. A path-existence precheck followed
+by an absent-file fallback is not proof of a decoded conversation; retain the original guard
+until the replacement is successfully saved.
+Bind a recovery replay to the decoded replacement's digest at the save's existing disk read.
+Compare and replace under the same cross-process lock used by every application feed writer;
+a digest check alone still has a window in which another answer can be lost. Ordinary saves must
+also reject stale loaded sources, including a file created after an absent snapshot. Load and apply
+an ordinary answer while holding that lock. Keep request-before-feed lock order, bounded waits and
+a persistent coordination file. Another client's intervening answer must yield FileChanged and
+retain the journal for a new load; a second successful decode alone does not make the stale replay current.
+Deletion must hold that same lock, clear fallible inbox payloads and reserve the private cleanup
+directory while the manifest still permits a retry. Allocating the directory only after removing the
+manifest can leave an undiscoverable project with an inbox that still blocks new creation. Keep the
+reservation's identity, release only that verified empty directory if manifest removal fails, and
+reuse it after manifest removal to privately claim the still-locked inbox before clearing its
+coordination entries. A failed claim must report the public inbox path; a preallocated directory does
+not guarantee later rename or removal succeeds. Never return to the public inbox name after releasing it: a new creator may
+already own that name. Preserve the held lock by file identity, including alternate names, and retain
+the guard through cleanup. Check project liveness before creating a lock and again after acquiring it; otherwise an old
+waiter or a late archive writer can recreate records in a deleted in-place project.
+Bind the loaded writer and its recovery snapshot to their original directory identity and manifest
+creation time too: checking only at lock acquisition would accept a new project at the old path.
+Do not turn cleanup of an empty coordination entry into another unsafe public-path unlink. Earlier
+version-6 and version-7 builds could publish a generation without reserving an inbox; refusing every
+such project breaks ordinary saves and read-only copies. A generation alone is not reservation proof.
+An early project check cannot close the gap before lock creation, and mkdir does not return a handle:
+an old initializer can otherwise capture a new creator's inbox or strand an empty inbox after deletion.
+Capture the inbox relative to the held root. Open and create its coordination file relative to that
+retained inbox handle, including during initial creation: a later public-name replacement must receive
+no stale lock, even before its creator takes the lock. Try an existing-file open on the bound handle
+before create-new; the public path's absence does not establish absence in the original directory.
+Require a literal single child component, reject links and keep Unix opens nonblocking.
+Before opening a coordination file for an inbox this attempt just made, confirm the original project
+after that inbox's first capture. A successful mkdir does not prove that the captured directory is still
+that entry. If confirmation fails, return before entering the cleanup scope: keep the directory and its
+contents, create or acquire no lock, and report the inspection path. A new creator may still have an
+empty reservation and no lock. This uncertain first-capture case can require manual inspection before
+retry; neither an empty directory nor a missing manifest grants permission to remove it.
+Require initial creators to hold the same raw exclusive coordination inode through publication and
+failed-creation cleanup. That raw handle grants no feed-writing authority without a published project
+identity. Keep a failed acquisition's newly created file handle and whether it already holds the lock:
+a transient lock error must not discard the identity needed for rollback. Before promoting an unheld
+handle to cleanup coordination, recheck the original root/inbox and absent manifest, exclusively lock
+that same inode without waiting, then recheck. Busy, changed or unreadable state stays preserved;
+never treat a merely opened pre-existing file as owned, or acquire an already held lock again.
+An initializer whose newly made inbox passed that first confirmation can acquire the same lock, then recheck project
+identity and manifest absence before privately claiming only that captured inbox. A non-owner must
+never remove its lock independently: the initializer that made the directory may be waiting for it,
+and may release the same verified empty inode once it holds the lock. A creator holding the inode
+cannot have its reservation released by an old initializer. Recheck held root/inbox identities and
+manifest absence after claiming it; use the already held handle rather than recursively acquiring
+its non-reentrant lock. Never claim another creator's existing reservation or remove an unrecognized
+entry. Retain uncertain contents with their actual path. This does not synchronize the separate
+request-posting protocol or make arbitrary filesystem changes atomic.
+An in-place lock-file mutation control is Unix-specific: Windows exclusive locks reject a write
+through another handle. Keep that Unix control, and exercise changed-file protection on every platform
+by preparing a replacement before locking and renaming it into place without writing the held inode.
+The manifest may already project a pending check, completed reply or failure into that history.
+Save that projection and its damaged source digest with the recovery rather than guessing from a
+manifest that may have advanced. A temporary read failure or a different damaged source does not
+identify that recovery, so an old projection cannot authorize removing historical same-text events.
+Reconcile only confirmed new occurrences in that exact history prefix against all completed pending
+turns, preserving older and external equal content and replaying every pending event, including
+the plan's finish transition. Older files without provenance must not lose matching text.
+An external tail error cannot explain this run's failure. Track which errors the run supplied,
+and use the same rule when replaying and checking whether a projected failure will be recreated.
+Install that replayed explanation state with the feed when guarded replacement becomes visible;
+discarding it can append a duplicate Finished error after a replay skips an already present question.
+Loading clears streaming flags for display, so replay must retain this run's saved stream position
+and context separately. A CLI answer can change without ending that message; equal external text is
+not permission to append to another writer's message. Commit replayed stream ownership only with a
+visible replacement, and close it when an event ends that stream. A newly introduced question is
+an event boundary even if loading already appended it or another client saved its answer; replay
+must move that row to its original boundary. A repeated Ask leaves an existing row and stream alone,
+but restores a missing question in the repaired history even after its inbox request expires.
+After atomic rename, a directory-sync failure cannot pretend no bytes were written. Update the
+loaded source and replay state, clear only the written journal, keep reporting the durability
+failure and withhold answer delivery. Reset that outcome flag before the next lock or source check
+can fail. At final completion, unconfirmed durability still needs an archive with an empty journal.
+A failed final save cannot leave the only pending conversation in a run that is about to be dropped
+or replaced. Keep an explicit recovery copy on the worker before publishing Finished, and report
+both failures honestly if that copy also cannot be written. Keep the folded feed and source context,
+not raw tool events that may contain input absent from the conversation. The in-memory replay
+journal also retains only the tool fields the conversation consumes, including parsed checklist
+steps; a long save outage must not retain every unused tool input and summary. Historical recovery notices
+must not explain a new run's failure or enter writer loads, saves, or later recovery snapshots.
+Cache display notices once when opening a run. Migrate legacy notices only by their complete
+generated Error shape and archive path, preserving ordinary errors and same-text user or agent words.
+Sync every newly created recovery directory's parent before reporting a durable copy, and repeat
+the sync for existing directories on retry after failure. Do not perform persistence I/O in polling or destructors, and
+do not automatically import retained copies whose contents may overlap a later successful save.
+Serialize and sync archives outside the directory used for completed-copy discovery; partial files
+must not consume its bounded entry or byte budgets. Publish only complete files exclusively.
+Report each retained partial's verified location, preserving the original error and explaining how
+to inspect and move it before retrying. A changed path is unverified, not permission to delete its
+replacement. Once final publication is durable, a private unlink or sync failure is a cleanup warning
+with the completed copy's path, not a claim that the archive failed. A desktop completion must show
+that independent persistence notice even when the build succeeded; preserve its normal lifecycle.
+Saving a reply and withdrawing its request also share the request's file lock: a withdrawn
+request cannot stage a reply, while an accepted submission finishes before timeout or cancellation.
+Acquire and validate the loaded project's guard after the request reservation but before staging
+any receipt, then keep it through feed persistence and answer publication. Recheck the reserved
+request's file identity after acquiring that guard. Returning from the save and dropping its guard
+before publication lets deletion finish in the middle; acquiring it only after staging can recreate
+an old receipt after deletion. A live handle must validate its original project before either step.
+An ignored unlink error does not withdraw a request. If its directory prevents removal, invalidate
+and sync the already locked request file before returning a confirmed withdrawal. Reject the empty
+marker on submission. Checked waits must propagate failures to read, lock or invalidate the request;
+an I/O error is neither a timeout nor a person's refusal, and must not start an infinite retry loop.
+Open lock-owning request handles for reading and writing: a network filesystem can emulate an
+exclusive file lock with a write lock. A staged/delivered receipt survives request withdrawal;
+absence of a request does not prove the saved reply was delivered. Keep a failed delivery's words
+visible for retry or copying to a new request. Before removing a consumed answer, retain its
+delivered receipt and sync its directory before unlinking either file; if persistence fails, keep
+both request and answer while returning the accepted answer. Retained delivery evidence must not
+make the question available for another submission.
+An unreadable answer is not an absent one: propagate its I/O error before persisting a replacement.
+Unreadable delivery evidence means unknown delivery, not failed delivery; keep the saved words
+without suggesting a duplicate submission. Recheck a display snapshot's source after reading a
+receipt, so a later retry's delivered state cannot be attached to the old reply's words. Keep those
+words as unconfirmed until a fresh load; metadata checks do not guarantee a snapshot against
+arbitrary external in-place writes. An unrelated saved answer cannot remove a different pending
+question's retry control once its display already says delivery is unconfirmed. Bind that exception
+to the same project identity. Use a nonblocking regular-file probe for the source recheck, since a
+path replaced by a FIFO must not freeze the display. After a successful retry, refresh that question's
+canonical detail instead of leaving the previous reply's warning; do not drain queued workflow events.
+If a snapshot is stale while the question remains pending, label its words as an earlier reply:
+another client may have staged a newer one for that same request. After successful delivery, retire
+the retry control even if the refreshed display has no matching answered row. A polled batch carries
+one writer display snapshot with its last event, keeping notices out of live text folding while
+preserving every event's workflow effects. Looking up the project's retained run can return an older
+run when a queued follow-up fails before starting. Mark that failure separately: it has no snapshot,
+and an old error or recovery notice cannot explain its new reason. Verify the staging path itself before offering manual cleanup;
+a verified completed archive does not authorize moving a replacement at its former staging path.
+Use the nonblocking regular-file open in the guarded save as well as the display probe; a plain
+read of a substituted FIFO can hold the project guard forever. Sync the inbox directory after
+staging a delivery receipt and before saving the reply, even when the receipt was already staged:
+an earlier attempt may have failed its directory sync. A file sync alone does not publish its name.
+An expired self-check reply is withdrawn; it does not fail the build that completed the check.
+Both the desktop and tools use the engine's same answer transaction and show its remediation.
+A persistence notice is separate from a builder error, so it cannot hide why a build failed.
+Calling a build done checks manifest writability before any feed mutation, then saves its
+conversation entry before changing the manifest; a retry after a failed status write recognizes
+that entry. A manifest update must validate its loaded project under the deletion guard before
+merging current fields and writing; adopting the path's current generation first would overwrite a
+replacement project. Person-setting writes start from the current disk manifest; only build saves
+start from their cached build state and merge person-owned fields. Apply new-project choices inside
+the person-setting transaction too; changing a cached stack before that call would lose it. Keep
+initial publication separate so a stale save cannot recreate a deleted
+manifest. Recovery backups share a reserved-name list for writing, new-project conflicts,
+source scanning and coding-agent protection. Deletion also verifies a generated ownership
+receipt and the current regular file's bytes; a matching name never owns a legacy personal file
+or directory, and recovery paths are never removed recursively. Discovery is not permission to
+unlink the same public path later: atomically claim a candidate into a fresh non-owned folder,
+verify that claimed file, then unlink it. Preserve unexpected contents without overwriting any
+new public entry, and never recursively clean a quarantine folder on error or on a later delete.
+Copy legacy personal entries under reserved backup names; only verified generated copies are
+excluded. Preflight ownership reads before creating the destination, then classify the file handle
+actually used for copying. Complete raw bytes and a receipt in private staging before exposing a
+public backup name. A process can exit between publication and the final receipt even with a lock;
+pending ownership must validate both that receipt and the staged file's identity. Equal personal
+bytes in a separate file remain personal. New version-2 final receipts retain that identity anchor;
+completing a digest receipt cannot replace file identity. Preserve historical version-1 behavior
+without claiming missing past identity evidence. Publish the already-synced receipt exclusively.
+Clean an unpublished attempt only while its opened entries still match, retain replacements and
+the original error, and leave published proof intact. Skip irrelevant receipts for absent backup
+candidates, but keep I/O errors for present uncertain candidates. Check cancellation inside hash
+loops as well as between files. Require a retry for newly observed or changed unverified entries;
+do not silently skip personal replacements or copy a new recovery file through that publication gap.
+A missing or unrecognized receipt cannot reclassify an already known recovery copy as personal
+content during that same copy attempt. Hold the source feed lock across discovery and copying,
+and check the loaded identity for ordinary app/ sources too: an old handle must not mix a replacement
+project's app with the old project's settings. Actual write-access denial can use an existing regular
+empty lock through a read-only shared guard that excludes writers; keep that guard distinct from a
+write transaction. Recheck the original inbox directory and held lock identity before publication;
+a matching manifest alone cannot detect an externally replaced coordination namespace. After actual
+write denial, a legacy source with an existing inbox directory but no coordination file can use an
+uncoordinated copy only while the original directory identity and absent lock remain unchanged
+before and after copying. An existing invalid or unusable lock file, a lock timeout, contention or
+unsupported locking must not become an unlocked copy. A readable read-only legacy source with no inbox
+can use a read-only copy path only after actual permission or read-only-filesystem denial; keep manifest and ownership checks,
+and never swallow lock timeouts or unreadable records. Match case variants by the opened file's identity, not by lowercasing
+all names: a case-sensitive filesystem can hold a distinct personal file with that spelling.
+Publish a duplicate's manifest only after the copy succeeds. Exclusively create every destination
+directory and file: a later root check cannot undo bytes already overwritten through a replaced
+path. Preserve ordinary source permissions using the opened output handle. Capture the newly created root's identity
+before claiming its inbox, and refuse unexpected contents in that fresh root. Directory creation and
+the first handle open remain separate operations; a captured identity alone cannot authorize deleting
+its contents, and files can also appear later.
+Before reserving the inbox, reserve a private cleanup directory and its identity. Allocating that
+directory only after a storage-full publication error can fail for the same reason and strand the
+inbox. Reuse the reserved child name relative to the current root after a failed copy moves that root;
+never fall back to a fresh allocation if the held cleanup directory is missing, replaced or occupied.
+After successful publication, remove only that verified empty directory. Check the published root,
+inbox, held lock and manifest identity before and after cleanup; only cleanup failure becomes a logged
+warning with its retained path while returning the successful workspace. Carry that warning through
+the creation/copy result and display it in UI, CLI and tool consumers; a log message alone does not
+help someone using the app. Keep the warning out of persisted project metadata. A root or manifest change
+must remain an error, and a failed manifest write must never reach this warning path. Preallocation removes one allocation from rollback; it cannot
+guarantee rename or removal under every exhausted-filesystem condition. Test publication failure
+while every later cleanup allocation also fails, plus up-front reservation failure and changed slots.
+Before copying, reserve its inbox name
+atomically, and require every initial creator to take that same reservation: a copied app/ is otherwise
+mistaken for personal files another create_at can adopt. After publication, retain the empty inbox until deletion, so
+releasing a creation reservation cannot race a new feed writer. Losing the reservation does not
+authorize cleaning up the winner's folder. A picked-folder publication failure may remove only its
+owned empty inbox after privately claiming it and rechecking the root/inbox identities and absent
+manifest; removing its public pathname directly still has a replacement window. Otherwise,
+preserve it and report what to inspect; a failed creation must not strand a retry behind its own empty
+inbox, or remove a published project's coordination directory. For a failed copy, check the root and
+inbox identities and manifest absence, claim the destination into a fresh private sibling directory
+and verify the reservation again. Reuse the held creation lock while removing only its verified
+empty coordination inode and aliases, empty reservation and empty root, never its
+contents recursively. Preserve the original error and its recovery advice alongside the full nested
+cleanup guidance. Retain partial copied files and unexpected entries and report their exact
+claimed location; full automatic cleanup is less important than preserving a person's files. Fingerprinting must classify
+backup-shaped entries too, rather than excluding personal files and directories by reserved name.
+Hash each classified personal file through the same opened handle, rewinding after an ownership
+read. Reopening its path can hash a generated backup published in that gap as personal app content.
+Reuse a completed damaged-feed backup after replacement
+fails only when both its receipt and current contents match the original source; repeated retries
+must not consume every backup slot for identical bytes. A complete staged raw/receipt pair also
+needs a verified resume path before public publication; ignoring it can permanently consume the
+last free slot. Retain both opened identities through validation and publication, or preserve the
+unverifiable pair and report both exact paths.
+Creation must treat dangling reserved links and metadata errors as existing conflicts.
+When freeing a backup slot, move its associated ownership receipt and retained private identity
+link and receipt together; `pending` also contains completed backups' anchors.
 And "not found" wasn't that either: reading a link whose target is missing answers "not found"
 too, so such a config.toml was a first start and the next save put a file where the link was. A
 read's error describes the end of the path it followed, not the path: before treating "not
@@ -1399,6 +1633,14 @@ exclusive-creation checks after selecting a name.
 then a fixed number of frames left the next action outside the settled layout. Wait for the
 background operation to finish and run immediate repaints after scrolling before clicking;
 otherwise a missed click looks like a backend mutation that never completed.
+
+**A directory and timestamp repeated for a different project.** Deleting an in-place project
+leaves its personal files and directory intact, and a millisecond clock can repeat. Bind loaded
+writers and deletion to a random persisted creation generation as well as directory identity;
+ordinary saves must keep it. Migrate older manifests without generating a different identity on
+each read. A denied lock operation, not owner mode bits, establishes a caller's inability to
+coordinate a read-only copy. If that fallback requires no inbox, check the same project and no
+inbox again before publishing the copy, while preserving normal publisher coordination.
 
 **Responsive Settings lost transient state when its parents changed.** Backend drafts, pending
 jobs, focus and cursors need layout-independent identities. Test continued typing without

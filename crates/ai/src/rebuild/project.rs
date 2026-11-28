@@ -59,10 +59,10 @@ pub fn apply_new_project_fields(
     if attached {
         return Ok(());
     }
-    if let Some(name) = stack {
-        ws.manifest.stack = name.to_string();
-    }
     ws.set_person(|m| {
+        if let Some(name) = stack {
+            m.stack = name.to_string();
+        }
         m.asset_budget_usd = budget;
         m.generate_assets = generate_assets;
         m.builder = builder.map(str::to_string);

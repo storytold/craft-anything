@@ -111,7 +111,7 @@ fn core_person_ask(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolE
     let id = inbox.post(RequestKind::Question, question, p.context.trim(), choices, p.allow_text || p.choices.is_empty(), None)?;
     ctx.report(None, "Waiting for your answer…");
     let cancel = ctx.cancel.clone();
-    match inbox.wait(&id, WAIT, &|| cancel.is_cancelled()) {
+    match inbox.try_wait(&id, WAIT, &|| cancel.is_cancelled())? {
         Some(a) => Ok(ToolOutput::Value(json!({"answered": true, "answer": a.as_text(), "choice": a.choice, "text": a.text}))),
         None => {
             Ok(ToolOutput::Value(json!({"answered": false, "note": "No answer came. Continue with your best judgement and state the assumption you made."})))
@@ -889,7 +889,7 @@ fn wait_for_approval(
         Remember::Kind(k) => k.name().to_string(),
     };
     let id = inbox.post(RequestKind::Approval, title, detail, Vec::new(), false, Some(tag))?;
-    Ok(match inbox.wait(&id, WAIT, cancelled) {
+    Ok(match inbox.try_wait(&id, WAIT, cancelled)? {
         Some(a) if a.allow == Some(true) => {
             if a.always
                 && let Some(w) = ws

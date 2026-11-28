@@ -600,7 +600,7 @@ impl Server {
     }
 
     /// Ask the person (through the session's inbox) to allow one consent-gated call. `None` when
-    /// there is no inbox.
+    /// there is no inbox or waiting fails, preserving the original consent requirement.
     ///
     /// "Always for this project" is remembered in the project (the inbox's folder is the project's,
     /// `allowed_actions` as `tool:<id>`), and a tool the person already always allowed isn't asked
@@ -616,7 +616,13 @@ impl Server {
         let title = self.engine.registry().get(name).map(|s| s.title).unwrap_or(name);
         let id =
             inbox.post(craft_anything_engine::inbox::RequestKind::Approval, &format!("Allow: {title}"), why, Vec::new(), false, Some(kind.clone())).ok()?;
-        let answer = inbox.wait(&id, Duration::from_secs(30 * 60), &|| token.is_cancelled());
+        let answer = match inbox.try_wait(&id, Duration::from_secs(30 * 60), &|| token.is_cancelled()) {
+            Ok(answer) => answer,
+            Err(error) => {
+                log::warn!("Couldn't wait for consent: {}", error.for_people());
+                return None;
+            }
+        };
         let allowed = answer.as_ref().and_then(|a| a.allow).unwrap_or(false);
         if allowed
             && answer.is_some_and(|a| a.always)

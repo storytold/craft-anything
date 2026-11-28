@@ -163,12 +163,14 @@ const ACTIONS: &[Action] = &[
 /// `CraftApp` methods that aren't person-facing actions: callbacks, polling, drawing, helpers.
 #[rustfmt::skip]
 const PLUMBING: &[(&str, &str)] = &[
+    ("show_creation_warning", "shows successful creation cleanup guidance; the CLI and rebuild_start result carry the same warning"),
     ("show_update_outcome_on_start", "native startup queues the previous helper result for the first window frame; no document action"),
     ("load_agent_model_catalog", "worker dispatch shared by the model picker and its reload action"),
     ("check_backend_keys", "a worker that fills the saved-key status rows"),
     ("stuck_banner", "draws what the lock watchdog found; `sync::problems` and its log are the headless side"),
     ("act", "runs a button's tool on a worker (play, preview, open folder)"),
     ("waiting_question", "finds the question an answer is for"),
+    ("answer_request_using", "internal answer_request implementation with a completion hook for deterministic refresh tests"),
     ("acted", "shows a button tool's result (toast, open the preview)"),
     ("engines_found", "a job's result"), ("engine_got", "a job's result"), ("ghidra_got", "a job's result"),
     ("sign_in_saved", "a query; web_site_open with signed_in: true fails when none is saved"), ("ghidra_ready", "a query"), ("ghidra_found", "a query"), ("ghidra_missing", "a query"),
@@ -187,6 +189,7 @@ const PLUMBING: &[(&str, &str)] = &[
     ("builder_backend", "part of start_make"), ("need_builder", "part of start_make"), ("start_run", "part of start_make"), ("start_run_with", "part of start_run and continue_build"),
     ("resume", "part of follow_up"), ("resume_with_notes", "part of follow_up and poll_run; carries saved waiting-note identities"),
     ("poll_run", "polling"), ("launch", "part of start_run: RunSet::start, the queue rebuild_start uses too"),
+    ("poll_run_using", "internal poll_run implementation with a batch-installation hook for deterministic identity tests"),
     ("thumb_ready", "a job's result"), ("thumb", "drawing"), ("refresh_side_panel", "a view tally"),
     ("previews", "drawing"), ("preview", "drawing"), ("preview_ready", "a job's result"),
 ];

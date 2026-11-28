@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 /// Settings with a stand-in Ghidra whose analysis of `bytes` waits for another process's lock, so
 /// anything that starts it runs until it's stopped (or 40 s pass).
 fn waiting_ghidra(d: &Path, bytes: &[u8]) -> Settings {
-    let launcher = d.join("analyzeHeadless");
+    let launcher = d.join(if cfg!(windows) { "analyzeHeadless.bat" } else { "analyzeHeadless" });
     std::fs::write(&launcher, "").unwrap();
     let store = d.join("store");
     let mut settings = craft_anything_engine::testing::session().settings.clone();

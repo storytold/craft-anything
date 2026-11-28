@@ -1804,6 +1804,34 @@ Owner: maintainers · Status: in progress
 ### R2.9 Everyday use: typing, projects, settings
 Owner: maintainers · Status: in progress
 Gaps found while using the app for real projects.
+- [x] Keep an existing project conversation unchanged when its format-version read fails;
+      only a confirmed absent `feed.json` is created without inspecting its previous version.
+      A fallback retains its failed-load state; damaged bytes are backed up under an unused name
+      before replacement, and the conversation explains the read failure and recovery copy.
+      CLI, MCP and app answers are saved before inbox delivery, with failed saves and deliveries
+      remaining retryable. Regressions cover sticky read errors, backup collisions/failure,
+      intervening writers, answer retries and symlinks; a Windows no-sharing case is included
+      but has not been run locally.
+      Follow-up coverage keeps archive notices display-only, preserves the run's stream through
+      CLI answers, syncs recovery parents, classifies interrupted private backup publication,
+      claims failed-copy cleanup before deleting, retains read-only source duplication and
+      coordinates project deletion with feed/archive writers. Personal backup-shaped files
+      and directories remain part of the app fingerprint. Further regressions cover visible-write
+      directory-sync failures, staged/save/delivery deletion boundaries, persistent project
+      generations, stale display snapshots, failed staging cleanup, retained backup identities,
+      cancelled ownership hashing and private archive publication. Review follow-ups retain
+      expired question history, actionable retry cards and independent desktop save notices;
+      nonblocking source probes, durable delivery cleanup, reported partials and final archive
+      cleanup warnings protect the remaining persistence boundaries. Manifest updates reject
+      replacement projects under the deletion guard, and fingerprint classification and hashing
+      share the same opened file. Stale person-setting updates retain current build progress;
+      changed retry snapshots label older reply text, and successful submission always retires
+      its retry control. Completion displays travel with the run event that produced them,
+      and staging cleanup advice requires that staging file's own verified identity. Guarded
+      feed reads reject named pipes without waiting, and staged delivery receipts sync their
+      inbox directory before conversation persistence, including repeated staging attempts.
+      — claimed: Afloat16, branch bugfix/r2.9-feed-read-errors-20261120
+
 - [x] The headless app the UI tests use builds its engine with `Session::new` (`ui-egui`'s
       `demo::engine`), not the isolated test session, so a UI test that reaches a tool which
       saves, or looks for an installed program, touches the real config folder and finds what

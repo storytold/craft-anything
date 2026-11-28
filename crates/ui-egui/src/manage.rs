@@ -44,11 +44,16 @@ impl CraftApp {
             }
             "project_duplicate" => {
                 let name = v.get("name").and_then(Value::as_str).unwrap_or_default();
-                self.toast(trf("Made a copy: {name}", &[("name", name)]), false);
+                let made = trf("Made a copy: {name}", &[("name", name)]);
+                match v.get("creation_warning").and_then(Value::as_str) {
+                    Some(warning) => self.toast(format!("{made} {warning}"), true),
+                    None => self.toast(made, false),
+                }
             }
             _ => {
                 if self.workspace.as_ref().is_some_and(|w| Some(&w.root) == root.as_ref()) {
                     self.workspace = None;
+                    self.workspace_identity = None;
                     self.state.feed.clear();
                     self.state.screen = Screen::Home;
                 }
@@ -179,4 +184,44 @@ pub fn delete_modal(app: &mut CraftApp, ui: &mut Ui, root: &Path, close: &mut bo
             *close = true;
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use craft_anything_engine::workspace::TargetRef;
+    use egui_kittest::{Harness, kittest::Queryable};
+
+    #[test]
+    fn a_published_copy_with_cleanup_guidance_keeps_the_successful_result() {
+        for warning in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let original = Workspace::create(directory.path(), "Original", "A notes app", TargetRef::None).unwrap();
+            let copy = original.duplicate("Copy").unwrap();
+            let guidance = format!("Inspect {} before retrying cleanup.", copy.root.join("retained-cleanup").display());
+            let mut result = json!({"project": copy.root, "name": copy.manifest.name, "copied_from": original.root});
+            if warning {
+                result["creation_warning"] = json!(guidance);
+            }
+            let mut app = crate::demo::app(crate::demo::engine(craft_anything_engine::Mode::Beginner, true));
+            app.open_workspace(original.clone());
+
+            app.managed("project_duplicate", Ok(result));
+
+            assert_eq!(app.workspace.as_ref().map(|workspace| &workspace.root), Some(&original.root), "copying keeps the existing open project");
+            assert_eq!(Workspace::open(&copy.root).unwrap().manifest.name, "Copy");
+            assert!(app.state.toasts.iter().any(|(text, persistent)| text.contains("Copy") && *persistent == warning));
+            let mut harness = Harness::builder().with_size(egui::vec2(1280.0, 820.0)).with_max_steps(32).build_eframe(move |cc| {
+                CraftApp::setup_context(&cc.egui_ctx);
+                app
+            });
+            harness.run_steps(3);
+            if warning {
+                harness.get_by_label_contains(&guidance);
+            } else {
+                harness.get_by_label_contains("Made a copy:");
+                assert!(harness.state().state.toasts.iter().all(|(text, _)| !text.contains(&guidance)));
+            }
+        }
+    }
 }

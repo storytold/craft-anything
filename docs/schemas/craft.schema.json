@@ -101,6 +101,13 @@
       "type": "boolean",
       "default": false
     },
+    "generation": {
+      "description": "Opaque identity assigned when a project is created, independent of its folder and clock.\nNone means a project from before generations were kept; ordinary saves preserve it.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "last_reply": {
       "description": "The agent's last plain-words summary, shown when the project is reopened.",
       "type": "string",

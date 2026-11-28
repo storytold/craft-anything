@@ -37,11 +37,13 @@ objc2-core-graphics = "0.3"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "libc", "NSRunningApplication"] }
 
 [target.'cfg(unix)'.dependencies]
-nix = { version = "0.31", default-features = false, features = ["signal", "process"] }
+nix = { version = "0.31", default-features = false, features = ["signal", "process", "fs"] }
 
 [target.'cfg(windows)'.dependencies]
-# Only for the creation-flags type process-wrap takes (already in the tree through it).
-windows = { version = "0.62", default-features = false, features = ["Win32_System_Threading"] }
+# Resolve a single child against a retained directory handle without reopening its pathname.
+fs_at = "=0.2.1"
+# Native file-access flags and the creation-flags type process-wrap takes.
+windows = { version = "0.62", default-features = false, features = ["Win32_Storage_FileSystem", "Win32_System_Threading"] }
 
 [dev-dependencies]
 tempfile = "3"

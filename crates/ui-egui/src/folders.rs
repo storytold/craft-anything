@@ -243,6 +243,7 @@ impl CraftApp {
                 self.state.unsent.insert(root, typed);
             }
             self.workspace = None;
+            self.workspace_identity = None;
             self.preview = None;
             self.state.feed.clear();
             if self.state.screen == crate::state::Screen::Project {

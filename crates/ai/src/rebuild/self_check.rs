@@ -186,7 +186,13 @@ impl Worker {
             };
             // The mark stays: the asker reads it after its wait, then removes it, so an answer
             // that lands as the wait ends can't make a taken check look untaken.
-            asks.answer(&r.id, &Answer { text: Some(text), ..Default::default() })?;
+            // The check may finish after its caller cancelled or stopped waiting. That
+            // withdraws this reply, not the build; other delivery failures still propagate.
+            if let Err(error) = asks.answer(&r.id, &Answer { text: Some(text), ..Default::default() })
+                && error.code != ErrorCode::NotFound
+            {
+                return Err(error);
+            }
             self.step(ws, Step::Build, Status::Building, &line)?;
         }
         Ok(())
@@ -196,6 +202,100 @@ impl Worker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Clone, Copy)]
+    enum ReplyBoundary {
+        Cancelled,
+        TimedOut,
+        Unwritable,
+    }
+
+    impl TargetKind for ReplyBoundary {
+        fn id(&self) -> &'static str {
+            "reply-boundary"
+        }
+        fn words(&self) -> KindWords {
+            AppKind.words()
+        }
+        fn detect(&self, _cx: &DetectCx) -> Option<u32> {
+            None
+        }
+        fn default_stack(&self, _cx: &DetectCx) -> &'static str {
+            "Rust"
+        }
+        fn goal(&self) -> &'static str {
+            "an app"
+        }
+        fn checks(&self, _ws: &Workspace) -> Vec<Box<dyn Check>> {
+            vec![Box::new(*self)]
+        }
+    }
+
+    impl Check for ReplyBoundary {
+        fn id(&self) -> &'static str {
+            "reply-boundary"
+        }
+        fn run(&self, cx: &mut CheckCx) -> Result<CheckResult, ToolError> {
+            let asks = Inbox::new(asks_dir(&cx.ws.root));
+            let request = asks.pending().pop().unwrap();
+            assert!(taken_mark(&cx.ws.root, &request.id).unwrap().is_file(), "the worker already took this request");
+            match self {
+                Self::Cancelled => assert!(asks.wait(&request.id, Duration::from_secs(60), &|| true).is_none()),
+                Self::TimedOut => assert!(asks.wait(&request.id, Duration::ZERO, &|| false).is_none()),
+                Self::Unwritable => std::fs::create_dir(asks.dir().join(format!("{}.answer.json", request.id))).unwrap(),
+            }
+            Ok(CheckResult::new("reply-boundary", cx.round, true, "The check passed."))
+        }
+    }
+
+    fn reply_worker(ws: &Workspace, boundary: ReplyBoundary) -> Worker {
+        let (tx, _rx) = std::sync::mpsc::channel();
+        Worker {
+            wake: Default::default(),
+            engine: Arc::new(Engine::new(craft_anything_engine::testing::session())),
+            tx,
+            stop: CancelToken::default(),
+            preview: Arc::default(),
+            seen: HashSet::new(),
+            inbox: Inbox::new(ws.inbox_dir()),
+            editor: None,
+            notes: Arc::default(),
+            feed: Arc::new(Mutex::new(feed::FeedLog::open(ws))),
+            keys: crate::KeyStore::file_only(ws.root.join("keys.toml")),
+            kept_checks: Mutex::default(),
+            assets: false,
+            usage: None,
+            self_check: Some((Arc::new(boundary), 90.0)),
+            reset_progress_after_notes: false,
+            taken_in_turn: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_withdrawn_self_check_does_not_stop_the_build() {
+        for boundary in [ReplyBoundary::Cancelled, ReplyBoundary::TimedOut] {
+            let directory = tempfile::tempdir().unwrap();
+            let mut ws = Workspace::create(directory.path(), "App", "Build an app", TargetRef::None).unwrap();
+            let asks = Inbox::new(asks_dir(&ws.root));
+            let id = asks.post(craft_anything_engine::inbox::RequestKind::Question, "Check the build", "", Vec::new(), false, None).unwrap();
+            reply_worker(&ws, boundary).answer_self_checks(&mut ws).unwrap();
+            assert!(!asks.dir().join(format!("{id}.request.json")).exists());
+            assert!(!asks.dir().join(format!("{id}.answer.json")).exists(), "a withdrawn request does not leave an orphan answer");
+            assert!(ws.manifest.note.contains("checked its work"), "the build records the completed check");
+        }
+    }
+
+    #[test]
+    fn a_self_check_still_reports_a_real_answer_write_failure() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut ws = Workspace::create(directory.path(), "App", "Build an app", TargetRef::None).unwrap();
+        let asks = Inbox::new(asks_dir(&ws.root));
+        let id = asks.post(craft_anything_engine::inbox::RequestKind::Question, "Check the build", "", Vec::new(), false, None).unwrap();
+        let error = reply_worker(&ws, ReplyBoundary::Unwritable).answer_self_checks(&mut ws).unwrap_err();
+        assert!(matches!(error.code, ErrorCode::FileError | ErrorCode::NoPermission), "{error:?}");
+        assert!(asks.dir().join(format!("{id}.answer.json")).is_dir());
+        assert_eq!(asks.pending().len(), 1);
+    }
 
     fn report(checks: &[CheckResult], good_enough: f64, open: &[craft_anything_evidence::Unknown]) -> String {
         super::report(checks, good_enough, open, |_| true)

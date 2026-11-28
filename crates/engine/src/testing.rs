@@ -3,8 +3,19 @@
 //! computer's config folder and engine store.
 
 use crate::Session;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
+
+/// Exercise a real feed replacement while controlling only its final directory sync. This
+/// lets dependent-crate regressions distinguish visible bytes from confirmed durability.
+pub fn save_feed_with_directory_sync(
+    guard: &crate::feed::ProjectFeedGuard,
+    feed: &mut crate::feed::LoadedFeed,
+    require_decoded_source: bool,
+    sync: impl FnOnce(&Path) -> Result<(), craft_anything_evidence::ToolError>,
+) -> Result<(), craft_anything_evidence::ToolError> {
+    crate::feed::save_locked_with_directory_sync(guard, feed, require_decoded_source, crate::project::write_atomic, sync)
+}
 
 /// A fresh folder under the system temp folder, unique to this test process and call.
 pub fn temp_dir() -> PathBuf {
