@@ -5,10 +5,17 @@ A release is whatever is on the `release` branch. Pushing to it makes
 draft GitHub Release, which a maintainer publishes once every job is green. Signing needs the
 maintainers' certificates (secrets of the `release` environment, which only the `release` branch can read), so a fork's run produces unsigned packages.
 
-`ci.yml` checks every pull request and every push to `main` once the repository is public; while
-it's private its jobs are skipped (they would cost Actions minutes), so run it by hand before a
-release: `gh workflow run ci.yml --ref main`. The other workflows (`freebsd.yml`,
-`windows-arm64.yml`, `packaging-lint.yml`) run by hand (`gh workflow run <file>`).
+`ci.yml` runs the suite's shared quality checks on pull requests and pushes to `main`. To run it
+manually, use `gh workflow run ci.yml --ref main`.
+
+- `packaging-lint.yml` runs on pushes to `main` and `release` and on pull requests that change
+  workflow, packaging or app icon files.
+- `windows-arm64.yml` runs on a schedule and on pull requests that change Windows packaging or
+  the workflow itself.
+- `freebsd.yml` runs on pushes to `release`, on a schedule, and on pull requests that change
+  FreeBSD packaging, `packaging/env.sh`, or the workflow itself.
+
+You can also start each packaging workflow manually with `gh workflow run <file>`.
 
 ## Cutting a release
 
