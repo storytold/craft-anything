@@ -1098,6 +1098,59 @@ impl<'a> D<'a> {
         self.push(N::Global { prefix: what.into(), inner: Box::new(name), suffix: String::new() })
     }
 
+    /// `Ts<n>`: a generic pre-specialization of an entity for a list of generic arguments that
+    /// precede this operator on the stack, separated by `FirstMarker`s. The trailing single digit is a
+    /// specialization id and is not printed.
+    fn generic_pre_specialization(&mut self) -> R<()> {
+        if self.stack.len() < 2 {
+            return Err("generic pre-specialization without arguments".into());
+        }
+        let mut args = Vec::new();
+        let mut saw_boundary = false;
+        while self.stack.len() > 1 {
+            let n = self.pop()?;
+            if matches!(n, N::FirstMarker) {
+                saw_boundary = true;
+                continue;
+            }
+            if matches!(
+                n,
+                N::Ident(_)
+                    | N::Private(_)
+                    | N::Operator(_)
+                    | N::EmptyList
+                    | N::Throws
+                    | N::Async
+                    | N::FnMarker(_)
+                    | N::Requirement(_)
+                    | N::Sig { .. }
+                    | N::Module(_)
+            ) {
+                return Err("expected a type argument".into());
+            }
+            args.push(n);
+        }
+        if !saw_boundary {
+            return Err("generic pre-specialization without a boundary".into());
+        }
+        if args.is_empty() {
+            return Err("generic pre-specialization without arguments".into());
+        }
+        args.reverse();
+        let entity = self.pop_type()?;
+        // A node's weight leaves out the text a `Global` carries in its prefix, so a repeated
+        // substitution copies an earlier pre-specialization for almost nothing. Charge the text
+        // each argument renders to before joining it, or every stage multiplies the output.
+        let mut texts = Vec::with_capacity(args.len());
+        for n in &args {
+            let text = render(n, 0);
+            self.budget = self.budget.checked_sub(text.len()).ok_or("symbol expands too much")?;
+            texts.push(text);
+        }
+        let prefix = format!("generic pre-specialization <{}> of", texts.join(", "));
+        self.push(N::Global { prefix, inner: Box::new(entity), suffix: String::new() })
+    }
+
     /// `TL`: the protocol requirements base descriptor of a protocol, the descriptor the runtime
     /// uses to find the protocol's requirement witnesses. The operand is the protocol itself: its
     /// name (an identifier, an operator or a private name) and the context it is declared in (a
@@ -1637,6 +1690,13 @@ impl<'a> D<'a> {
                     b'l' => return self.associated_type_descriptor(),
                     b'n' => return self.associated_conformance_descriptor(),
                     b'v' => return self.outlined_variable(),
+                    b's' => {
+                        let c = self.next()?;
+                        if !c.is_ascii_digit() {
+                            return Err("specialization id".into());
+                        }
+                        return self.generic_pre_specialization();
+                    }
                     b'L' => return self.protocol_requirements_base_descriptor(),
                     b'g' => return self.generic_specialization(),
                     b'x' => "dynamically replaceable key for",

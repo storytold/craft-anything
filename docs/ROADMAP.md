@@ -4019,6 +4019,9 @@ Owner: open · Status: in progress
 - [x] `Tx`, `TX` and `TI` suffixes now print `dynamically replaceable key/variable/thunk for` the entity before them, as `swift-demangle` does. For example `_$s16CoreHapticsTools8CHTEventC4timeSo9NSDecimalavsTx` reads `dynamically replaceable key for CoreHapticsTools.CHTEvent.time.setter : __C.NSDecimal` instead of invalid.
       — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-dyn-replace
 
+- [x] A Swift mangling ending `Ts<n>` decodes as `generic pre-specialization <...> of ...` instead of `unsupported thunk or specialization`, collecting the generic arguments from the stack (for example `_$sSa12_endMutationyyFyXl_Ts5`).
+      — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-pre-spec
+
 ### R3.13 Web inspection correctness
 Owner: open · Status: in progress
 - [x] Decode character references in HTML page titles before returning their displayed text.
