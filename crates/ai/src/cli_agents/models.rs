@@ -321,6 +321,13 @@ pub(crate) fn validate(options: &BackendOptions, models: &[AgentModel]) -> Resul
     let Some(id) = options.cli_model.as_deref() else {
         return if options.cli_thinking.is_none() { Ok(()) } else { Err(ToolError::invalid("Choose a model before choosing its thinking depth.")) };
     };
+    // No models at all means the list wasn't read, not that this one was removed (#2499).
+    if models.is_empty() {
+        let mut e = ToolError::new(ErrorCode::ProgramFailed, format!("The agent listed no models, so the selected model {id:?} couldn't be checked."))
+            .with_remediation("Try again. If the list stays empty, reload the models on this computer, or choose the agent's default.");
+        e.retryable = true;
+        return Err(e);
+    }
     let Some(model) = models.iter().find(|m| m.id == id) else {
         return Err(ToolError::invalid(format!("The selected model {id:?} is no longer available."))
             .with_remediation("Reload the models on this computer and choose an available model or the agent's default."));
@@ -413,6 +420,11 @@ mod tests {
         assert!(validate(&options, &list).is_ok());
         options.cli_thinking = Some(Effort::Max);
         assert!(validate(&options, &list).is_err());
+        // #2499: an empty list is a failed listing, worth retrying, not a removed model.
+        options.cli_thinking = None;
+        let gone = validate(&options, &[]).unwrap_err();
+        assert!(gone.retryable && !gone.message.contains("no longer available"), "{gone:?}");
+        assert!(validate(&BackendOptions::default(), &[]).is_ok(), "the agent's default needs no list");
         options.cli_model = Some("test/removed".into());
         options.cli_thinking = None;
         assert!(validate(&options, &list).is_err());
