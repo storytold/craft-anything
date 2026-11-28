@@ -2,11 +2,15 @@
 
 use craft_anything_evidence::{ErrorCode, Subject, ToolError, sha256_hex};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest as _, Sha256};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// Biggest file we load into memory. Bigger inputs get a clear error rather than an OOM.
 pub const MAX_TARGET_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+
+/// Fixed chunk size used when streaming a file through SHA-256 to avoid buffering the whole file.
+const HASH_CHUNK_BYTES: usize = 64 * 1024;
 
 pub type TargetId = String;
 
@@ -279,16 +283,73 @@ impl Target {
 
     /// Fail if the file on disk no longer matches what we loaded.
     pub fn check_unchanged(&self) -> Result<(), ToolError> {
+        self.check_unchanged_with_cap(MAX_TARGET_BYTES)
+    }
+
+    /// Fail if the file on disk no longer matches what we loaded, refusing files larger than `cap`.
+    fn check_unchanged_with_cap(&self, cap: u64) -> Result<(), ToolError> {
         if self.kind == TargetKind::Directory {
             return Ok(());
         }
-        match craft_anything_platform::fs::read_file_capped(&self.path, MAX_TARGET_BYTES) {
-            Ok(b) if sha256_hex(&b) == self.sha256 => Ok(()),
-            Ok(_) => Err(ToolError::new(ErrorCode::FileChanged, format!("{} changed on disk since it was opened", self.path.display()))
-                .with_remediation("Open it again to analyse the new version.")),
-            Err(e) => Err(e),
+        let digest = hash_file_capped(&self.path, cap)?;
+        if digest == self.sha256 {
+            Ok(())
+        } else {
+            Err(ToolError::new(ErrorCode::FileChanged, format!("{} changed on disk since it was opened", self.path.display()))
+                .with_remediation("Open it again to analyse the new version."))
         }
     }
+}
+
+/// Build the `OverLimit` error returned when a streamed hash reads past `cap`.
+fn hash_read_over_limit(path: &Path, cap: u64) -> ToolError {
+    ToolError::new(ErrorCode::OverLimit, format!("{} contains more than {cap} bytes; the read limit was reached", path.display()))
+        .with_remediation("Raise the size limit parameter if you really want to read it.")
+}
+
+/// Stream up to `cap` bytes from `reader` through SHA-256 and return the lowercase hex digest.
+/// Probes one byte past `cap` without overflowing `cap`, returning `OverLimit` if more bytes exist.
+fn hash_reader_capped<R: std::io::Read>(reader: &mut R, path: &Path, cap: u64) -> Result<String, ToolError> {
+    let mut hasher = Sha256::new();
+    let mut chunk = vec![0u8; HASH_CHUNK_BYTES];
+    let mut total: u64 = 0;
+    loop {
+        let remaining = cap.saturating_sub(total);
+        let to_read = if remaining == 0 { 1 } else { usize::try_from(remaining).unwrap_or(chunk.len()).min(chunk.len()) };
+        let Some(buf) = chunk.get_mut(..to_read) else {
+            return Err(ToolError::io(path.display(), std::io::Error::other("hash chunk slice out of bounds")));
+        };
+        match reader.read(buf) {
+            Ok(0) => return Ok(hex::encode(hasher.finalize())),
+            Ok(n) => {
+                let Some(slice) = chunk.get(..to_read).and_then(|window| window.get(..n)) else {
+                    return Err(ToolError::io(path.display(), std::io::Error::other("reader returned more bytes than requested")));
+                };
+                if remaining == 0 {
+                    return Err(hash_read_over_limit(path, cap));
+                }
+                let next_total = total.checked_add(n as u64).ok_or_else(|| hash_read_over_limit(path, cap))?;
+                if next_total > cap {
+                    return Err(hash_read_over_limit(path, cap));
+                }
+                hasher.update(slice);
+                total = next_total;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(ToolError::io(path.display(), error)),
+        }
+    }
+}
+
+/// Hash a regular file in fixed-size chunks, refusing files larger than `cap` bytes either by
+/// metadata size or by bytes streamed.
+fn hash_file_capped(path: &Path, cap: u64) -> Result<String, ToolError> {
+    let (mut file, metadata) = craft_anything_platform::fs::open_regular_file(path)?;
+    if metadata.len() > cap {
+        return Err(ToolError::new(ErrorCode::OverLimit, format!("{} is {} bytes; the limit is {cap}", path.display(), metadata.len()))
+            .with_remediation("Raise the size limit parameter if you really want to read it."));
+    }
+    hash_reader_capped(&mut file, path, cap)
 }
 
 #[cfg(test)]
@@ -327,5 +388,129 @@ mod tests {
         assert_eq!(sniff(b"", "empty.txt"), TargetKind::Unknown);
         assert_eq!(TargetKind::Text.id(), "text");
         assert!(TargetKind::Text.plain().contains("text file"));
+    }
+
+    /// Guards that chunked target rechecking matches `sha256_hex` across multiple chunks, detects
+    /// a rewritten file as `FileChanged`, and still accepts directory targets.
+    #[test]
+    fn recheck_hashes_multi_chunk_file_and_detects_rewrites() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("sample.bin");
+        let mut bytes: Vec<u8> = (0..(HASH_CHUNK_BYTES * 2 + 333)).map(|i| ((i * 31) % 256) as u8).collect();
+        std::fs::write(&file, &bytes).unwrap();
+
+        assert_eq!(hash_file_capped(&file, bytes.len() as u64).unwrap(), sha256_hex(&bytes));
+        let target = Target::load(&file).unwrap();
+        assert!(target.check_unchanged().is_ok());
+        assert!(target.check_unchanged_with_cap(bytes.len() as u64).is_ok());
+
+        bytes[HASH_CHUNK_BYTES + 17] ^= 0xff;
+        std::fs::write(&file, &bytes).unwrap();
+        let changed = target.check_unchanged().unwrap_err();
+        assert_eq!(changed.code, ErrorCode::FileChanged);
+        assert!(changed.message.contains("changed on disk"), "unexpected message: {}", changed.message);
+        assert!(changed.remediation.as_deref().is_some_and(|r| r.contains("Open it again")));
+
+        let dir_target = Target::load(dir.path()).unwrap();
+        assert!(dir_target.check_unchanged().is_ok());
+    }
+
+    /// Guards that target rechecking enforces the byte cap both from file metadata and while
+    /// streaming past the cap, while accepting files at the exact cap.
+    #[test]
+    fn recheck_enforces_exact_cap_and_rejects_metadata_and_streaming_overflow() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("capped.bin");
+        let payload = vec![0x5au8; HASH_CHUNK_BYTES + 129];
+        std::fs::write(&file, &payload).unwrap();
+
+        let target = Target::load(&file).unwrap();
+        assert!(target.check_unchanged_with_cap(payload.len() as u64).is_ok());
+
+        let meta_over = target.check_unchanged_with_cap((payload.len() - 1) as u64).unwrap_err();
+        assert_eq!(meta_over.code, ErrorCode::OverLimit);
+        assert!(meta_over.message.contains("capped.bin"), "unexpected message: {}", meta_over.message);
+        assert!(meta_over.message.contains("bytes; the limit is"), "expected metadata pre-check before streaming: {}", meta_over.message);
+
+        let mut exact_stream = std::io::Cursor::new(payload.as_slice());
+        assert_eq!(hash_reader_capped(&mut exact_stream, &file, payload.len() as u64).unwrap(), sha256_hex(&payload));
+
+        let mut overflow_stream = std::io::Cursor::new(payload.as_slice());
+        let stream_over = hash_reader_capped(&mut overflow_stream, &file, (payload.len() - 1) as u64).unwrap_err();
+        assert_eq!(stream_over.code, ErrorCode::OverLimit);
+        assert!(stream_over.message.contains("capped.bin"), "unexpected message: {}", stream_over.message);
+        assert!(stream_over.message.contains("contains more than"), "expected streaming cap error: {}", stream_over.message);
+
+        let mut empty_stream = std::io::Cursor::new(b"".as_slice());
+        assert_eq!(hash_reader_capped(&mut empty_stream, &file, 0).unwrap(), sha256_hex(b""));
+
+        let mut one_byte_stream = std::io::Cursor::new(b"x".as_slice());
+        assert_eq!(hash_reader_capped(&mut one_byte_stream, &file, 0).unwrap_err().code, ErrorCode::OverLimit);
+    }
+
+    /// Guards that rechecking fails when the opened file is deleted or replaced by a directory.
+    #[test]
+    fn recheck_reports_missing_and_non_regular_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("gone.bin");
+        std::fs::write(&file, b"present").unwrap();
+        let target = Target::load(&file).unwrap();
+
+        std::fs::remove_file(&file).unwrap();
+        assert_eq!(target.check_unchanged().unwrap_err().code, ErrorCode::NotFound);
+
+        std::fs::create_dir(&file).unwrap();
+        assert_eq!(target.check_unchanged().unwrap_err().code, ErrorCode::BadInput);
+    }
+
+    /// Streaming reader stub that records requested buffer sizes, injects one `Interrupted` error,
+    /// yields short reads, and can fail with a non-`Interrupted` I/O error.
+    struct ChunkedTestReader {
+        data: Vec<u8>,
+        pos: usize,
+        max_step: usize,
+        interrupted_once: bool,
+        fail_after: Option<usize>,
+        max_requested_buf: usize,
+    }
+
+    impl std::io::Read for ChunkedTestReader {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            self.max_requested_buf = self.max_requested_buf.max(buf.len());
+            if self.interrupted_once {
+                self.interrupted_once = false;
+                return Err(std::io::Error::new(std::io::ErrorKind::Interrupted, "simulated interrupt"));
+            }
+            if self.fail_after.is_some_and(|limit| self.pos >= limit) {
+                return Err(std::io::Error::other("simulated stream read error"));
+            }
+            let remaining = self.data.len().saturating_sub(self.pos);
+            let n = remaining.min(buf.len()).min(self.max_step);
+            buf[..n].copy_from_slice(&self.data[self.pos..self.pos + n]);
+            self.pos += n;
+            Ok(n)
+        }
+    }
+
+    /// Guards chunk-bounded reads (`buf.len() <= HASH_CHUNK_BYTES`), `u64::MAX` caps without
+    /// overflow, `Interrupted` retries, non-`Interrupted` I/O errors, and stopping at `cap + 1`.
+    #[test]
+    fn streaming_hash_reads_in_bounded_chunks_retries_interrupts_and_propagates_io_errors() {
+        let payload: Vec<u8> = (0..(HASH_CHUNK_BYTES + 257)).map(|i| ((i * 13) % 251) as u8).collect();
+        let path = Path::new("stream.bin");
+
+        let mut reader = ChunkedTestReader { data: payload.clone(), pos: 0, max_step: 1024, interrupted_once: true, fail_after: None, max_requested_buf: 0 };
+        assert_eq!(hash_reader_capped(&mut reader, path, u64::MAX).unwrap(), sha256_hex(&payload));
+        assert!(reader.max_requested_buf <= HASH_CHUNK_BYTES, "read buffer exceeded chunk cap: {}", reader.max_requested_buf);
+
+        let cap = 2000u64;
+        let mut over = ChunkedTestReader { data: payload.clone(), pos: 0, max_step: 4096, interrupted_once: false, fail_after: None, max_requested_buf: 0 };
+        assert_eq!(hash_reader_capped(&mut over, path, cap).unwrap_err().code, ErrorCode::OverLimit);
+        assert_eq!(over.pos, (cap + 1) as usize, "streaming hash must stop immediately after the one-byte overflow probe");
+
+        let mut broken = ChunkedTestReader { data: payload, pos: 0, max_step: 512, interrupted_once: false, fail_after: Some(512), max_requested_buf: 0 };
+        let err = hash_reader_capped(&mut broken, path, u64::MAX).unwrap_err();
+        assert_eq!(err.code, ErrorCode::FileError);
+        assert!(err.message.contains("stream.bin"), "unexpected message: {}", err.message);
     }
 }
