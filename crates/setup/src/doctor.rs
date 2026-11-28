@@ -195,25 +195,85 @@ pub fn doctor(host: &Host, req: &DoctorRequest) -> DoctorReport {
     DoctorReport { healthy, checks }
 }
 
-/// One check per optional engine, and, when Ghidra is found, which Java it runs on, found the way
-/// its launcher looks ([`java_in_use`]): that needn't be the Java on PATH that `engine:java`
-/// reports. `inherited` is this program's `JAVA_HOME`.
+/// One check per optional engine; for Ghidra, the state from the one status verdict (usable,
+/// kept legacy, incomplete, unsupported) and which Java it runs on, found the way its launcher
+/// looks ([`java_in_use`]): that needn't be the Java on PATH that `engine:java` reports.
+/// `inherited` is this program's `JAVA_HOME`.
 ///
 /// [`java_in_use`]: craft_anything_engines::ghidra::get::java_in_use
 fn engine_checks(settings: &craft_anything_engine::Settings, inherited: Option<&Path>) -> Vec<Check> {
+    use craft_anything_engines::ghidra::get;
     let mut checks = Vec::new();
     for e in craft_anything_engines::ENGINES {
         let name = format!("engine:{}", e.id);
+        if e.id == get::ID {
+            checks.extend(ghidra_checks(settings, inherited));
+            continue;
+        }
         checks.push(match settings.engine_path(e.id) {
             Some(p) => Check::new(name, CheckStatus::Ok, format!("{}: {}", e.name, p.display())),
             None => Check::new(name, CheckStatus::Info, format!("{} not found (optional; {}).", e.name, e.needed_for)),
         });
     }
-    if let Some(launcher) = settings.ghidra_launcher() {
-        use craft_anything_engines::ghidra::get::{GhidraJava, java_in_use};
+    checks
+}
+
+/// The two checks for Ghidra itself: one for the install (its state, where it was found) and one
+/// for the Java it will run on.
+fn ghidra_checks(settings: &craft_anything_engine::Settings, inherited: Option<&Path>) -> Vec<Check> {
+    use craft_anything_engines::ghidra::get::{self, GhidraJava, GhidraState, java_in_use};
+    let mut checks = Vec::new();
+    let st = settings.ghidra_status();
+    let version = get::VERSION;
+    let name = "engine:ghidra";
+    match &st.state {
+        GhidraState::NotFound => checks.push(Check::new(
+            name,
+            CheckStatus::Info,
+            format!("Ghidra not found (optional; {}).", craft_anything_engines::engine(get::ID).map(|e| e.needed_for).unwrap_or("Deep mode")),
+        )),
+        GhidraState::Incomplete => {
+            let mut c = Check::new(
+                name,
+                CheckStatus::Warn,
+                format!(
+                    "Ghidra's install is incomplete: the folder{} has no headless launcher in it.",
+                    st.install.as_ref().map(|i| format!(" ({})", i.launcher.display())).unwrap_or_default()
+                ),
+            );
+            c = c.fix(format!("Reinstall Ghidra {version} from Settings → Engines, or choose its folder there."));
+            checks.push(c);
+        }
+        GhidraState::UnsupportedVersion => checks.push(
+            Check::new(
+                name,
+                CheckStatus::Fail,
+                format!("The Ghidra here{} isn't supported any more.", st.install.as_ref().map(|i| format!(" ({})", i.launcher.display())).unwrap_or_default()),
+            )
+            .fix(format!("Install Ghidra {version} from Settings → Engines.")),
+        ),
+        state => {
+            let install = st.install.as_ref();
+            let version = install.and_then(|i| i.version_hint.as_ref()).map(|v| v.to_string()).unwrap_or_else(|| "unknown version".into());
+            let source = install.map(|i| i.source.label()).unwrap_or_default();
+            let status = match state {
+                GhidraState::Ready => CheckStatus::Ok,
+                GhidraState::Legacy => CheckStatus::Info,
+                _ => CheckStatus::Warn,
+            };
+            let text = match state {
+                GhidraState::Legacy => {
+                    format!("Ghidra {version} is here ({source}) and still works; Ghidra {} can be installed from Settings → Engines.", get::VERSION)
+                }
+                _ => format!("Ghidra {version}: {}, from {source}.", install.map(|i| i.launcher.display().to_string()).unwrap_or_default()),
+            };
+            checks.push(Check::new(name, status, text));
+        }
+    }
+    if let Some(launcher) = st.install.as_ref().map(|i| i.launcher.clone()) {
         let name = "engine:ghidra-java";
         let set = settings.ghidra_java();
-        let fix = "Set Ghidra's Java folder in Settings → Engines, or install Java 21 or newer.";
+        let fix = format!("Set Ghidra's Java folder in Settings → Engines, or install Java {} or newer.", get::JAVA_MAJOR);
         checks.push(match java_in_use(&launcher, set.as_deref(), inherited) {
             GhidraJava::Override(dir) => match set.filter(|s| *s != dir) {
                 Some(s) => Check::new(
@@ -232,9 +292,19 @@ fn engine_checks(settings: &craft_anything_engine::Settings, inherited: Option<&
             GhidraJava::Home { dir, configured: false } => {
                 Check::new(name, CheckStatus::Info, format!("No Java is set for Ghidra, so it runs on JAVA_HOME ({}).", dir.display()))
             }
-            GhidraJava::OnPath(p) => {
-                Check::new(name, CheckStatus::Info, format!("No Java is set for Ghidra, so it runs on {} from PATH (it needs Java 21 or newer).", p.display()))
-            }
+            GhidraJava::OnPath(p) => Check::new(name, CheckStatus::Info, format!("No Java is set for Ghidra, so it runs on {} from PATH.", p.display())),
+            GhidraJava::TooOld { dir, found, needed } => Check::new(
+                name,
+                CheckStatus::Fail,
+                format!("Ghidra runs on Java {found} ({}), which is too old: Ghidra {version} needs Java {needed}.", dir.display()),
+            )
+            .fix(format!("Install Java {needed} from Settings → Engines (Ghidra's setup brings it), or choose a newer Java folder there.")),
+            GhidraJava::Unknown(dir) => Check::new(
+                name,
+                CheckStatus::Warn,
+                format!("The Java in {} can't be read for its version, so it isn't known to be new enough for Ghidra.", dir.display()),
+            )
+            .fix(fix),
             GhidraJava::NotJava(dir) => {
                 Check::new(name, CheckStatus::Warn, format!("The Java folder set for Ghidra ({}) has no bin/java.", dir.display())).fix(fix)
             }
@@ -243,7 +313,6 @@ fn engine_checks(settings: &craft_anything_engine::Settings, inherited: Option<&
     }
     checks
 }
-
 /// Start an MCP server over stdio, send `initialize` + `initialized` + `tools/list`, close stdin,
 /// and check the answers.
 pub fn mcp_self_test(program: &str, args: &[String], timeout: Duration) -> Check {
@@ -341,6 +410,8 @@ mod engine_check_tests {
     fn jdk(at: &Path) -> PathBuf {
         std::fs::create_dir_all(at.join("bin")).unwrap();
         std::fs::write(at.join("bin").join(if cfg!(windows) { "java.exe" } else { "java" }), "").unwrap();
+        // A version the doctor can read, the way a real JDK's release file says it.
+        std::fs::write(at.join("release"), "JAVA_VERSION=\"25.0.1\"\n").unwrap();
         at.to_path_buf()
     }
 

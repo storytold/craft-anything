@@ -639,6 +639,9 @@ pub fn analyse(
     progress: &Progress<'_>,
 ) -> Result<PathBuf, GhidraError> {
     check_decompiler(&cfg.analyze_headless)?;
+    // A Java known to be too old (or a folder set as Ghidra's Java with none in it) stops here,
+    // before the program starts, with the versions spelled out.
+    get::check_java(cfg)?;
     let started = Instant::now();
     let minutes = || started.elapsed().as_secs() / 60;
     let deadline = started + cfg.startup_timeout;

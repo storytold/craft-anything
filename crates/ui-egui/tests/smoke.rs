@@ -258,7 +258,12 @@ fn ghidra_is_looked_up_once_and_again_only_when_asked() {
         // An empty engine store, and nowhere else looked in: a lookup finds no Ghidra here.
         a.settings.engines.store_dir = Some(store);
         a.settings.engines.only_configured = true;
-        a.ghidra.found = Some(Some(found));
+        use craft_anything_engines::ghidra::get::{GhidraInstall, GhidraJava, GhidraSource, GhidraState};
+        a.ghidra.status = Some(craft_anything_engines::ghidra::get::GhidraStatus {
+            state: GhidraState::Ready,
+            install: Some(GhidraInstall { launcher: found, source: GhidraSource::UserFolder, version_hint: None }),
+            java: GhidraJava::Missing,
+        });
         a
     });
     h.run_steps(3);
@@ -266,9 +271,221 @@ fn ghidra_is_looked_up_once_and_again_only_when_asked() {
     assert_eq!(h.state_mut().ghidra_found(), Some(remembered.as_path()));
     assert!(h.state_mut().ghidra_ready());
     // After a settings change or an install it is looked up again.
-    h.state_mut().ghidra.found = None;
+    h.state_mut().ghidra.status = None;
     assert_eq!(h.state_mut().ghidra_found(), None);
     assert!(!h.state_mut().ghidra_ready());
+}
+
+/// A Ghidra folder as its zip unpacks (the headless launcher in `support/`), and that launcher.
+fn ghidra_folder(root: &std::path::Path) -> std::path::PathBuf {
+    let exe = if cfg!(windows) { "analyzeHeadless.bat" } else { "analyzeHeadless" };
+    std::fs::create_dir_all(root.join("support")).unwrap();
+    std::fs::write(root.join("support").join(exe), b"").unwrap();
+    root.join("support").join(exe)
+}
+
+/// A JDK folder a status lookup can judge: `bin/java`, and the `release` file its version is read from.
+fn jdk(at: &std::path::Path, version: &str) -> std::path::PathBuf {
+    std::fs::create_dir_all(at.join("bin")).unwrap();
+    std::fs::write(at.join("bin").join(if cfg!(windows) { "java.exe" } else { "java" }), b"").unwrap();
+    std::fs::write(at.join("release"), format!("JAVA_VERSION=\"{version}\"\n")).unwrap();
+    at.to_path_buf()
+}
+
+/// Confirming an upgrade makes the release just set up the one Deep mode uses: a Settings folder
+/// still naming the kept older install would win the search otherwise. The older copy stays.
+#[test]
+fn confirming_an_upgrade_stops_selecting_the_kept_older_install() {
+    let d = tempfile::tempdir().unwrap();
+    let store = d.path().join("engines");
+    let kept = d.path().join("ghidra").join("ghidra_12.1.4_PUBLIC");
+    let old = ghidra_folder(&kept);
+    let new = ghidra_folder(&store.join("ghidra").join("ghidra_12.2_PUBLIC"));
+    let mut h = harness(move || {
+        let mut a = demo::app(demo::engine(Mode::Beginner, true));
+        a.settings.deep_mode = true;
+        a.settings.engines.store_dir = Some(store);
+        a.settings.engines.only_configured = true;
+        a.settings.engines.ghidra.install_dir = Some(kept);
+        a.ghidra.upgrade = true;
+        a
+    });
+    h.run_steps(2);
+    assert_eq!(h.state_mut().ghidra_found(), Some(old.as_path()), "before the upgrade, the folder in Settings wins");
+    h.state_mut().ghidra_got(new.clone());
+    h.run_steps(2);
+    assert_eq!(h.state().settings.engines.ghidra.install_dir, None, "the kept install is no longer selected");
+    assert_eq!(h.state_mut().ghidra_found(), Some(new.as_path()), "the release just set up is found instead");
+    assert!(old.is_file(), "the older install stays on disk");
+}
+
+/// The download keeps going when the dialog is closed with its own Close button, and the upgrade
+/// asked for goes with it: a dialog reopened mid-download still says what it brings, and the
+/// finished setup switches Deep mode to the release it set up. (Esc leaves by `dismiss`, which
+/// never met the intent, so it can't stand in for the button.)
+#[test]
+fn closing_the_dialog_during_an_upgrade_still_switches_to_the_new_release() {
+    use craft_anything_ui_egui::state::Modal;
+    let d = tempfile::tempdir().unwrap();
+    let store = d.path().join("engines");
+    let kept = d.path().join("ghidra").join("ghidra_12.1.4_PUBLIC");
+    let old = ghidra_folder(&kept);
+    let new = ghidra_folder(&store.join("ghidra").join("ghidra_12.2_PUBLIC"));
+    let mut h = harness(move || {
+        let mut a = demo::app(demo::engine(Mode::Beginner, true));
+        a.settings.deep_mode = true;
+        a.settings.engines.store_dir = Some(store);
+        a.settings.engines.only_configured = true;
+        a.settings.engines.ghidra.install_dir = Some(kept);
+        a.ghidra.upgrade = true;
+        a.state.modal = Some(Modal::Ghidra);
+        a
+    });
+    // The download the dialog started, still running when the person closes it.
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
+    let job = h.state_mut().jobs.spawn("Getting Ghidra", true, move |j| {
+        while matches!(rx.recv_timeout(Duration::from_millis(20)), Err(std::sync::mpsc::RecvTimeoutError::Timeout)) && !j.cancel.is_cancelled() {}
+        Ok(craft_anything_ui_egui::Done::Nothing)
+    });
+    h.state_mut().ghidra.job = Some(job);
+    h.run_steps(2);
+    // The dialog's own Close button. It is drawn on top, so it is the last "Close" in the tree;
+    // where the window has a Close control of its own, that one comes first.
+    h.query_all_by_label("Close").last().expect("the downloading dialog has a Close button").click();
+    h.run_steps(2);
+    assert!(h.state().state.modal.is_none(), "closed while it downloads");
+    assert_eq!(h.state().ghidra.job, Some(job), "the download goes on");
+    assert!(h.state().ghidra.upgrade, "the intent stays with the running download");
+    h.state_mut().ghidra_got(new.clone());
+    h.run_steps(2);
+    assert_eq!(h.state().settings.engines.ghidra.install_dir, None, "the kept install is no longer selected");
+    assert_eq!(h.state_mut().ghidra_found(), Some(new.as_path()), "the release it brought is found instead");
+    assert!(old.is_file(), "the older install stays on disk");
+    drop(tx);
+}
+
+/// Leaving the upgrade dialog before any download starts drops the upgrade it asked for: a Ghidra
+/// dialog opened later (the download pill's, say) would otherwise offer the upgrade again instead
+/// of saying Ghidra is ready.
+#[test]
+fn leaving_the_upgrade_dialog_before_downloading_drops_the_intent() {
+    use craft_anything_ui_egui::state::Modal;
+    let d = tempfile::tempdir().unwrap();
+    let store = d.path().join("engines");
+    let kept = d.path().join("ghidra").join("ghidra_12.1.4_PUBLIC");
+    ghidra_folder(&kept);
+    let mut h = harness(move || {
+        let mut a = demo::app(demo::engine(Mode::Beginner, true));
+        a.settings.deep_mode = true;
+        a.settings.engines.store_dir = Some(store);
+        a.settings.engines.only_configured = true;
+        a.settings.engines.ghidra.install_dir = Some(kept);
+        // "Get Ghidra 12.2" in Settings → Engines, on a working older install.
+        a.ghidra.upgrade = true;
+        a.state.modal = Some(Modal::Ghidra);
+        a
+    });
+    h.run_steps(2);
+    assert!(h.state_mut().ghidra_ready(), "the older install still works");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert!(h.state().state.modal.is_none());
+    assert!(!h.state().ghidra.upgrade, "the upgrade asked for doesn't outlive its dialog");
+    // A Ghidra dialog opened later says what is true: Ghidra is ready, with nothing to download.
+    h.state_mut().state.modal = Some(Modal::Ghidra);
+    h.run_steps(2);
+    h.get_by_label("Ghidra is ready");
+    assert!(h.query_by_label("Download and use Ghidra").is_none());
+}
+
+/// A setup that fails drops the upgrade intent once the dialog that asked for it is closed: a
+/// Ghidra dialog opened later would otherwise say the older install still works, even after it has
+/// stopped working. With that dialog still open the intent stays, so a retry reads right.
+#[test]
+fn a_failed_setup_drops_the_upgrade_intent_of_a_closed_dialog() {
+    use craft_anything_ui_egui::state::Modal;
+    for closed in [true, false] {
+        let d = tempfile::tempdir().unwrap();
+        let store = d.path().join("engines");
+        let kept = d.path().join("ghidra").join("ghidra_12.1.4_PUBLIC");
+        let launcher = ghidra_folder(&kept);
+        let mut h = harness(move || {
+            let mut a = demo::app(demo::engine(Mode::Beginner, true));
+            a.settings.deep_mode = true;
+            a.settings.engines.store_dir = Some(store);
+            a.settings.engines.only_configured = true;
+            a.settings.engines.ghidra.install_dir = Some(kept);
+            // "Get Ghidra 12.2" in Settings → Engines, on a working older install.
+            a.ghidra.upgrade = true;
+            a.state.modal = Some(Modal::Ghidra);
+            a
+        });
+        // The download the dialog started. It fails once the test lets it.
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        let job = h.state_mut().jobs.spawn("Getting Ghidra", true, move |_| {
+            let _ = rx.recv();
+            Err("The download didn't finish.".to_string())
+        });
+        h.state_mut().ghidra.job = Some(job);
+        h.run_steps(2);
+        if closed {
+            h.query_all_by_label("Close").last().expect("the downloading dialog has a Close button").click();
+            h.run_steps(2);
+            assert!(h.state().state.modal.is_none());
+        }
+        assert!(h.state().ghidra.upgrade, "the intent is kept while the setup runs (dialog closed: {closed})");
+        drop(tx);
+        assert!(wait(&mut h, |a| a.ghidra.job.is_none()), "the failed setup is handled (dialog closed: {closed})");
+        if !closed {
+            // Still open: the dialog keeps saying what it would bring, so a retry reads right.
+            h.get_by_label_contains("An older Ghidra is installed");
+            continue;
+        }
+        assert!(!h.state().ghidra.upgrade, "the failed setup leaves no intent behind");
+        // The older install stops working, and Deep mode asks about Ghidra again (as Make does):
+        // the dialog says what is true, not what the cancelled upgrade asked for.
+        std::fs::remove_file(&launcher).unwrap();
+        h.state_mut().ghidra.status = None;
+        h.state_mut().state.modal = Some(Modal::Ghidra);
+        h.run_steps(2);
+        assert!(h.query_all_by_label_contains("An older Ghidra is installed").next().is_none());
+        h.get_by_label_contains("It isn't on this computer yet");
+    }
+}
+
+/// "Get Ghidra" offered for a Java too old ends on the store copy, pointed at the Java the setup
+/// brings. A Settings folder selecting an outside copy that Java can't run must stop selecting
+/// it, or the app keeps refusing Ghidra and hands that folder back to the engine later.
+#[test]
+fn a_java_recovery_stops_selecting_the_outside_install_it_cant_run() {
+    let d = tempfile::tempdir().unwrap();
+    let store = d.path().join("engines");
+    let outside = ghidra_folder(&d.path().join("ghidra_12.2_PUBLIC"));
+    let outside_folder = outside.parent().unwrap().parent().unwrap().to_path_buf();
+    let new = ghidra_folder(&store.join("ghidra").join("ghidra_12.2_PUBLIC"));
+    let old = jdk(&d.path().join("jdk-21"), "21.0.5");
+    // What the setup writes into the store copy's launch.properties.
+    let good = jdk(&d.path().join("jdk-25"), "25.0.1");
+    std::fs::write(new.parent().unwrap().join("launch.properties"), format!("JAVA_HOME_OVERRIDE={}\n", good.display())).unwrap();
+    let mut h = harness(move || {
+        let mut a = demo::app(demo::engine(Mode::Beginner, true));
+        a.settings.deep_mode = true;
+        a.settings.engines.store_dir = Some(store);
+        a.settings.engines.only_configured = true;
+        // "Needs a newer Java": an outside Ghidra 12.2 selected in Settings, on the Java 21 set for it.
+        a.settings.engines.ghidra.install_dir = Some(outside_folder);
+        a.settings.engines.ghidra.java_home = Some(old);
+        a
+    });
+    h.run_steps(2);
+    assert_eq!(h.state_mut().ghidra_found(), Some(outside.as_path()), "the folder in Settings wins");
+    assert!(!h.state_mut().ghidra_ready(), "on Java 21 it can't run");
+    // The setup ends on the store copy: that is the install to use now.
+    h.state_mut().ghidra_got(new.clone());
+    h.run_steps(2);
+    assert_eq!(h.state().settings.engines.ghidra.install_dir, None, "the outside copy is no longer selected");
+    assert_eq!(h.state_mut().ghidra_found(), Some(new.as_path()));
+    assert!(h.state_mut().ghidra_ready(), "the store copy runs on the Java the setup pointed it at");
 }
 
 #[test]
@@ -283,8 +500,10 @@ fn deep_mode_without_ghidra_asks_to_get_it_before_using_it() {
     let mut h = harness_sized(egui::vec2(1280.0, 1120.0), move || {
         let mut a = demo::app(demo::engine(Mode::Beginner, true));
         demo::fill_projects(&mut a);
-        // An empty engine store: no Ghidra here.
+        // An empty engine store, and nowhere else looked in: no Ghidra here, whatever this
+        // computer has installed otherwise (a Homebrew copy on the developer's Mac, say).
         a.settings.engines.store_dir = Some(store);
+        a.settings.engines.only_configured = true;
         a.state.make.target = TargetRef::Local { path: game };
         a.state.make.game = true;
         a.state.make.request = "Recreate this game".into();
@@ -1371,6 +1590,7 @@ fn mode_switch_and_deep_toggle() {
     let mut h = harness(move || {
         let mut a = demo::app(demo::engine(Mode::Beginner, true));
         a.settings.engines.store_dir = Some(empty);
+        a.settings.engines.only_configured = true;
         a
     });
     h.run_steps(3);

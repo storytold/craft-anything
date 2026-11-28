@@ -1507,3 +1507,11 @@ Stop Ghidra's analysis	Ghidra 분석 중지
 
 # Saved-builder notice: English until native-speaker review.
 The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.	The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.
+
+A newer version of Ghidra is available.	최신 버전의 Ghidra를 사용할 수 있습니다.
+Needs a newer Java	더 최신 Java 필요
+Install incomplete	설치가 불완전합니다
+Unsupported version	지원되지 않는 버전
+Get Ghidra {version}	Ghidra {version} 받기
+Ghidra's install is incomplete.	Ghidra 설치가 불완전합니다.
+An older Ghidra is installed and still works. Craft Anything can bring Ghidra {version} and the Java runtime it needs (about {mb} MB) in beside it, in its own folder. Nothing else on your computer changes.	이전 버전의 Ghidra가 설치되어 있으며 여전히 작동합니다. Craft Anything이 Ghidra {version}와 필요한 Java 런타임(약 {mb} MB)을 그 옆의 자체 폴더에 설치할 수 있습니다. 컴퓨터의 다른 것은 바뀌지 않습니다.

@@ -1507,3 +1507,11 @@ Stop Ghidra's analysis	Ghidra-ს ანალიზის შეწყვეტ
 
 # Saved-builder notice: English until native-speaker review.
 The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.	The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.
+
+A newer version of Ghidra is available.	Ghidra-ის უფრო ახალი ვერსია ხელმისაწვდომია.
+Needs a newer Java	უფრო ახალი Java არის საჭირო
+Install incomplete	დაუსრულებელი ინსტალაცია
+Unsupported version	მხარდაუჭერელი ვერსია
+Get Ghidra {version}	Ghidra-ს {version} მიღება
+Ghidra's install is incomplete.	Ghidra-ის ინსტალაცია დაუსრულებელია.
+An older Ghidra is installed and still works. Craft Anything can bring Ghidra {version} and the Java runtime it needs (about {mb} MB) in beside it, in its own folder. Nothing else on your computer changes.	ძველი Ghidra დაინსტალირებულია და კვლავ მუშაობს. Craft Anything-ს შეუძლია Ghidra {version} და საჭირო Java გარემო (დაახლოებით {mb} MB) მის გვერდით, საკუთარ საქაღალდეში მოათავსოს. ამ კომპიუტერზე სხვა არაფერი იცვლება.

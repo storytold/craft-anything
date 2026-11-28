@@ -1507,3 +1507,11 @@ Stop Ghidra's analysis	Dừng phân tích của Ghidra
 
 # Saved-builder notice: English until native-speaker review.
 The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.	The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.
+
+A newer version of Ghidra is available.	Có phiên bản Ghidra mới hơn.
+Needs a newer Java	Cần Java mới hơn
+Install incomplete	Cài đặt chưa hoàn tất
+Unsupported version	Phiên bản không còn hỗ trợ
+Get Ghidra {version}	Lấy Ghidra {version}
+Ghidra's install is incomplete.	Cài đặt Ghidra chưa hoàn tất.
+An older Ghidra is installed and still works. Craft Anything can bring Ghidra {version} and the Java runtime it needs (about {mb} MB) in beside it, in its own folder. Nothing else on your computer changes.	Có một bản Ghidra cũ đang cài và vẫn hoạt động. Craft Anything có thể đưa Ghidra {version} và Java cần thiết (khoảng {mb} MB) vào bên cạnh, trong thư mục riêng. Không có gì khác trên máy tính này thay đổi.

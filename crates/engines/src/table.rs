@@ -79,7 +79,25 @@ pub struct KnownPath {
     pub rel: &'static str,
 }
 
-/// A folder that may hold an unpacked install: any sub-folder named after the engine (`ghidra_12.1.4_PUBLIC`,
+/// Where a package manager keeps a program it installed: a stable link at
+/// `<prefix>/opt/<package>/<rel>`, with the real copy under `<prefix>/Cellar/<package>/<version>/`.
+/// Homebrew's Ghidra formula is like that: only `ghidraRun` is linked onto PATH, and the headless
+/// launcher lives in `libexec/support/`. Read-only: what is found here is run, never written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PackagePath {
+    /// Host OS as in `std::env::consts::OS`.
+    pub os: &'static str,
+    /// The package manager's prefix (`/opt/homebrew` on Apple Silicon, `/usr/local` on Intel).
+    pub prefix: &'static str,
+    /// The package name (`ghidra`).
+    pub package: &'static str,
+    /// The program, relative to the package's folder (`libexec/support/analyzeHeadless`).
+    pub rel: &'static str,
+    /// The package manager's name, shown where the install was found ("Homebrew").
+    pub label: &'static str,
+}
+
+/// A folder that may hold an unpacked install: any sub-folder named after the engine (`ghidra_12.2_PUBLIC`,
 /// `ghidra/11.4/…`) is searched, down to `depth` levels. Where people unzip a release, or where a
 /// package manager unpacks one, when it isn't on PATH.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,6 +126,9 @@ pub struct ExternalEngine {
     pub exes_windows: &'static [&'static str],
     /// Standard install locations, searched after PATH.
     pub known_paths: &'static [KnownPath],
+    /// Package-manager locations (`Homebrew's opt/Cellar`), searched after the standard install
+    /// locations and before the unpacked folders.
+    pub package_paths: &'static [PackagePath],
     /// Folders searched for an unpacked install of this engine, after the standard install locations.
     pub known_roots: &'static [KnownRoot],
     /// Whether Settings → Engines has a path override for it (`ToolPaths`). Ghidra has its own folder setting.
@@ -161,6 +182,12 @@ impl ExternalEngine {
             .collect()
     }
 
+    /// The package-manager locations for this engine on this OS (`Homebrew's opt/Cellar` rows).
+    pub fn host_package_paths(&self) -> impl Iterator<Item = &'static PackagePath> {
+        let os = std::env::consts::OS;
+        self.package_paths.iter().filter(move |p| p.os == os)
+    }
+
     /// The folders to search for an unpacked install on this OS, with how many levels down to look.
     pub fn known_root_folders(&self) -> Vec<(std::path::PathBuf, usize)> {
         let os = std::env::consts::OS;
@@ -195,6 +222,17 @@ const fn linux_home(rel: &'static str) -> KnownPath {
 }
 
 const NO_PATHS: &[KnownPath] = &[];
+
+const NO_PKG_PATHS: &[PackagePath] = &[];
+
+/// Homebrew's Ghidra formula: the program sits in `opt/ghidra/libexec`, the `opt` link is a stable
+/// name for the version in `Cellar/ghidra/`, and only `ghidraRun` is linked onto PATH. Two
+/// prefixes: Apple Silicon's `/opt/homebrew` and Intel's `/usr/local` (either can be installed on
+/// either kind of Mac, so both are looked at regardless of this computer's CPU).
+const GHIDRA_PKG_PATHS: &[PackagePath] = &[
+    PackagePath { os: "macos", prefix: "/opt/homebrew", package: "ghidra", rel: "libexec/support/analyzeHeadless", label: "Homebrew" },
+    PackagePath { os: "macos", prefix: "/usr/local", package: "ghidra", rel: "libexec/support/analyzeHeadless", label: "Homebrew" },
+];
 
 /// Linux packages put Ghidra in a folder of its own and only a start script on PATH (`/usr/bin/ghidra`):
 /// Arch and its derivatives in `/opt/ghidra`, Debian and Kali in `/usr/share/ghidra` (#85).
@@ -339,60 +377,65 @@ const JADX_PINS: &[Pin] = &[Pin {
     strip_prefix: None,
 }];
 
-/// Ghidra 12.1.4 (any OS), as published in Ghidra's release notes. Installed by `ghidra::get`.
+/// Ghidra 12.2 (any OS), as published in Ghidra's release notes. Installed by `ghidra::get`.
 const GHIDRA_PINS: &[Pin] = &[Pin {
     os: None,
     arch: None,
-    url: "https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.1.4_build/ghidra_12.1.4_PUBLIC_20260921.zip",
-    sha256: "ddac49f903da9d5bac833e5cc79395098b9c33cfd3279be5f31bd00387d2d4db",
+    url: "https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.2_build/ghidra_12.2_PUBLIC_20261016.zip",
+    sha256: "2c2cd776db3c1f6a097ba418922378ac3649cadd5e844a6f5f088ae628a7be67",
     format: ArchiveFormat::Zip,
     strip_prefix: None,
 }];
 
-/// Temurin JDK 21 for Ghidra, as published in Adoptium's `.sha256.txt` (the same as the GitHub
-/// asset digests). Installed by `ghidra::get` into `<store>/jdk/<one folder>/bin/java`: the archives
-/// hold `jdk-21.0.12.1+1/`, and on macOS the JDK itself is in its `Contents/Home/`, so that part is
-/// stripped down to `Home/`.
+/// The JDK patch Ghidra's guided setup downloads, pinned so a checksum can never drift. What a
+/// program *needs* is only the major version (`get::JAVA_MAJOR`); a JDK the person already has
+/// counts when it is new enough, whatever its patch.
+pub const JDK_PINNED: &str = "25.0.5.1+2";
+
+/// Temurin JDK 25 for Ghidra (12.2 needs Java 25), as published in Adoptium's `.sha256.txt` (the
+/// same as the GitHub asset digests). Installed by `ghidra::get` into `<store>/jdk/<version
+/// folder>/…`: every platform keeps the release's own `jdk-25.0.5.1+2/` folder (macOS inside it
+/// the JDK's `Contents/Home/`), so a JDK the person already had beside it is never replaced.
 const JAVA_PINS: &[Pin] = &[
     Pin {
         os: Some("windows"),
         arch: Some("x86_64"),
-        url: "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jdk_x64_windows_hotspot_21.0.12.1_1.zip",
-        sha256: "f9d6e191ab098c0d416e7d588a24420a8621cd2f4720dab2459b8b7b2d2d8b4e",
+        url: "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.5.1%2B2/OpenJDK25U-jdk_x64_windows_hotspot_25.0.5.1_2.zip",
+        sha256: "849d380ab0a64d9098e7d3a2de28beb73841c3b255c8284f019ccd8748c5eb5b",
         format: ArchiveFormat::Zip,
         strip_prefix: None,
     },
     Pin {
         os: Some("linux"),
         arch: Some("x86_64"),
-        url: "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jdk_x64_linux_hotspot_21.0.12.1_1.tar.gz",
-        sha256: "ce79869e1307ed8ee1e2baa86a412b1eb5b75d10a01006d788a6f968bcfaee94",
+        url: "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.5.1%2B2/OpenJDK25U-jdk_x64_linux_hotspot_25.0.5.1_2.tar.gz",
+        sha256: "760f91b22c3efc9bd1b64ff950598231be82928cc807e30691a0e7a2995a62c0",
         format: ArchiveFormat::TarGz,
         strip_prefix: None,
     },
     Pin {
         os: Some("linux"),
         arch: Some("aarch64"),
-        url: "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jdk_aarch64_linux_hotspot_21.0.12.1_1.tar.gz",
-        sha256: "23e37e026f12f3e706f18938ff611db3032d075b09d0879a25d06718c773e223",
+        url: "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.5.1%2B2/OpenJDK25U-jdk_aarch64_linux_hotspot_25.0.5.1_2.tar.gz",
+        sha256: "c37879e0d08eeb1baa69fcbb7758cd455b7b1c0ceab1e2a136ccb1713c530984",
         format: ArchiveFormat::TarGz,
         strip_prefix: None,
     },
     Pin {
         os: Some("macos"),
         arch: Some("x86_64"),
-        url: "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jdk_x64_mac_hotspot_21.0.12.1_1.tar.gz",
-        sha256: "44db0f08196daf19a47f90d13388b0c943b67663cb537f998fe29e836fa842ce",
+        url: "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.5.1%2B2/OpenJDK25U-jdk_x64_mac_hotspot_25.0.5.1_2.tar.gz",
+        sha256: "b4b96fb7b9babd1b4faab1238e1835d0d7dd77b0690d220643c749a9ac00db36",
         format: ArchiveFormat::TarGz,
-        strip_prefix: Some("jdk-21.0.12.1+1/Contents/"),
+        strip_prefix: None,
     },
     Pin {
         os: Some("macos"),
         arch: Some("aarch64"),
-        url: "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jdk_aarch64_mac_hotspot_21.0.12.1_1.tar.gz",
-        sha256: "3623232f33a9c3baadf304480b2535f9a3cba8a58d42ecbb438ba267315d9998",
+        url: "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.5.1%2B2/OpenJDK25U-jdk_aarch64_mac_hotspot_25.0.5.1_2.tar.gz",
+        sha256: "248353ea41be39d5d2c1c67c7ce0ae4d1668966aacd0c5308464bc1be42f677b",
         format: ArchiveFormat::TarGz,
-        strip_prefix: Some("jdk-21.0.12.1+1/Contents/"),
+        strip_prefix: None,
     },
 ];
 
@@ -405,7 +448,18 @@ const fn manual(
     exes: &'static [&'static str],
     exes_windows: &'static [&'static str],
 ) -> ExternalEngine {
-    ExternalEngine { id, name, needed_for, exes, exes_windows, known_paths: NO_PATHS, known_roots: NO_ROOTS, path_setting: true, install: Install::Manual }
+    ExternalEngine {
+        id,
+        name,
+        needed_for,
+        exes,
+        exes_windows,
+        known_paths: NO_PATHS,
+        package_paths: NO_PKG_PATHS,
+        known_roots: NO_ROOTS,
+        path_setting: true,
+        install: Install::Manual,
+    }
 }
 
 /// Every external engine. Ghidra first, then in the order of the Settings → Engines path list
@@ -418,6 +472,7 @@ pub const ENGINES: &[ExternalEngine] = &[
         exes: &["analyzeHeadless"],
         exes_windows: &["analyzeHeadless.bat"],
         known_paths: GHIDRA_PATHS,
+        package_paths: GHIDRA_PKG_PATHS,
         known_roots: GHIDRA_ROOTS,
         path_setting: false,
         install: Install::Guided { pins: GHIDRA_PINS, how: GHIDRA_SETUP, folder: crate::ghidra::get::ID },
@@ -429,6 +484,7 @@ pub const ENGINES: &[ExternalEngine] = &[
         exes: &["adb"],
         exes_windows: &["adb.exe"],
         known_paths: NO_PATHS,
+        package_paths: NO_PKG_PATHS,
         known_roots: NO_ROOTS,
         path_setting: true,
         install: Install::Pinned(ADB_PINS),
@@ -440,6 +496,7 @@ pub const ENGINES: &[ExternalEngine] = &[
         exes: &["jadx"],
         exes_windows: &["jadx.bat"],
         known_paths: NO_PATHS,
+        package_paths: NO_PKG_PATHS,
         known_roots: NO_ROOTS,
         path_setting: true,
         install: Install::Pinned(JADX_PINS),
@@ -451,6 +508,7 @@ pub const ENGINES: &[ExternalEngine] = &[
         exes: &["apktool"],
         exes_windows: &["apktool.bat"],
         known_paths: NO_PATHS,
+        package_paths: NO_PKG_PATHS,
         known_roots: NO_ROOTS,
         path_setting: true,
         install: Install::Pinned(APKTOOL_PINS),
@@ -475,6 +533,7 @@ pub const ENGINES: &[ExternalEngine] = &[
         ],
         exes_windows: &["chrome.exe", "msedge.exe", "brave.exe"],
         known_paths: CHROMIUM_PATHS,
+        package_paths: NO_PKG_PATHS,
         known_roots: NO_ROOTS,
         path_setting: true,
         install: Install::Manual,
@@ -493,6 +552,7 @@ pub const ENGINES: &[ExternalEngine] = &[
         exes: &["java"],
         exes_windows: &["java.exe"],
         known_paths: NO_PATHS,
+        package_paths: NO_PKG_PATHS,
         known_roots: NO_ROOTS,
         path_setting: true,
         install: Install::Guided { pins: JAVA_PINS, how: GHIDRA_SETUP, folder: crate::ghidra::get::JAVA_FOLDER },
@@ -506,6 +566,7 @@ pub const ENGINES: &[ExternalEngine] = &[
         exes: &["rizin"],
         exes_windows: &["rizin.exe"],
         known_paths: NO_PATHS,
+        package_paths: NO_PKG_PATHS,
         known_roots: NO_ROOTS,
         path_setting: true,
         install: Install::Pinned(RIZIN_PINS),
@@ -518,6 +579,7 @@ pub const ENGINES: &[ExternalEngine] = &[
         exes: &["vineflower"],
         exes_windows: &["vineflower.bat", "vineflower.cmd"],
         known_paths: NO_PATHS,
+        package_paths: NO_PKG_PATHS,
         known_roots: NO_ROOTS,
         path_setting: true,
         install: Install::Pinned(VINEFLOWER_PINS),
@@ -570,6 +632,41 @@ mod tests {
                 assert!(p.arch.is_none_or(|a| ["x86_64", "aarch64"].contains(&a)), "{}", e.id);
             }
         }
+    }
+
+    /// Ghidra's guided setup downloads Ghidra 12.2 and a JDK whose patch matches [`JDK_PINNED`]:
+    /// the pins and the pinned-patch constant must not drift apart (what counts as *good enough*
+    /// Java is only the major version; this pins the download).
+    #[test]
+    fn ghidra_pins_name_the_current_release_and_java_patch() {
+        let ghidra = ENGINES.iter().find(|e| e.id == "ghidra").unwrap();
+        assert!(ghidra.pins().len() == 1 && ghidra.pins()[0].url.contains("Ghidra_12.2_build"), "{:?}", ghidra.pins());
+        let java = ENGINES.iter().find(|e| e.id == "java").unwrap();
+        let escaped = JDK_PINNED.replace('+', "%2B");
+        for os in ["linux", "macos", "windows"] {
+            for arch in ["x86_64", "aarch64"] {
+                let Some(pin) = java.pin_for(os, arch) else {
+                    assert!((os == "windows" && arch == "aarch64"), "java pin missing for {os}/{arch}");
+                    continue;
+                };
+                assert!(pin.url.contains(&escaped), "{}: not the pinned patch {JDK_PINNED}", pin.url);
+            }
+        }
+    }
+
+    /// Homebrew's Ghidra formula is found at two prefixes only; every row points at the headless
+    /// launcher inside the package folder, never at the `ghidraRun` window launcher.
+    #[test]
+    fn ghidras_package_paths_are_the_two_homebrew_prefixes() {
+        let ghidra = ENGINES.iter().find(|e| e.id == "ghidra").unwrap();
+        assert_eq!(ghidra.package_paths.len(), 2, "{:?}", ghidra.package_paths);
+        for p in ghidra.package_paths {
+            assert_eq!(p.os, "macos", "{p:?}");
+            assert!(p.prefix == "/opt/homebrew" || p.prefix == "/usr/local", "{p:?}");
+            assert_eq!(p.package, "ghidra", "{p:?}");
+            assert!(p.rel.ends_with("support/analyzeHeadless"), "{p:?}");
+        }
+        assert!(ENGINES.iter().all(|e| e.id == "ghidra" || e.package_paths.is_empty()), "only Ghidra comes from a package manager");
     }
 
     #[test]

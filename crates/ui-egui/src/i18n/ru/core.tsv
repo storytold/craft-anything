@@ -1507,3 +1507,11 @@ Stop Ghidra's analysis	Остановить анализ Ghidra
 
 # Saved-builder notice: English until native-speaker review.
 The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.	The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.
+
+A newer version of Ghidra is available.	Доступна более новая версия Ghidra.
+Needs a newer Java	Нужна более новая Java
+Install incomplete	Установка неполная
+Unsupported version	Неподдерживаемая версия
+Get Ghidra {version}	Получить Ghidra {version}
+Ghidra's install is incomplete.	Установка Ghidra неполная.
+An older Ghidra is installed and still works. Craft Anything can bring Ghidra {version} and the Java runtime it needs (about {mb} MB) in beside it, in its own folder. Nothing else on your computer changes.	Установлена более старая версия Ghidra, и она работает. Craft Anything может установить Ghidra {version} и нужную среду Java (около {mb} MB) рядом, в своей папке. Больше на этом компьютере ничего не изменится.

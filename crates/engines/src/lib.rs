@@ -15,15 +15,18 @@ pub mod gdb;
 pub mod ghidra;
 pub mod install;
 pub mod jadx;
+pub mod java;
 #[cfg(test)]
 mod known_roots_tests;
 pub mod mcp_client;
 pub mod rizin;
 pub mod table;
+pub mod version;
 #[cfg(feature = "wasm-plugins")]
 pub mod wasm_plugin;
 
-pub use table::{ArchiveFormat, ENGINES, ExternalEngine, Install, Pin};
+pub use table::{ArchiveFormat, ENGINES, ExternalEngine, Install, PackagePath, Pin};
+pub use version::version_order;
 
 use std::path::{Path, PathBuf};
 
@@ -95,12 +98,14 @@ pub fn not_found_help(id: &str, set: Option<&Path>, flatpak: bool) -> (String, S
 
 /// Find an engine: user override, then the managed store (its [`ExternalEngine::store_folder`],
 /// `<store>/<id>` unless a guided setup puts it elsewhere), then PATH,
-/// then its standard install folders, then the folders where an unpacked copy is usually kept.
+/// then its standard install folders, then a package manager's copy (Homebrew's Ghidra),
+/// then the folders where an unpacked copy is usually kept.
 pub fn locate(id: &str, overrides: &dyn ToolPathLookup, store: &Path) -> Option<PathBuf> {
     locate_configured(id, overrides, store).or_else(|| {
         let e = engine(id)?;
         find_on_path(e.host_exes())
             .or_else(|| e.known_install_paths().into_iter().find(|p| p.is_file()))
+            .or_else(|| find_in_package_paths(e).map(|(p, _)| p))
             .or_else(|| find_in_known_roots(id, e.host_exes(), &e.known_root_folders()))
     })
 }
@@ -150,16 +155,19 @@ fn in_path_setting(id: &str, p: &Path) -> Option<PathBuf> {
 
 /// An executable in a managed install folder: `<dir>/<exe>`, `<dir>/bin/<exe>` or
 /// `<dir>/support/<exe>`, in `dir` itself or in one of its sub-folders, newest version first (an
-/// archive unpacks into one top folder, often versioned: `ghidra_12.1.4_PUBLIC/support/…`; a
-/// folder of JDKs holds `java-8-…` beside `java-21-…`).
-fn in_managed(dir: &Path, exes: &[&str]) -> Option<PathBuf> {
+/// archive unpacks into one top folder, often versioned: `ghidra_12.2_PUBLIC/support/…`; a
+/// folder of JDKs holds `java-8-…` beside `java-25-…`).
+pub(crate) fn in_managed(dir: &Path, exes: &[&str]) -> Option<PathBuf> {
     let here = |d: &Path| exes.iter().flat_map(|exe| [d.join(exe), d.join("bin").join(exe), d.join("support").join(exe)]).find(|p| p.is_file());
-    if let Some(p) = here(dir) {
+    // A JDK folder may keep its home one `Contents/Home` deeper (macOS, and the guided install
+    // unpacks Temurin so), which `java::home_in` resolves.
+    let found = |d: &Path| here(d).or_else(|| java::home_in(d).and_then(|home| here(&home)));
+    if let Some(p) = found(dir) {
         return Some(p);
     }
     let mut subs: Vec<PathBuf> = std::fs::read_dir(dir).ok()?.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
     subs.sort_by(|a, b| version_order(&a.file_name().unwrap_or_default().to_string_lossy(), &b.file_name().unwrap_or_default().to_string_lossy()));
-    subs.iter().rev().find_map(|d| here(d))
+    subs.iter().rev().find_map(|d| found(d))
 }
 
 /// An unpacked install in one of `roots` (each with how many levels down to look): a folder whose
@@ -167,41 +175,6 @@ fn in_managed(dir: &Path, exes: &[&str]) -> Option<PathBuf> {
 /// `exes` (see [`in_managed`]). Newer names first. Reads folder names only, never file contents.
 pub fn find_in_known_roots(id: &str, exes: &[&str], roots: &[(PathBuf, usize)]) -> Option<PathBuf> {
     roots.iter().find_map(|(root, depth)| search_named(root, id, exes, *depth))
-}
-
-/// Folder names in version order: runs of digits compare as numbers (`java-8` before `java-17`,
-/// `12.1.4` before `12.10.0`), the rest as text.
-fn version_order(a: &str, b: &str) -> std::cmp::Ordering {
-    fn parts(s: &str) -> Vec<(bool, &str)> {
-        let mut out = Vec::new();
-        let mut start = 0;
-        let mut digit = None;
-        for (i, c) in s.char_indices() {
-            let d = c.is_ascii_digit();
-            if digit.is_some_and(|was| was != d) {
-                out.push((digit == Some(true), &s[start..i]));
-                start = i;
-            }
-            digit = Some(d);
-        }
-        if start < s.len() {
-            out.push((digit == Some(true), &s[start..]));
-        }
-        out
-    }
-    let (pa, pb) = (parts(a), parts(b));
-    for ((da, sa), (db, sb)) in pa.iter().zip(&pb) {
-        let o = if *da && *db {
-            let (ta, tb) = (sa.trim_start_matches('0'), sb.trim_start_matches('0'));
-            ta.len().cmp(&tb.len()).then_with(|| ta.cmp(tb))
-        } else {
-            sa.cmp(sb)
-        };
-        if o.is_ne() {
-            return o;
-        }
-    }
-    pa.len().cmp(&pb.len()).then_with(|| a.cmp(b))
 }
 
 fn search_named(dir: &Path, id: &str, exes: &[&str], depth: usize) -> Option<PathBuf> {
@@ -223,6 +196,29 @@ fn search_named(dir: &Path, id: &str, exes: &[&str], depth: usize) -> Option<Pat
 /// Windows and macOS, Ghidra from Linux packages), most common first.
 pub fn well_known(id: &str) -> Vec<PathBuf> {
     engine(id).map(ExternalEngine::known_install_paths).unwrap_or_default()
+}
+
+/// A package manager's copy (Homebrew's Ghidra formula): the stable `opt` link first, then the
+/// version folders under `Cellar`, newest first. Read-only, and `brew` is never run: the prefixes
+/// come from the engine table, and a broken or unreadable link is just skipped. `PATH` plays no
+/// part — a formula links only the window launcher (`ghidraRun`), never the headless one. Returns
+/// the launcher path and the package manager's name ("Homebrew").
+pub fn find_in_package_paths(e: &ExternalEngine) -> Option<(PathBuf, &'static str)> {
+    e.host_package_paths().find_map(|p| package_path_at(Path::new(p.prefix), p.package, p.rel).map(|found| (found, p.label)))
+}
+
+/// One package location: `<prefix>/opt/<package>/<rel>` when the link is there, else the newest
+/// `<prefix>/Cellar/<package>/<version>/<rel>` that is. Failures (missing, broken link, unreadable)
+/// leave the candidate out, they never stop the search.
+fn package_path_at(prefix: &Path, package: &str, rel: &str) -> Option<PathBuf> {
+    let stable = prefix.join("opt").join(package).join(rel);
+    if stable.is_file() {
+        return Some(stable);
+    }
+    let cellar = prefix.join("Cellar").join(package);
+    let mut versions: Vec<PathBuf> = std::fs::read_dir(&cellar).ok()?.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
+    versions.sort_by(|a, b| version_order(&a.file_name().unwrap_or_default().to_string_lossy(), &b.file_name().unwrap_or_default().to_string_lossy()));
+    versions.iter().rev().map(|v| v.join(rel)).find(|p| p.is_file())
 }
 
 pub(crate) fn find_on_path(exes: &[&str]) -> Option<PathBuf> {
@@ -260,15 +256,19 @@ mod tests {
     #[test]
     fn the_java_ghidras_setup_brings_is_the_java_runtime() {
         let java = if cfg!(windows) { "java.exe" } else { "java" };
-        // Linux and Windows keep the JDK's own top folder; macOS's pin strips it down to `Home`.
-        for top in ["jdk-21.0.12.1+1", "Home"] {
+        // The JDK keeps its own top folder and may keep its home one `Contents/Home` deeper (as
+        // macOS has it and as the guided install unpacks it); a `jdk/Home` an earlier setup
+        // unpacked is still found, so a kept install keeps the Java it had.
+        for (top, major) in [("jdk-25.0.5.1+2", "25.0.1"), ("Home", "25.0.1"), ("jdk-25.0.5.1+2/Contents/Home", "25.0.1")] {
             let store = tempfile::tempdir().unwrap();
-            let exe = store.path().join("jdk").join(top).join("bin").join(java);
+            let home = store.path().join("jdk").join(top);
+            let exe = home.join("bin").join(java);
             std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
             std::fs::write(&exe, "").unwrap();
+            std::fs::write(home.join("release"), format!("JAVA_VERSION=\"{major}\"\n")).unwrap();
             assert_eq!(locate_configured("java", &NoOverrides, store.path()), Some(exe.clone()), "{top}");
             // The same Java Ghidra is pointed at.
-            assert_eq!(ghidra::get::java_home(None, store.path()).map(|h| h.join("bin").join(java)), Some(exe));
+            assert_eq!(ghidra::get::java_home(None, None, store.path()).map(|h| h.join("bin").join(java)), Some(exe), "{top}");
         }
     }
 
@@ -290,8 +290,9 @@ mod tests {
         // Nothing but folders: still none, not a panic.
         let empty = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(empty.path().join("ghidra").join("ghidra_12.1.4_PUBLIC")).unwrap();
-        // (Unless this computer has Ghidra on PATH or from a system package.)
-        let installed = find_on_path(&[exe]).is_some() || well_known("ghidra").iter().any(|p| p.is_file());
+        // (Unless this computer has Ghidra on PATH, from a system package, or from Homebrew.)
+        let ghidra = engine("ghidra").unwrap();
+        let installed = find_on_path(&[exe]).is_some() || well_known("ghidra").iter().any(|p| p.is_file()) || find_in_package_paths(ghidra).is_some();
         assert!(locate("ghidra", &NoOverrides, empty.path()).is_none() || installed);
     }
 
@@ -401,5 +402,92 @@ mod tests {
         } else {
             assert!(ghidra.is_empty());
         }
+        // Homebrew's Ghidra is a package-manager location, not a standard one: it is found
+        // through `find_in_package_paths`, never here.
+        if cfg!(target_os = "macos") {
+            assert!(ghidra.iter().all(|p| !p.to_string_lossy().contains("homebrew")), "{ghidra:?}");
+        }
+    }
+
+    /// Homebrew's Ghidra formula: the stable `opt/ghidra/libexec` link first; when that link is
+    /// gone, the newest version folder under `Cellar/ghidra/`; a broken link or an unreadable
+    /// folder is skipped, never a crash. (Rows are for macOS, so the prefixes are only exercised
+    /// through this test on a Mac; the lookup itself takes any prefix.)
+    #[test]
+    fn a_package_managers_copy_is_found_opt_first_then_cellar() {
+        let rel = "libexec/support/analyzeHeadless";
+        let d = tempfile::tempdir().unwrap();
+        let prefix = d.path().join("homebrew");
+        // The `opt` link is hit first, even with an older version in `Cellar`.
+        let stable = prefix.join("opt/ghidra").join(rel);
+        std::fs::create_dir_all(stable.parent().unwrap()).unwrap();
+        std::fs::write(&stable, b"x").unwrap();
+        let cellar_older = prefix.join("Cellar/ghidra/12.1.4").join(rel);
+        std::fs::create_dir_all(cellar_older.parent().unwrap()).unwrap();
+        std::fs::write(&cellar_older, b"x").unwrap();
+        assert_eq!(package_path_at(&prefix, "ghidra", rel), Some(stable.clone()));
+        // With the `opt` link gone, the newest `Cellar` version wins: 12.10.0 over 12.2 as
+        // numbers, which plain text order would get backwards.
+        std::fs::remove_file(&stable).unwrap();
+        let newer = prefix.join("Cellar/ghidra/12.2").join(rel);
+        let newest = prefix.join("Cellar/ghidra/12.10.0").join(rel);
+        for at in [&newer, &newest] {
+            std::fs::create_dir_all(at.parent().unwrap()).unwrap();
+            std::fs::write(at, b"x").unwrap();
+        }
+        assert_eq!(package_path_at(&prefix, "ghidra", rel), Some(newest));
+        // Nothing valid at all: none, not an error.
+        std::fs::remove_dir_all(prefix.join("Cellar")).unwrap();
+        assert_eq!(package_path_at(&prefix, "ghidra", rel), None);
+    }
+
+    /// An `opt` link left pointing at a deleted version is skipped; the `Cellar` copy is used.
+    #[cfg(unix)]
+    #[test]
+    fn a_broken_opt_link_is_skipped_for_the_cellar_copy() {
+        let rel = "libexec/support/analyzeHeadless";
+        let d = tempfile::tempdir().unwrap();
+        let prefix = d.path().join("homebrew");
+        let newest = prefix.join("Cellar/ghidra/12.2").join(rel);
+        std::fs::create_dir_all(newest.parent().unwrap()).unwrap();
+        std::fs::write(&newest, b"x").unwrap();
+        std::fs::create_dir_all(prefix.join("opt")).unwrap();
+        std::os::unix::fs::symlink(prefix.join("Cellar/ghidra/gone"), prefix.join("opt/ghidra")).unwrap();
+        assert_eq!(package_path_at(&prefix, "ghidra", rel), Some(newest), "the broken link is skipped, the Cellar copy is used");
+    }
+
+    /// Homebrew links only `ghidraRun` onto PATH — never the headless launcher. A folder holding
+    /// just that window launcher must not count as Ghidra, and `PATH` without `analyzeHeadless`
+    /// must not stop the package location from being found.
+    #[test]
+    fn a_homebrew_folder_with_only_ghidrarun_is_not_ghidra() {
+        let d = tempfile::tempdir().unwrap();
+        let prefix = d.path().join("homebrew");
+        let libexec = prefix.join("opt/ghidra/libexec");
+        std::fs::create_dir_all(&libexec).unwrap();
+        std::fs::write(libexec.join("ghidraRun"), b"#!/bin/sh\n").unwrap();
+        std::fs::write(libexec.join("pyghidraRun"), b"#!/bin/sh\n").unwrap();
+        assert_eq!(package_path_at(&prefix, "ghidra", "libexec/support/analyzeHeadless"), None);
+        // The headless launcher beside them: found, whatever `PATH` says.
+        let rel = "libexec/support/analyzeHeadless";
+        std::fs::create_dir_all(libexec.join("support")).unwrap();
+        std::fs::write(libexec.join("support").join("analyzeHeadless"), b"x").unwrap();
+        assert_eq!(package_path_at(&prefix, "ghidra", rel), Some(libexec.join("support").join("analyzeHeadless")));
+    }
+
+    /// A Mac with Homebrew's Ghidra installed finds it without any setting; elsewhere this
+    /// asserts nothing, so it never depends on the machine running the tests.
+    #[test]
+    fn ghidra_is_found_from_homebrew_when_installed() {
+        let Some(e) = engine("ghidra") else { return };
+        let Some((found, label)) = find_in_package_paths(e) else {
+            assert!(crate::well_known("ghidra").iter().all(|p| !p.is_file()) || cfg!(not(target_os = "macos")));
+            return;
+        };
+        assert!(found.is_file(), "{found:?}");
+        // Either Homebrew prefix: `/opt/homebrew` on Apple Silicon, `/usr/local` on Intel. The
+        // found path may lie in `Cellar`, still under the same prefix.
+        assert!(e.package_paths.iter().any(|p| found.starts_with(p.prefix)), "{found:?} is not under a Homebrew prefix");
+        assert_eq!(label, "Homebrew");
     }
 }

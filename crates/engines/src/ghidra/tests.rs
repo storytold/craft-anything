@@ -146,8 +146,8 @@ fn serve(stream: TcpStream, expected: &str, saw_eof: &Arc<AtomicBool>, mut pause
             let _ = pause.release.recv_timeout(Duration::from_secs(10));
         }
         let result = match req.method.as_str() {
-            "ping" => "{\"name\":\"fake\",\"provider\":{\"id\":\"ghidra\",\"version\":\"12.1.4\"},\"analysed\":true,\"analysis_cut_short\":false,\"target\":{\"name\":\"t\",\"image_base\":\"0x100000\"}}"
-                .to_string(),
+        "ping" => "{\"name\":\"fake\",\"provider\":{\"id\":\"ghidra\",\"version\":\"12.2\"},\"analysed\":true,\"analysis_cut_short\":false,\"target\":{\"name\":\"t\",\"image_base\":\"0x100000\"}}"
+            .to_string(),
             "native_functions_list" => "{\"functions\":[{\"name\":\"main\",\"address\":\"0x401000\"}]}".to_string(),
             // As the real bridge: a known function, code its analysis never made a function (made
             // on demand), and an address outside executable memory (refused with the reason).
@@ -201,6 +201,9 @@ fn framing_ping_and_methods() {
     let mut client = Client::connect(fake.addr, "secret-token", deadline).expect("connect");
     let info = client.ping(&no_cancel(), deadline).expect("ping");
     assert_eq!(info["provider"]["id"], "ghidra");
+    // The version is whatever the handshake said, kept as it is: it is never guessed at from
+    // folder names on our side.
+    assert_eq!(info["provider"]["version"], "12.2");
     assert_eq!(image_base_of(&info), Some(0x10_0000), "the handshake says where Ghidra loaded the program");
     assert_eq!(image_base_of(&serde_json::json!({"target": {"name": "t"}})), None, "an older bridge doesn't say");
 
@@ -783,9 +786,11 @@ fn live_ghidra_makes_and_decompiles_code_reached_only_through_a_pointer_table() 
     let Some(store) = std::env::var_os("CRAFT_ANYTHING_TEST_GHIDRA").map(PathBuf::from) else { return };
     // Ghidra rejects project paths with a folder that starts with a dot, as tempdir()'s do.
     let temp = tempfile::Builder::new().prefix("ghidra-live").tempdir().unwrap();
+    let launcher = get::headless(None, &store).expect("Ghidra in the engine store");
+    let java = get::java_home(Some(&launcher), None, &store);
     let cfg = Config {
-        analyze_headless: get::headless(None, &store).expect("Ghidra in the engine store"),
-        java_home: get::java_home(None, &store),
+        analyze_headless: launcher,
+        java_home: java,
         startup_timeout: Duration::from_secs(600),
         store_dir: temp.path().to_path_buf(),
         language_id: None,
@@ -832,9 +837,11 @@ fn addresses_move_between_our_image_base_and_the_engines() {
 fn live_ghidra_reports_where_it_loaded_a_position_independent_elf() {
     let Some(store) = std::env::var_os("CRAFT_ANYTHING_TEST_GHIDRA").map(PathBuf::from) else { return };
     let temp = tempfile::Builder::new().prefix("ghidra-live").tempdir().unwrap();
+    let launcher = get::headless(None, &store).expect("Ghidra in the engine store");
+    let java = get::java_home(Some(&launcher), None, &store);
     let cfg = Config {
-        analyze_headless: get::headless(None, &store).expect("Ghidra in the engine store"),
-        java_home: get::java_home(None, &store),
+        analyze_headless: launcher,
+        java_home: java,
         startup_timeout: Duration::from_secs(600),
         store_dir: temp.path().to_path_buf(),
         language_id: None,
@@ -857,9 +864,11 @@ fn live_ghidra_reports_where_it_loaded_a_position_independent_elf() {
 fn live_ghidra_bounds_a_jump_table_with_no_bounds_check() {
     let Some(store) = std::env::var_os("CRAFT_ANYTHING_TEST_GHIDRA").map(PathBuf::from) else { return };
     let temp = tempfile::Builder::new().prefix("ghidra-live").tempdir().unwrap();
+    let launcher = get::headless(None, &store).expect("Ghidra in the engine store");
+    let java = get::java_home(Some(&launcher), None, &store);
     let cfg = Config {
-        analyze_headless: get::headless(None, &store).expect("Ghidra in the engine store"),
-        java_home: get::java_home(None, &store),
+        analyze_headless: launcher,
+        java_home: java,
         startup_timeout: Duration::from_secs(600),
         store_dir: temp.path().to_path_buf(),
         language_id: None,

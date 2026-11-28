@@ -230,8 +230,8 @@ pub enum Done {
         builder: craft_anything_engines::game::Builder,
         installer: bool,
     },
-    /// Ghidra and its Java were downloaded and set up for Deep mode.
-    GhidraGot,
+    /// Ghidra and its Java were downloaded and set up for Deep mode; the launcher the setup ended on.
+    GhidraGot(PathBuf),
     /// A tool started by a button finished (see `CraftApp::act`).
     Acted {
         tool: &'static str,
@@ -921,9 +921,9 @@ impl CraftApp {
         if self.settings_dirty
             && let Some(mut s) = self.engine.try_session()
         {
-            // The Ghidra folder changed: look for it again.
-            if s.settings.engines.ghidra.install_dir != self.settings.engines.ghidra.install_dir {
-                self.ghidra.found = None;
+            // A Ghidra setting changed (its folder, its Java): look for it again.
+            if s.settings.engines.ghidra != self.settings.engines.ghidra {
+                self.ghidra.status = None;
             }
             // The `ai` table belongs to the ai crate (it edits it in the session); keep its copy.
             self.settings.ai = s.settings.ai.clone();
@@ -1767,6 +1767,12 @@ impl CraftApp {
                 }
                 if self.ghidra.job == Some(job) {
                     self.ghidra.job = None;
+                    // The upgrade dialog was closed while this ran, and nothing is left to carry
+                    // its intent: a Ghidra dialog opened later says what is true. With that dialog
+                    // still open the intent stays, so a retry reads right.
+                    if self.state.modal != Some(state::Modal::Ghidra) {
+                        self.ghidra.upgrade = false;
+                    }
                 }
                 self.toast(e, true);
                 return;
@@ -1998,7 +2004,7 @@ impl CraftApp {
                 }
             }
             Done::EngineGot { builder, installer } => self.engine_got(builder, installer),
-            Done::GhidraGot => self.ghidra_got(),
+            Done::GhidraGot(launcher) => self.ghidra_got(launcher),
             Done::AssetKeys(keys) => self.asset_keys = Some(keys),
             Done::Wrote { what, path } => {
                 if let Some(p) = path {

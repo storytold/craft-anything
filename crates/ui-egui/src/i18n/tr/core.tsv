@@ -1507,3 +1507,11 @@ Stop Ghidra's analysis	Ghidra analizini durdur
 
 # Saved-builder notice: reviewed by native Turkish speaker @MacallanTheRoot.
 The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.	Bu proje için seçilen yapay zekâ ({saved}) devre dışı bırakılmış veya artık yapılandırılmamış. Projeyi bunun yerine {used} oluşturacak.
+
+A newer version of Ghidra is available.	Ghidra'nın daha yeni bir sürümü var.
+Needs a newer Java	Daha yeni Java gerekiyor
+Install incomplete	Kurulum eksik
+Unsupported version	Desteklenmeyen sürüm
+Get Ghidra {version}	Ghidra {version} edin
+Ghidra's install is incomplete.	Ghidra kurulumu eksik.
+An older Ghidra is installed and still works. Craft Anything can bring Ghidra {version} and the Java runtime it needs (about {mb} MB) in beside it, in its own folder. Nothing else on your computer changes.	Eski bir Ghidra kurulu ve hâlâ çalışıyor. Craft Anything, Ghidra {version} ve gereken Java çalışma ortamını (yaklaşık {mb} MB) yanına kendi klasörüne kurabilir. Bu bilgisayarda başka hiçbir şey değişmez.

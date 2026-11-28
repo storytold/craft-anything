@@ -39,6 +39,11 @@ pub struct WireError {
 pub enum GhidraError {
     #[error("could not start Ghidra: {0}")]
     Launch(String),
+    /// Ghidra's own preflight refused it before any process started: a Java too old for that
+    /// release, a folder set as its Java with none in it, or a release no longer supported. The
+    /// person fixes that in Settings, so it must not be remembered for the target.
+    #[error("{0}")]
+    Preflight(String),
     #[error("Ghidra timed out: {0}")]
     Timeout(String),
     #[error("the Ghidra bridge connection failed: {0}")]
@@ -57,6 +62,8 @@ impl GhidraError {
         match self {
             GhidraError::Launch(m) => ToolError::new(ErrorCode::EngineMissing, format!("Ghidra could not start: {m}"))
                 .with_remediation("Check the Ghidra install and JDK in Settings → Engines."),
+            // The preflight's own message says which Java it needs and where to set one.
+            GhidraError::Preflight(m) => ToolError::new(ErrorCode::EngineMissing, m),
             GhidraError::Timeout(m) => ToolError::new(ErrorCode::TimedOut, m)
                 .with_remediation("Give Ghidra more time with engines.ghidra.startup_timeout_secs, or analyse a smaller target."),
             GhidraError::Connection(m) => ToolError::new(ErrorCode::EngineMissing, format!("Lost the Ghidra bridge: {m}")),

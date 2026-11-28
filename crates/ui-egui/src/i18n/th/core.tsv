@@ -1507,3 +1507,11 @@ Stop Ghidra's analysis	หยุดการวิเคราะห์ของ
 
 # Saved-builder notice: English until native-speaker review.
 The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.	The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.
+
+A newer version of Ghidra is available.	มี Ghidra เวอร์ชันใหม่กว่า
+Needs a newer Java	ต้องใช้ Java ที่ใหม่กว่า
+Install incomplete	การติดตั้งไม่สมบูรณ์
+Unsupported version	เวอร์ชันที่ไม่รองรับ
+Get Ghidra {version}	รับ Ghidra {version}
+Ghidra's install is incomplete.	การติดตั้ง Ghidra ไม่สมบูรณ์
+An older Ghidra is installed and still works. Craft Anything can bring Ghidra {version} and the Java runtime it needs (about {mb} MB) in beside it, in its own folder. Nothing else on your computer changes.	มี Ghidra เวอร์ชันเก่าติดตั้งอยู่และยังใช้งานได้ Craft Anything สามารถนำ Ghidra {version} และ Java ที่จำเป็น (ประมาณ {mb} MB) มาติดตั้งข้าง ๆ ในโฟลเดอร์ของตัวเองได้ ไม่มีการเปลี่ยนแปลงอื่นในคอมพิวเตอร์นี้

@@ -11,7 +11,7 @@ use crate::state::{MakeDraft, Modal, Screen};
 use crate::theme::{self, Tokens};
 use crate::{CraftApp, Done, icons, widgets};
 use craft_anything_ai::rebuild::KindRegistry;
-use craft_anything_engine::{CallOptions, Caller};
+use craft_anything_engine::{CallOptions, Caller, ToolOutput};
 use craft_anything_engines::assets::{AssetProvider, AssetProviders, fal};
 use craft_anything_engines::game::{self, Builder, Inventory};
 use craft_anything_engines::ghidra::{self, get};
@@ -118,10 +118,13 @@ impl CraftApp {
 /// Getting Ghidra for Deep mode: asked first, then downloaded, checked and set up in the background.
 #[derive(Debug, Default)]
 pub struct GhidraFlow {
-    /// Where Ghidra's launcher was found, or that it wasn't; `None` until looked for again (after
-    /// a settings change or install). Looking searches folders and may read a start script, so
-    /// it isn't done while drawing.
-    pub found: Option<Option<PathBuf>>,
+    /// The one status verdict on Ghidra (`None` until looked for again, after a settings change
+    /// or install). Looking searches folders and reads a JDK's release file, so it isn't done
+    /// while drawing.
+    pub status: Option<craft_anything_engines::ghidra::get::GhidraStatus>,
+    /// The person asked to bring this release in beside a working older Ghidra (Settings →
+    /// Engines, "Get Ghidra 12.2"): the dialog offers the download instead of "Ghidra is ready".
+    pub upgrade: bool,
     /// The download running, as a job.
     pub job: Option<u64>,
     /// The project to start once Ghidra is ready (or the person goes on without it): the draft
@@ -130,15 +133,21 @@ pub struct GhidraFlow {
 }
 
 impl CraftApp {
+    /// The one status verdict on Ghidra, looked up once and remembered (looking searches folders,
+    /// so it isn't done while drawing).
+    pub fn ghidra_status_cached(&mut self) -> Option<&craft_anything_engines::ghidra::get::GhidraStatus> {
+        let settings = &self.settings;
+        Some(self.ghidra.status.get_or_insert_with(|| settings.ghidra_status()))
+    }
+
     /// Ghidra is here for Deep mode to use (looked up once, then remembered).
     pub fn ghidra_ready(&mut self) -> bool {
-        self.ghidra_found().is_some()
+        self.ghidra_status_cached().is_some_and(|st| st.state.usable() && st.install.is_some())
     }
 
     /// Ghidra's launcher, where Deep mode would run it (looked up once, then remembered).
     pub fn ghidra_found(&mut self) -> Option<&Path> {
-        let settings = &self.settings;
-        self.ghidra.found.get_or_insert_with(|| settings.ghidra_launcher()).as_deref()
+        self.ghidra_status_cached().and_then(|st| st.install.as_ref()).map(|i| i.launcher.as_path())
     }
 
     /// Deep mode is on, but it can't use Ghidra yet.
@@ -155,15 +164,32 @@ impl CraftApp {
         let id = self.jobs.spawn(tr("Getting Ghidra"), true, move |j| {
             let progress = j.reporter();
             let opts = CallOptions::new(Caller::Ui).with_cancel(j.cancel.clone()).with_progress(&progress);
-            engine.call("engines_install", serde_json::json!({"engine": "ghidra"}), opts).map_err(|e| e.for_people())?;
-            Ok(Done::GhidraGot)
+            let out = engine.call("engines_install", serde_json::json!({"engine": "ghidra"}), opts).map_err(|e| e.for_people())?;
+            // Where the setup ended, as `engines_install` reports it: the install to select now.
+            let launcher = match out {
+                ToolOutput::Value(v) => v["path"].as_str().map(PathBuf::from).unwrap_or_default(),
+                ToolOutput::Evidence(_) => PathBuf::new(),
+            };
+            Ok(Done::GhidraGot(launcher))
         });
         self.ghidra.job = Some(id);
     }
 
-    pub fn ghidra_got(&mut self) {
+    /// The setup finished on `launcher`: the install to use now, so a folder set in Settings that
+    /// selects another install no longer selects it (that copy stays on disk). An upgrade always
+    /// switches, from the kept older install; any other setup switches when the folder selects
+    /// another install, as an outside copy whose Java can't run it (the recovery "Get Ghidra"
+    /// offers for a Java too old). The engine clears its own copy in `engines_install`; this keeps
+    /// the app's in step, or the next settings change would hand the folder back.
+    pub fn ghidra_got(&mut self, launcher: PathBuf) {
+        let upgraded = self.ghidra.upgrade;
         let waiting = self.ghidra.start_after.take();
         self.ghidra = GhidraFlow::default();
+        if upgraded || self.settings.ghidra_folder_selects_other(&launcher) {
+            // GhidraFlow was reset above, so the status is looked up again on the next question.
+            self.settings.engines.ghidra.install_dir = None;
+            self.settings_changed();
+        }
         if self.ghidra_ready() {
             self.toast(tr("Ghidra is ready. Deep mode uses it from now on."), false);
         }
@@ -211,7 +237,10 @@ pub fn deep_modal(app: &mut CraftApp, ui: &mut Ui, close: &mut bool) {
 pub fn ghidra_modal(app: &mut CraftApp, ui: &mut Ui, close: &mut bool) {
     let t = Tokens::get(ui.ctx());
     ui.set_width(520.0);
-    let ready = app.ghidra_ready();
+    // A working older Ghidra still answers `ghidra_ready()`; the person asking to bring this
+    // release in must see the download, not "Ghidra is ready".
+    let upgrade = app.ghidra.upgrade;
+    let ready = app.ghidra_ready() && !upgrade;
     let downloading = app.ghidra_download();
     ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(Vec2::splat(48.0), egui::Sense::hover());
@@ -245,13 +274,23 @@ pub fn ghidra_modal(app: &mut CraftApp, ui: &mut Ui, close: &mut bool) {
             format!("{} {then}", tr("This keeps going in the background, and each download is checked against its publisher's checksum before it's used.")),
         );
     } else if get::can_install() {
-        body(
-            ui,
-            trf(
-                "It isn't on this computer yet. Craft Anything can download Ghidra {version} and the Java runtime it needs (about {mb} MB), check both against their publishers' checksums, and set them up in its own folder. Nothing else on your computer changes.",
-                &[("version", get::VERSION), ("mb", &get::DOWNLOAD_MB.to_string())],
-            ),
-        );
+        if upgrade {
+            body(
+                ui,
+                trf(
+                    "An older Ghidra is installed and still works. Craft Anything can bring Ghidra {version} and the Java runtime it needs (about {mb} MB) in beside it, in its own folder. Nothing else on your computer changes.",
+                    &[("version", get::VERSION), ("mb", &get::DOWNLOAD_MB.to_string())],
+                ),
+            );
+        } else {
+            body(
+                ui,
+                trf(
+                    "It isn't on this computer yet. Craft Anything can download Ghidra {version} and the Java runtime it needs (about {mb} MB), check both against their publishers' checksums, and set them up in its own folder. Nothing else on your computer changes.",
+                    &[("version", get::VERSION), ("mb", &get::DOWNLOAD_MB.to_string())],
+                ),
+            );
+        }
     } else {
         body(ui, trf("It isn't on this computer yet. Install Ghidra {version} from its release page, then choose its folder.", &[("version", get::VERSION)]));
         if widgets::link(ui, "Open Ghidra's release page").clicked() {
@@ -366,20 +405,56 @@ pub fn ghidra_memory_setting(app: &mut CraftApp, ui: &mut Ui) {
     });
 }
 
-/// Settings → Engines: whether Deep mode can use Ghidra, and the way to get it.
+/// Settings → Engines: whether Deep mode can use Ghidra, and the way to get it. The state is the
+/// one verdict shared with `engines_list`, the doctor and Deep mode, looked up once and
+/// remembered (looking searches folders, so it isn't done while drawing).
 pub fn ghidra_status(app: &mut CraftApp, ui: &mut Ui) {
+    use craft_anything_engines::ghidra::get::GhidraState;
     let t = Tokens::get(ui.ctx());
     if let Some((fraction, message)) = app.ghidra_download() {
         progress_bar(ui, fraction, &message);
-    } else if let Some(at) = app.ghidra_found().map(|p| p.display().to_string()) {
-        widgets::pill(ui, "Installed", t.success, t.raised).on_hover_text(at);
-    } else {
-        ui.horizontal(|ui| {
-            widgets::pill(ui, "Not installed", t.warning, t.raised);
-            if widgets::secondary(ui, Some("download"), "Get Ghidra").clicked() {
-                app.state.modal = Some(Modal::Ghidra);
-            }
-        });
+        return;
+    }
+    let st = app.ghidra_status_cached();
+    let detail = |st: Option<&craft_anything_engines::ghidra::get::GhidraStatus>| {
+        st.and_then(|s| s.install.as_ref()).map(|i| {
+            let version = i.version_hint.as_ref().map(|v| v.to_string()).unwrap_or_else(|| "unknown version".into());
+            format!("Ghidra {version}: {}, from {}.", i.launcher.display(), i.source.label())
+        })
+    };
+    let get = |app: &mut CraftApp, ui: &mut Ui, label: &str, upgrade: bool| {
+        if widgets::secondary(ui, Some("download"), label).clicked() {
+            app.ghidra.upgrade = upgrade;
+            app.state.modal = Some(Modal::Ghidra);
+        }
+    };
+    match st.map(|s| &s.state) {
+        None | Some(GhidraState::NotFound) => {
+            ui.horizontal(|ui| {
+                widgets::pill(ui, "Not installed", t.warning, t.raised);
+                get(app, ui, "Get Ghidra", false);
+            });
+        }
+        Some(GhidraState::Ready) => {
+            widgets::pill(ui, "Installed", t.success, t.raised).on_hover_text(detail(st).unwrap_or_default());
+        }
+        // Kept working: the person may still bring this release in, beside it.
+        Some(GhidraState::Legacy) => {
+            widgets::pill(ui, "Installed", t.success, t.raised).on_hover_text(tr("A newer version of Ghidra is available."));
+            get(app, ui, &trf("Get Ghidra {version}", &[("version", get::VERSION)]), true);
+        }
+        Some(GhidraState::JavaTooOld) => {
+            widgets::pill(ui, "Needs a newer Java", t.warning, t.raised).on_hover_text(detail(st).unwrap_or_default());
+            get(app, ui, "Get Ghidra", false);
+        }
+        Some(GhidraState::Incomplete) => {
+            widgets::pill(ui, "Install incomplete", t.warning, t.raised).on_hover_text(detail(st).unwrap_or_else(|| tr("Ghidra's install is incomplete.")));
+            get(app, ui, "Get Ghidra", false);
+        }
+        Some(GhidraState::UnsupportedVersion) => {
+            widgets::pill(ui, "Unsupported version", t.warning, t.raised).on_hover_text(detail(st).unwrap_or_default());
+            get(app, ui, &trf("Get Ghidra {version}", &[("version", get::VERSION)]), true);
+        }
     }
 }
 

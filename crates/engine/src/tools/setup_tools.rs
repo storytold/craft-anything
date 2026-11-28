@@ -443,19 +443,65 @@ pub struct SetParams {
     pub value: Value,
 }
 
+/// The state of the Ghidra engine, as `engines_list` shows it.
+fn ghidra_state_name(s: &craft_anything_engines::ghidra::get::GhidraState) -> &'static str {
+    use craft_anything_engines::ghidra::get::GhidraState as S;
+    match s {
+        S::Ready => "ready",
+        S::Legacy => "legacy",
+        S::UnsupportedVersion => "unsupported_version",
+        S::Incomplete => "incomplete",
+        S::JavaTooOld => "java_too_old",
+        S::NotFound => "not_found",
+    }
+}
+
+/// The Java Ghidra will run on, as `engines_list` shows it (`kind` names the branch; `found`/`needed`
+/// carry the versions when the Java is known to be too old).
+fn ghidra_java_json(j: &craft_anything_engines::ghidra::get::GhidraJava) -> Value {
+    use craft_anything_engines::ghidra::get::GhidraJava as J;
+    match j {
+        J::Override(d) => json!({"kind": "override", "dir": d.display().to_string()}),
+        J::Home { dir, configured } => json!({"kind": if *configured { "set" } else { "inherited" }, "dir": dir.display().to_string()}),
+        J::OnPath(p) => json!({"kind": "path", "dir": p.display().to_string()}),
+        J::NotJava(d) => json!({"kind": "not_java", "dir": d.display().to_string()}),
+        J::TooOld { dir, found, needed } => json!({"kind": "too_old", "dir": dir.display().to_string(), "found": found, "needed": needed}),
+        J::Unknown(d) => json!({"kind": "unknown", "dir": d.display().to_string()}),
+        J::Missing => json!({"kind": "missing"}),
+    }
+}
+
 fn engines_list(ctx: &mut Ctx<'_>, _params: Value) -> Result<ToolOutput, ToolError> {
+    use craft_anything_engines::ghidra::get::{self as ghidra_get, GhidraState};
     let s = &ctx.session.settings;
     let store = s.engine_store_dir();
+    let ghidra_st = s.ghidra_status();
+    // Ghidra's path comes from the verdict, not a second lookup: a release that appears in the
+    // store between the two would otherwise be named beside the other one's version and state.
+    let ghidra_launcher = ghidra_st.install.as_ref().map(|i| i.launcher.display().to_string());
     let engines: Vec<Value> = craft_anything_engines::ENGINES
         .iter()
         .map(|e| {
-            json!({
+            let found = if e.id == ghidra_get::ID { ghidra_launcher.clone() } else { s.engine_path(e.id).map(|p| p.display().to_string()) };
+            let mut entry = json!({
                 "id": e.id,
                 "name": e.name,
                 "needed_for": e.needed_for,
-                "found": s.engine_path(e.id).map(|p| p.display().to_string()),
+                "found": found,
                 "installable_here": e.host_pin().is_some(),
-            })
+            });
+            // Ghidra's verdict is richer than a path: the state says whether Deep mode can use it,
+            // and where it was found and which Java it will run on.
+            if e.id == ghidra_get::ID
+                && let Some(obj) = entry.as_object_mut()
+            {
+                obj.insert("state".into(), json!(ghidra_state_name(&ghidra_st.state)));
+                obj.insert("source".into(), json!(ghidra_st.install.as_ref().map(|i| i.source.label())));
+                obj.insert("version".into(), json!(ghidra_st.install.as_ref().and_then(|i| i.version_hint.as_ref()).map(|v| v.to_string())));
+                obj.insert("upgrade_available".into(), json!(ghidra_st.state == GhidraState::Legacy));
+                obj.insert("java".into(), ghidra_java_json(&ghidra_st.java));
+            }
+            entry
         })
         .collect();
     let inv = game::inventory(&game::Places::here(store.clone()));
@@ -474,7 +520,7 @@ fn engines_list(ctx: &mut Ctx<'_>, _params: Value) -> Result<ToolOutput, ToolErr
     Ok(ToolOutput::Value(json!({
         "engine_store": store.display().to_string(),
         "engines": engines,
-        "deep_mode": {"enabled": s.deep_mode, "ghidra": s.ghidra_launcher().map(|p| p.display().to_string())},
+        "deep_mode": {"enabled": s.deep_mode, "ghidra": ghidra_st.install.as_ref().map(|i| i.launcher.display().to_string()), "ghidra_state": ghidra_state_name(&ghidra_st.state)},
         "game_engines": builders,
     })))
 }
@@ -483,6 +529,11 @@ fn engines_install(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolE
     let p: InstallParams = parse_params(params)?;
     let id = p.engine.trim().to_ascii_lowercase();
     let store = ctx.session.settings.engine_store_dir();
+    // The Java folder set for Ghidra in Settings, not the managed fallback resolved for the
+    // Ghidra selected now: each candidate the setup may reuse is judged on the Java its own
+    // version would get. An outside Ghidra that would run on a too-old Java isn't reused, so the
+    // setup can bring Java 25.
+    let explicit_java = ctx.session.settings.engines.ghidra.java_home.clone();
     let c = ctx.cancel.clone();
     let cancel: craft_anything_platform::process::Cancel = Arc::new(move || c.is_cancelled());
     let mb = |n: u64| n / (1024 * 1024);
@@ -492,7 +543,7 @@ fn engines_install(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolE
                 let fraction = total.filter(|t| *t > 0).map(|t| got as f32 / t as f32);
                 ctx.report(fraction, format!("{what}: {} of {} MB", mb(got), total.map_or("?".into(), |t| mb(t).to_string())));
             };
-            craft_anything_engines::ghidra::get::install(&store, Some(cancel), &progress)?
+            craft_anything_engines::ghidra::get::install(&store, explicit_java.as_deref(), Some(cancel), &progress)?
         }
         "godot" => {
             let progress = |got: u64, total: Option<u64>| {
@@ -524,6 +575,19 @@ fn engines_install(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolE
             craft_anything_engines::install::install(other, &store, None, Some(cancel), &report)?.install_dir
         }
     };
+    // The release just set up is the one to use now: a folder saved in Settings that selects
+    // another install would still win discovery, so it no longer selects it. The other copy stays
+    // on disk. The app's Ghidra dialog asks the same when its setup finishes.
+    if id == "ghidra" {
+        // The session's own file, as every other settings change here: an isolated session must
+        // never write the person's real config.toml.
+        let config = ctx.session.config_dir().join("config.toml");
+        let s = &mut ctx.session.settings;
+        if s.ghidra_folder_selects_other(&path) {
+            s.engines.ghidra.install_dir = None;
+            s.save_to(&config)?;
+        }
+    }
     Ok(ToolOutput::Value(json!({"installed": id, "path": path.display().to_string()})))
 }
 

@@ -167,7 +167,15 @@ pub fn modals(app: &mut CraftApp, ctx: &egui::Context) {
                 }
                 Modal::Engine(b) => crate::engine_ui::modal(app, ui, *b, &mut close),
                 Modal::Assets => crate::engine_ui::assets_modal(app, ui, &mut close),
-                Modal::Ghidra => crate::engine_ui::ghidra_modal(app, ui, &mut close),
+                Modal::Ghidra => {
+                    crate::engine_ui::ghidra_modal(app, ui, &mut close);
+                    // An upgrade asked for in Settings → Engines lasts for this dialog only —
+                    // unless the download it started is still running and keeps going in the
+                    // background: `ghidra_got` still has to switch to the release it brings.
+                    if close && app.ghidra.job.is_none() {
+                        app.ghidra.upgrade = false;
+                    }
+                }
                 Modal::GamePermission => crate::game_files::permission_modal(app, ui, &mut close),
                 Modal::DeepMode => crate::engine_ui::deep_modal(app, ui, &mut close),
                 Modal::ExistingFiles => crate::folders::existing_modal(app, ui, &mut close),
@@ -195,10 +203,12 @@ pub fn modals(app: &mut CraftApp, ctx: &egui::Context) {
 }
 
 /// Close the dialog without choosing (Esc, a click outside). With nothing downloading, the
-/// project waiting on it doesn't start later by itself.
+/// project waiting on it doesn't start later by itself, and an upgrade asked for in Settings →
+/// Engines doesn't outlive the dialog that asked for it.
 pub fn dismiss(app: &mut CraftApp) {
     if app.ghidra.job.is_none() {
         app.ghidra.start_after = None;
+        app.ghidra.upgrade = false;
     }
     if app.engine_flow.job.is_none() {
         app.engine_flow.start_after = false;

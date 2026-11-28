@@ -1507,3 +1507,11 @@ Stop Ghidra's analysis	Zastavit analýzu Ghidry
 
 # Saved-builder notice: English until native-speaker review.
 The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.	The AI chosen for this project ({saved}) is turned off or no longer set up. {used} builds instead.
+
+A newer version of Ghidra is available.	Je k dispozici novější verze Ghidry.
+Needs a newer Java	Potřebuje novější Javu
+Install incomplete	Neúplná instalace
+Unsupported version	Nepodporovaná verze
+Get Ghidra {version}	Získat Ghidra {version}
+Ghidra's install is incomplete.	Instalace Ghidry je neúplná.
+An older Ghidra is installed and still works. Craft Anything can bring Ghidra {version} and the Java runtime it needs (about {mb} MB) in beside it, in its own folder. Nothing else on your computer changes.	Je nainstalována starší Ghidra a stále funguje. Craft Anything může vedle ní do vlastní složky přinést Ghidru {version} a potřebné běhové prostředí Java (asi {mb} MB). Nic jiného na vašem počítači se nezmění.

@@ -580,9 +580,32 @@ impl Settings {
         }
     }
 
-    /// The Java runtime Ghidra runs on (`None`: let Ghidra find its own).
+    /// Whether the Ghidra folder set in Settings selects an install other than `launcher`. Once a
+    /// guided setup has `launcher` ready, that folder would still win the search, so it stops
+    /// selecting anything (the other copy stays on disk). `engines_install` and the app's own
+    /// dialog ask this, so both switch to the same install.
+    pub fn ghidra_folder_selects_other(&self, launcher: &Path) -> bool {
+        self.engines.ghidra.install_dir.is_some() && self.ghidra_launcher().as_deref() != Some(launcher)
+    }
+
+    /// The one verdict on Ghidra that every listing shows (`engines_list`, the Settings page, the
+    /// doctor, `Requires::Ghidra`): usable or not, found where, on which Java. All four take
+    /// theirs from here, so none can disagree with what Deep mode does. A test session
+    /// (`engines.only_configured`) keeps to the settings and the store, as everywhere here.
+    pub fn ghidra_status(&self) -> craft_anything_engines::ghidra::get::GhidraStatus {
+        craft_anything_engines::ghidra::get::status_limited(
+            self.engines.ghidra.install_dir.as_deref(),
+            self.engines.ghidra.java_home.as_deref(),
+            &self.engine_store_dir(),
+            !self.engines.only_configured,
+        )
+    }
+
+    /// The Java runtime Ghidra runs on (`None`: let Ghidra find its own). The floor follows the
+    /// Ghidra that would run: a kept 12.1.4 takes the managed Java 21 beside a Java 25.
     pub fn ghidra_java(&self) -> Option<PathBuf> {
-        craft_anything_engines::ghidra::get::java_home(self.engines.ghidra.java_home.as_deref(), &self.engine_store_dir())
+        let launcher = self.ghidra_launcher();
+        craft_anything_engines::ghidra::get::java_home(launcher.as_deref(), self.engines.ghidra.java_home.as_deref(), &self.engine_store_dir())
     }
 
     /// Where an external engine is on this computer, honouring every setting that can name one:
@@ -701,6 +724,54 @@ auto_mode = true
         assert!(!text.contains("only_configured"), "{text}");
         let loaded: Settings = toml::from_str(&text).unwrap();
         assert!(!loaded.engines.only_configured);
+    }
+
+    /// The one verdict, everywhere: `ghidra_status` and `engine_path` agree on whether Ghidra is
+    /// usable and where it is, so no listing can contradict the Settings page or Deep mode. (The
+    /// `engines_list` tool takes both from the same calls, so it cannot drift apart.)
+    #[test]
+    fn the_ghidra_verdict_is_the_same_in_every_listing() {
+        use craft_anything_engines::ghidra::get::GhidraState;
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = Settings::default();
+        s.engines.store_dir = Some(dir.path().join("engines"));
+        s.engines.only_configured = true;
+        // Nothing set up: not found, and no listing claims otherwise.
+        assert_eq!(s.ghidra_status().state, GhidraState::NotFound, "{:?}", s.ghidra_status());
+        assert_eq!(s.engine_path("ghidra"), None);
+        // A managed 12.2 install with a good Java: ready, and both say the same launcher.
+        let launcher_name = if cfg!(windows) { "analyzeHeadless.bat" } else { "analyzeHeadless" };
+        let managed = dir.path().join("engines").join("ghidra").join("ghidra_12.2_PUBLIC").join("support");
+        std::fs::create_dir_all(&managed).unwrap();
+        std::fs::write(managed.join(launcher_name), "").unwrap();
+        let jdk = dir.path().join("jdk-25");
+        std::fs::create_dir_all(jdk.join("bin")).unwrap();
+        std::fs::write(jdk.join("bin").join(if cfg!(windows) { "java.exe" } else { "java" }), "").unwrap();
+        std::fs::write(jdk.join("release"), "JAVA_VERSION=\"25.0.1\"\n").unwrap();
+        s.engines.ghidra.java_home = Some(jdk);
+        let st = s.ghidra_status();
+        assert_eq!(st.state, GhidraState::Ready, "{st:?}");
+        assert_eq!(st.install.as_ref().map(|i| i.launcher.as_path()), s.engine_path("ghidra").as_deref());
+        // A Java too old for this release doesn't hide the launcher (a listing still says where
+        // Ghidra is), but the state says Deep mode can't use it yet.
+        let old = dir.path().join("jdk-21");
+        std::fs::create_dir_all(old.join("bin")).unwrap();
+        std::fs::write(old.join("bin").join(if cfg!(windows) { "java.exe" } else { "java" }), "").unwrap();
+        std::fs::write(old.join("release"), "JAVA_VERSION=\"21.0.5\"\n").unwrap();
+        s.engines.ghidra.java_home = Some(old);
+        let st = s.ghidra_status();
+        assert_eq!(st.state, GhidraState::JavaTooOld, "{st:?}");
+        assert!(s.engine_path("ghidra").is_some(), "the launcher is still listed");
+        // A kept legacy install stays usable and says its real version — in a store of its own:
+        // with 12.2 beside it, the newest version wins and the Java floor follows it.
+        s.engines.store_dir = Some(dir.path().join("legacy-engines"));
+        s.engines.ghidra.install_dir = None;
+        let legacy = dir.path().join("legacy-engines").join("ghidra").join("ghidra_12.1.4_PUBLIC").join("support");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::write(legacy.join(launcher_name), "").unwrap();
+        let st = s.ghidra_status();
+        assert_eq!(st.state, GhidraState::Legacy, "{st:?}");
+        assert_eq!(st.install.as_ref().unwrap().version_hint.as_ref().map(|v| v.to_string()).as_deref(), Some("12.1.4"));
     }
 
     #[test]

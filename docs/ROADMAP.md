@@ -960,6 +960,17 @@ yet, and the quick start is how every new person begins.
       Deep mode)
       — claimed: Fadlalla-ai, branch test/ghidra-setup-linux
 - [ ] Ghidra setup tried for real on macOS (the Java pins were checked by tests only)
+- [x] Ghidra 12.2 is the release Craft Anything installs, with Temurin 25, which 12.2 needs (12.1.4 is no
+      longer an install target, but a kept one: it still works and its listing says a newer version exists;
+      its Java floor is 21). Homebrew's Ghidra formula is found with no setting —
+      `opt/ghidra/libexec/support/analyzeHeadless` under `/opt/homebrew` and `/usr/local`, with a
+      `Cellar/ghidra/<version>` fallback — though only `ghidraRun` is linked onto PATH. A store install
+      already at 12.2 only fetches its Java instead of downloading Ghidra again, versions compare by the
+      numbers (`12.10.0` beats `12.2` in text order), and the verdict (usable, kept legacy, incomplete,
+      Java too old, not found) is one shared by `engines_list`, the Settings page, `doctor`,
+      `Requires::Ghidra` and Deep mode, so none of them can disagree. Java versions are read from a JDK's
+      own `release` file, never by running `java`, and a Java known too old stops Ghidra before it starts
+      — branch feature/ghidra-12-2
 - [x] The Java that Ghidra's guided setup brings (`<store>/jdk`) isn't found as the Java runtime engine,
       which is looked for in `<store>/java`: `engines_list` still says Java isn't installed after the
       setup that its install message points to, and tools that need Java (Vineflower) don't use it.

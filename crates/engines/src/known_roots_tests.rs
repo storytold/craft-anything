@@ -11,7 +11,7 @@ fn touch(p: &Path) {
 #[test]
 fn an_unzipped_release_next_to_its_folder_name_is_found() {
     let d = tempfile::tempdir().expect("tempdir");
-    let launcher = d.path().join("ghidra_12.1.4_PUBLIC").join("support").join("analyzeHeadless");
+    let launcher = d.path().join("ghidra_12.2_PUBLIC").join("support").join("analyzeHeadless");
     touch(&launcher);
     let roots = [(d.path().to_path_buf(), 1)];
     assert_eq!(find_in_known_roots("ghidra", &["analyzeHeadless"], &roots), Some(launcher));
@@ -40,10 +40,28 @@ fn a_package_manager_folder_two_levels_down_is_found_when_the_depth_allows_it() 
 fn a_newer_version_is_preferred() {
     let d = tempfile::tempdir().expect("tempdir");
     let old = d.path().join("ghidra_11.4_PUBLIC").join("support").join("analyzeHeadless");
-    let new = d.path().join("ghidra_12.1.4_PUBLIC").join("support").join("analyzeHeadless");
+    let new = d.path().join("ghidra_12.2_PUBLIC").join("support").join("analyzeHeadless");
     touch(&old);
     touch(&new);
     assert_eq!(find_in_known_roots("ghidra", &["analyzeHeadless"], &[(d.path().to_path_buf(), 1)]), Some(new));
+}
+
+/// Two unpacked releases side by side: the newest wins by the numbers. `12.10.0` beats `12.2`,
+/// which plain text order would get backwards, and a kept legacy `12.1.4` loses to either.
+#[test]
+fn the_newest_unpacked_release_wins_by_the_numbers() {
+    let d = tempfile::tempdir().expect("tempdir");
+    let legacy = d.path().join("ghidra_12.1.4_PUBLIC").join("support").join("analyzeHeadless");
+    let current = d.path().join("ghidra_12.2_PUBLIC").join("support").join("analyzeHeadless");
+    let newest = d.path().join("ghidra_12.10.0_PUBLIC").join("support").join("analyzeHeadless");
+    touch(&legacy);
+    touch(&current);
+    touch(&newest);
+    assert_eq!(find_in_known_roots("ghidra", &["analyzeHeadless"], &[(d.path().to_path_buf(), 1)]), Some(newest.clone()));
+    // With 12.10.0 gone, 12.2 is chosen over the kept 12.1.4.
+    std::fs::remove_dir_all(d.path().join("ghidra_12.10.0_PUBLIC")).expect("remove the newest");
+    assert_eq!(find_in_known_roots("ghidra", &["analyzeHeadless"], &[(d.path().to_path_buf(), 1)]), Some(current));
+    let _ = legacy;
 }
 
 #[test]
@@ -58,7 +76,7 @@ fn other_programs_and_missing_folders_are_ignored() {
 #[test]
 fn a_folder_without_the_launcher_is_not_an_install() {
     let d = tempfile::tempdir().expect("tempdir");
-    std::fs::create_dir_all(d.path().join("ghidra_12.1.4_PUBLIC").join("Ghidra")).expect("create folders");
+    std::fs::create_dir_all(d.path().join("ghidra_12.2_PUBLIC").join("Ghidra")).expect("create folders");
     assert_eq!(find_in_known_roots("ghidra", &["analyzeHeadless"], &[(d.path().to_path_buf(), 1)]), None);
 }
 
