@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coil — a snake game</title>
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: radial-gradient(circle at 50% 30%, #1b2440 0%, #0b0f1c 70%);
+    color: #e8ecff;
+    font-family: "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
+    overflow: hidden;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+  }
+  #game {
+    display: block;
+    border-radius: 14px;
+    box-shadow: 0 0 0 2px #2c3a66, 0 18px 50px rgba(0, 0, 0, 0.55);
+    touch-action: none;
+    cursor: pointer;
+  }
+  #help {
+    font-size: 14px;
+    color: #8f9bc7;
+    letter-spacing: 0.3px;
+    text-align: center;
+    padding: 0 12px;
+  }
+  #help b { color: #cfd7ff; }
+  #self-test-result { display: none; }
+</style>
+</head>
+<body>
+<canvas id="game" aria-label="Snake game board"></canvas>
+<div id="help"><b>Arrows / WASD</b> move &nbsp;·&nbsp; <b>P</b> pause &nbsp;·&nbsp; <b>Space</b> restart</div>
+<pre id="self-test-result"></pre>
+<script>
+(function () {
+  "use strict";
+
+  // ---- Numbers that shape play (see MECHANICS.md / mechanics.json) ----
+  var COLS = 24, ROWS = 24, CELL = 24;
+  var HUD_H = 52;
+  var START_LEN = 3;
+  var START_X = 8, START_Y = 12;
+  var START_STEP_MS = 140;
+  var SPEEDUP_MS = 5;
+  var MIN_STEP_MS = 55;
+  var FOODS_PER_LEVEL = 5;
+  var POINTS_PER_FOOD = 10;
+  var TURN_BUFFER = 2;
+
+  var W = COLS * CELL, H = ROWS * CELL + HUD_H;
+
+  var params = new URLSearchParams(location.search);
+  var MODE_SCREENSHOT = params.has("screenshot");
+  var MODE_SELFTEST = params.has("self-test") || params.has("selftest");
+
+  var canvas = document.getElementById("game");
+  var ctx = canvas.getContext("2d");
+
+  function fitCanvas() {
+    var dpr = window.devicePixelRatio || 1;
+    var availW = window.innerWidth - 24, availH = window.innerHeight - 60;
+    var scale = Math.min(availW / W, availH / H, 1.4);
+    if (!(scale > 0)) scale = 1;
+    canvas.style.width = Math.round(W * scale) + "px";
+    canvas.style.height = Math.round(H * scale) + "px";
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  window.addEventListener("resize", fitCanvas);
+  fitCanvas();
+
+  var DIRS = {
+    up: { x: 0, y: -1 }, down: { x: 0, y: 1 },
+    left: { x: -1, y: 0 }, right: { x: 1, y: 0 }
+  };
+  var KEYMAP = {
+    ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right",
+    w: "up", s: "down", a: "left", d: "right",
+    W: "up", S: "down", A: "left", D: "right",
+    KeyW: "up", KeyS: "down", KeyA: "left", KeyD: "right"
+  };
+
+  var best = 0;
+  try { best = parseInt(localStorage.getItem("coil-best") || "0", 10) || 0; } catch (e) {}
+
+  var game = {
+    state: "ready",     // ready | playing | paused | over
+    snake: [],
+    dir: DIRS.right,
+    queue: [],
+    food: null,
+    score: 0,
+    eaten: 0,
+    stepMs: START_STEP_MS,
+    acc: 0,
+    newBest: false,
+    deathFlash: 0,
+    hudText: ""
+  };
+  window.__game = game;
+
+  function reset() {
+    game.snake = [];
+    for (var i = 0; i < START_LEN; i++) game.snake.push({ x: START_X - i, y: START_Y });
+    game.dir = DIRS.right;
+    game.queue = [];
+    game.score = 0;
+    game.eaten = 0;
+    game.stepMs = START_STEP_MS;
+    game.acc = 0;
+    game.newBest = false;
+    game.deathFlash = 0;
+    placeFood();
+  }
+
+  function level() { return 1 + Math.floor(game.eaten / FOODS_PER_LEVEL); }
+
+  function placeFood() {
+    var free = [];
+    var taken = {};
+    for (var i = 0; i < game.snake.length; i++) taken[game.snake[i].x + "," + game.snake[i].y] = true;
+    for (var y = 0; y < ROWS; y++)
+      for (var x = 0; x < COLS; x++)
+        if (!taken[x + "," + y]) free.push({ x: x, y: y });
+    game.food = free.length ? free[Math.floor(Math.random() * free.length)] : null;
+  }
+
+  function startGame() {
+    reset();
+    game.state = "playing";
+  }
+
+  function queueTurn(name) {
+    var d = DIRS[name];
+    var last = game.queue.length ? game.queue[game.queue.length - 1] : game.dir;
+    if (d === last) return;
+    if (d.x === -last.x && d.y === -last.y) return; // no reversing into yourself
+    if (game.queue.length < TURN_BUFFER) game.queue.push(d);
+  }
+
+  // A short pause after dying so a held key doesn't restart by accident.
+  var RESTART_DELAY_MS = 300;
+  function canRestart() { return performance.now() - (game.overAt || 0) >= RESTART_DELAY_MS; }
+
+  function gameOver() {
+    game.state = "over";
+    game.deathFlash = 1;
+    game.overAt = performance.now();
+    if (game.score > best) {
+      best = game.score;
+      game.newBest = true;
+      try { localStorage.setItem("coil-best", String(best)); } catch (e) {}
+    }
+  }
+
+  // One step of the snake: one cell in the current direction.
+  function step() {
+    if (game.queue.length) game.dir = game.queue.shift();
+    var head = game.snake[0];
+    var nx = head.x + game.dir.x, ny = head.y + game.dir.y;
+
+    if (nx < 0 || ny < 0 || nx >= COLS || ny >= ROWS) { gameOver(); return; }
+
+    var eating = game.food && nx === game.food.x && ny === game.food.y;
+    // The tail moves away this step unless we're eating, so its cell is safe.
+    var bodyLen = eating ? game.snake.length : game.snake.length - 1;
+    for (var i = 0; i < bodyLen; i++) {
+      if (game.snake[i].x === nx && game.snake[i].y === ny) { gameOver(); return; }
+    }
+
+    game.snake.unshift({ x: nx, y: ny });
+    if (eating) {
+      game.score += POINTS_PER_FOOD;
+      game.eaten += 1;
+      game.stepMs = Math.max(MIN_STEP_MS, START_STEP_MS - game.eaten * SPEEDUP_MS);
+      placeFood();
+    } else {
+      game.snake.pop();
+    }
+  }
+
+  // ---- Input ----
+  function onKey(e) {
+    var key = e.key, code = e.code;
+    var dirName = KEYMAP[key] || KEYMAP[code];
+    var isConfirm = key === " " || key === "Enter" || code === "Space";
+    var isRestart = isConfirm || key === "r" || key === "R" || code === "KeyR";
+    var isPause = key === "p" || key === "P" || key === "Escape" || code === "KeyP";
+
+    if (dirName || isConfirm || isPause) e.preventDefault && e.preventDefault();
+
+    if (game.state === "ready") {
+      if (dirName || isConfirm) {
+        startGame();
+        if (dirName) queueTurn(dirName);
+      }
+    } else if (game.state === "playing") {
+      if (dirName) queueTurn(dirName);
+      else if (isPause) game.state = "paused";
+    } else if (game.state === "paused") {
+      if (isPause || isConfirm || dirName) {
+        game.state = "playing";
+        if (dirName) queueTurn(dirName);
+      }
+    } else if (game.state === "over") {
+      if (isRestart && canRestart()) startGame();
+    }
+  }
+  window.addEventListener("keydown", onKey);
+
+  // Click / tap: start or restart; swipe to steer on touch screens.
+  var touchStart = null;
+  canvas.addEventListener("pointerdown", function (e) {
+    touchStart = { x: e.clientX, y: e.clientY };
+    if (game.state === "ready") startGame();
+    else if (game.state === "paused") game.state = "playing";
+    else if (game.state === "over" && canRestart()) startGame();
+  });
+  canvas.addEventListener("pointerup", function (e) {
+    if (!touchStart || game.state !== "playing") return;
+    var dx = e.clientX - touchStart.x, dy = e.clientY - touchStart.y;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < 24) return;
+    queueTurn(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up"));
+    touchStart = null;
+  });
+
+  // ---- Drawing ----
+  var t0 = performance.now();
+
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function drawHud() {
+    var g = ctx.createLinearGradient(0, 0, 0, HUD_H);
+    g.addColorStop(0, "#1e2950");
+    g.addColorStop(1, "#151d3a");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, HUD_H);
+    ctx.fillStyle = "#2c3a66";
+    ctx.fillRect(0, HUD_H - 2, W, 2);
+
+    ctx.textBaseline = "middle";
+    ctx.font = "bold 13px 'Trebuchet MS', sans-serif";
+    ctx.fillStyle = "#8f9bc7";
+    ctx.textAlign = "left";  ctx.fillText("SCORE", 18, 17);
+    ctx.textAlign = "center"; ctx.fillText("LEVEL", W / 2, 17);
+    ctx.textAlign = "right"; ctx.fillText("BEST", W - 18, 17);
+
+    ctx.font = "bold 22px 'Trebuchet MS', sans-serif";
+    ctx.fillStyle = "#ffffff";
+    ctx.textAlign = "left";  ctx.fillText(String(game.score), 18, 37);
+    ctx.fillStyle = "#7ef0c4";
+    ctx.textAlign = "center"; ctx.fillText(String(level()), W / 2, 37);
+    ctx.fillStyle = "#ffcf5c";
+    ctx.textAlign = "right"; ctx.fillText(String(Math.max(best, game.score)), W - 18, 37);
+
+    game.hudText = "SCORE " + game.score + " LEVEL " + level() + " BEST " + Math.max(best, game.score);
+  }
+
+  function drawBoard() {
+    for (var y = 0; y < ROWS; y++) {
+      for (var x = 0; x < COLS; x++) {
+        ctx.fillStyle = (x + y) % 2 ? "#121a33" : "#151e3b";
+        ctx.fillRect(x * CELL, HUD_H + y * CELL, CELL, CELL);
+      }
+    }
+  }
+
+  function drawFood(now) {
+    if (!game.food) return;
+    var cx = game.food.x * CELL + CELL / 2, cy = HUD_H + game.food.y * CELL + CELL / 2;
+    var pulse = 1 + Math.sin(now / 180) * 0.08;
+    var glow = ctx.createRadialGradient(cx, cy, 2, cx, cy, CELL);
+    glow.addColorStop(0, "rgba(255,170,60,0.55)");
+    glow.addColorStop(1, "rgba(255,170,60,0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(cx - CELL, cy - CELL, CELL * 2, CELL * 2);
+
+    var r = CELL * 0.36 * pulse;
+    var body = ctx.createRadialGradient(cx - r * 0.35, cy - r * 0.35, 1, cx, cy, r);
+    body.addColorStop(0, "#ffe9a8");
+    body.addColorStop(0.5, "#ffae3d");
+    body.addColorStop(1, "#e2641c");
+    ctx.fillStyle = body;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+    // little leaf
+    ctx.fillStyle = "#6fe39a";
+    ctx.beginPath();
+    ctx.ellipse(cx + r * 0.35, cy - r * 0.95, r * 0.38, r * 0.18, -0.6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawSnake() {
+    var n = game.snake.length;
+    for (var i = n - 1; i >= 0; i--) {
+      var s = game.snake[i];
+      var k = n > 1 ? i / (n - 1) : 0;
+      // head is bright teal, tail fades to deep green-blue
+      var r = Math.round(90 - 60 * k), g = Math.round(240 - 90 * k), b = Math.round(200 - 40 * k);
+      var pad = i === 0 ? 1 : 2 + k * 2;
+      ctx.fillStyle = "rgb(" + r + "," + g + "," + b + ")";
+      roundRect(s.x * CELL + pad, HUD_H + s.y * CELL + pad, CELL - pad * 2, CELL - pad * 2, i === 0 ? 8 : 6);
+      ctx.fill();
+      // join to next segment so the body looks continuous
+      if (i < n - 1) {
+        var nx = game.snake[i + 1];
+        var mx = Math.min(s.x, nx.x) * CELL, my = Math.min(s.y, nx.y) * CELL;
+        if (s.x !== nx.x) ctx.fillRect(mx + CELL / 2, HUD_H + my + pad, CELL, CELL - pad * 2);
+        else ctx.fillRect(mx + pad, HUD_H + my + CELL / 2, CELL - pad * 2, CELL);
+      }
+    }
+    // eyes
+    if (n) {
+      var h = game.snake[0], d = game.dir;
+      var hx = h.x * CELL + CELL / 2, hy = HUD_H + h.y * CELL + CELL / 2;
+      var px = -d.y, py = d.x;
+      for (var e = -1; e <= 1; e += 2) {
+        var ex = hx + d.x * 4 + px * 5 * e, ey = hy + d.y * 4 + py * 5 * e;
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath(); ctx.arc(ex, ey, 3.4, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = "#0b0f1c";
+        ctx.beginPath(); ctx.arc(ex + d.x * 1.3, ey + d.y * 1.3, 1.7, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+  }
+
+  function overlay(title, lines, accent) {
+    ctx.fillStyle = "rgba(8, 11, 24, 0.68)";
+    ctx.fillRect(0, HUD_H, W, H - HUD_H);
+    var cy = HUD_H + (H - HUD_H) / 2;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = "bold 46px 'Trebuchet MS', sans-serif";
+    ctx.fillStyle = accent;
+    ctx.fillText(title, W / 2, cy - 44);
+    ctx.font = "18px 'Trebuchet MS', sans-serif";
+    for (var i = 0; i < lines.length; i++) {
+      ctx.fillStyle = i === 0 ? "#ffffff" : "#aab4dd";
+      ctx.fillText(lines[i], W / 2, cy + 6 + i * 30);
+    }
+  }
+
+  function render(now) {
+    ctx.clearRect(0, 0, W, H);
+    drawHud();
+    drawBoard();
+    drawFood(now);
+    drawSnake();
+
+    if (game.deathFlash > 0) {
+      ctx.fillStyle = "rgba(255, 80, 90," + (game.deathFlash * 0.35) + ")";
+      ctx.fillRect(0, HUD_H, W, H - HUD_H);
+    }
+
+    if (game.state === "ready") {
+      overlay("COIL", ["Press an arrow key or WASD to start", "Eat the glowing fruit. Don't hit walls or yourself."], "#7ef0c4");
+    } else if (game.state === "paused") {
+      overlay("Paused", ["Press P to keep going"], "#cfd7ff");
+    } else if (game.state === "over") {
+      overlay("Game over", [
+        "Score " + game.score + (game.newBest ? "  ·  New best!" : ""),
+        "Press Space, Enter or R to play again"
+      ], "#ff6b7a");
+    }
+  }
+
+  // ---- Main loop: fixed-time steps, drawn every frame ----
+  var last = performance.now();
+  var manualSteps = MODE_SELFTEST; // self-test drives steps itself
+  function frame(now) {
+    var dt = Math.min(250, now - last);
+    last = now;
+    if (game.state === "playing" && !manualSteps) {
+      game.acc += dt;
+      while (game.acc >= game.stepMs && game.state === "playing") {
+        game.acc -= game.stepMs;
+        if (MODE_SCREENSHOT) autoSteer();
+        step();
+      }
+    } else {
+      game.acc = 0;
+    }
+    if (game.deathFlash > 0) game.deathFlash = Math.max(0, game.deathFlash - dt / 600);
+    render(now);
+    frames++;
+    requestAnimationFrame(frame);
+  }
+  var frames = 0;
+
+  // Simple steering for the screenshot: head toward the food, avoid walls and body.
+  function autoSteer() {
+    var h = game.snake[0], f = game.food;
+    var names = ["up", "down", "left", "right"];
+    var bestName = null, bestScore = -1e9;
+    for (var i = 0; i < names.length; i++) {
+      var d = DIRS[names[i]];
+      if (d.x === -game.dir.x && d.y === -game.dir.y) continue;
+      var nx = h.x + d.x, ny = h.y + d.y;
+      if (nx < 0 || ny < 0 || nx >= COLS || ny >= ROWS) continue;
+      var hit = false;
+      for (var j = 0; j < game.snake.length - 1; j++)
+        if (game.snake[j].x === nx && game.snake[j].y === ny) { hit = true; break; }
+      if (hit) continue;
+      var sc = f ? -(Math.abs(f.x - nx) + Math.abs(f.y - ny)) : 0;
+      if (sc > bestScore) { bestScore = sc; bestName = names[i]; }
+    }
+    if (bestName) { game.queue = []; game.dir = DIRS[bestName]; }
+  }
+
+  reset();
+  requestAnimationFrame(frame);
+
+  // ---- Screenshot mode: play on its own for about 120 frames ----
+  if (MODE_SCREENSHOT) {
+    // Grow the snake a little so the picture shows a real game in progress.
+    startGame();
+    for (var g = 0; g < 4; g++) {
+      game.food = { x: game.snake[0].x + 1, y: game.snake[0].y };
+      step();
+    }
+    placeFood();
+    var waitFrames = function () {
+      if (frames >= 120) { window.__screenshotReady = true; document.title = "screenshot-ready"; return; }
+      requestAnimationFrame(waitFrames);
+    };
+    requestAnimationFrame(waitFrames);
+  }
+
+  // ---- Self-test mode: drive the snake with scripted key presses ----
+  if (MODE_SELFTEST) {
+    var steps = [];
+    var press = function (key) {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: key, bubbles: true }));
+    };
+    var wait = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+    var stepN = async function (n) {
+      for (var i = 0; i < n && game.state === "playing"; i++) { step(); await wait(30); }
+    };
+    var record = function (name, passed, detail) { steps.push({ step: name, passed: !!passed, detail: detail }); };
+
+    (async function run() {
+      try {
+        await wait(300);
+        // Start with a key press, as a player would.
+        press("ArrowRight");
+        record("start", game.state === "playing" && game.snake.length === START_LEN,
+          "state " + game.state + ", length " + game.snake.length);
+
+        // move: right with arrows, then down with WASD
+        game.food = { x: 0, y: 0 };
+        var h0 = { x: game.snake[0].x, y: game.snake[0].y };
+        await stepN(3);
+        press("s");
+        await stepN(2);
+        var h1 = game.snake[0];
+        var moved = h1.x - h0.x === 3 && h1.y - h0.y === 2;
+        record("move", moved, "head went from (" + h0.x + "," + h0.y + ") to (" + h1.x + "," + h1.y + ") using ArrowRight then S");
+
+        // no reverse
+        press("w");
+        await stepN(1);
+        var h2 = game.snake[0];
+        record("no-reverse", h2.y === h1.y + 1, "pressing W while moving down kept the snake going down");
+
+        // act: eat food placed in front of the head
+        var len0 = game.snake.length, score0 = game.score, ms0 = game.stepMs;
+        game.food = { x: game.snake[0].x, y: game.snake[0].y + 1 };
+        await stepN(1);
+        var ate = game.snake.length === len0 + 1 && game.score === score0 + POINTS_PER_FOOD;
+        record("act", ate, "ate food: length " + len0 + " -> " + game.snake.length + ", score " + score0 + " -> " + game.score);
+        record("speed-up", game.stepMs === ms0 - SPEEDUP_MS, "step time " + ms0 + " ms -> " + game.stepMs + " ms");
+
+        // hud
+        render(performance.now());
+        var px = ctx.getImageData(Math.round(20 * (window.devicePixelRatio || 1)), Math.round(37 * (window.devicePixelRatio || 1)), 1, 1).data;
+        var hudOk = game.hudText.indexOf("SCORE " + game.score) === 0 && game.hudText.indexOf("LEVEL") > 0 && game.hudText.indexOf("BEST") > 0;
+        record("hud", hudOk, "drawn: " + game.hudText + " (pixel " + px[0] + "," + px[1] + "," + px[2] + ")");
+
+        // game over: run into the bottom wall
+        game.food = { x: 0, y: 0 };
+        var guard = 0;
+        while (game.state === "playing" && guard++ < 40) { step(); await wait(10); }
+        record("game-over", game.state === "over", "hit the wall after " + guard + " steps, state " + game.state);
+
+        // restart
+        await wait(700);
+        press(" ");
+        record("restart", game.state === "playing" && game.score === 0 && game.snake.length === START_LEN && game.stepMs === START_STEP_MS,
+          "after Space: state " + game.state + ", score " + game.score + ", length " + game.snake.length + ", step " + game.stepMs + " ms");
+      } catch (err) {
+        record("error", false, String(err && err.message || err));
+      }
+      var result = { version: 1, steps: steps };
+      window.__selfTestResult = result;
+      document.getElementById("self-test-result").textContent = JSON.stringify(result);
+      document.title = "self-test-done";
+    })();
+  }
+})();
+</script>
+</body>
+</html>

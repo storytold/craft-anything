@@ -1,0 +1,133 @@
+{
+  "version": 1,
+  "values": [
+    {
+      "name": "grid columns",
+      "group": "board",
+      "value": 24,
+      "unit": "cells",
+      "estimated": true
+    },
+    {
+      "name": "grid rows",
+      "group": "board",
+      "value": 24,
+      "unit": "cells",
+      "estimated": true
+    },
+    {
+      "name": "cell size",
+      "group": "board",
+      "value": 24,
+      "unit": "px",
+      "estimated": true
+    },
+    {
+      "name": "walls kill",
+      "group": "rules",
+      "value": true,
+      "estimated": true
+    },
+    {
+      "name": "self collision kills",
+      "group": "rules",
+      "value": true,
+      "estimated": true
+    },
+    {
+      "name": "starting length",
+      "group": "movement",
+      "value": 3,
+      "unit": "cells",
+      "estimated": true
+    },
+    {
+      "name": "starting direction",
+      "group": "movement",
+      "value": "right",
+      "estimated": true
+    },
+    {
+      "name": "growth per food",
+      "group": "movement",
+      "value": 1,
+      "unit": "cells",
+      "estimated": true
+    },
+    {
+      "name": "turn buffer",
+      "group": "controls",
+      "value": 2,
+      "unit": "turns",
+      "estimated": true
+    },
+    {
+      "name": "starting step time",
+      "group": "speed",
+      "value": 140,
+      "unit": "ms",
+      "estimated": true
+    },
+    {
+      "name": "speed-up per food",
+      "group": "speed",
+      "value": 5,
+      "unit": "ms",
+      "source": "request (speed-up); amount estimated",
+      "estimated": true
+    },
+    {
+      "name": "fastest step time",
+      "group": "speed",
+      "value": 55,
+      "unit": "ms",
+      "estimated": true
+    },
+    {
+      "name": "foods per level",
+      "group": "speed",
+      "value": 5,
+      "unit": "foods",
+      "estimated": true
+    },
+    {
+      "name": "points per food",
+      "group": "scoring",
+      "value": 10,
+      "unit": "points",
+      "estimated": true
+    },
+    {
+      "name": "best score saved",
+      "group": "scoring",
+      "value": true,
+      "estimated": true
+    },
+    {
+      "name": "move keys",
+      "group": "controls",
+      "value": "arrow keys / WASD",
+      "source": "request"
+    },
+    {
+      "name": "restart keys",
+      "group": "controls",
+      "value": "Space / Enter / R",
+      "source": "request (restart); keys estimated",
+      "estimated": true
+    },
+    {
+      "name": "pause keys",
+      "group": "controls",
+      "value": "P / Esc",
+      "estimated": true
+    },
+    {
+      "name": "restart delay after dying",
+      "group": "rules",
+      "value": 300,
+      "unit": "ms",
+      "estimated": true
+    }
+  ]
+}
