@@ -399,7 +399,7 @@ mod tests {
 
     /// A run check from a relative project must give its child an absolute executable and working
     /// folder; a relative working folder is refused before the program starts.
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn a_relative_project_runs_a_console_check() {
         use std::os::unix::fs::PermissionsExt;

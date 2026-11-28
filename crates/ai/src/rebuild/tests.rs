@@ -3376,7 +3376,7 @@ pub(crate) fn check_worker(ws: &Workspace, deep: bool) -> Worker {
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn console_study_keeps_two_real_observations_for_each_input() {
     use std::os::unix::fs::PermissionsExt;
