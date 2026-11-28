@@ -44,6 +44,13 @@ pub struct Stack {
     /// toolchains.toml, the first whose files are there.
     #[serde(default)]
     pub toolchains: Vec<String>,
+    /// The installer that puts `program` on the computer (`rustup` for `cargo`). When it's there
+    /// without the program, `program_setup` replaces `program_from` (#2252): the installer's own
+    /// setup refuses to run over an existing install.
+    #[serde(default)]
+    pub program_installer: Option<String>,
+    #[serde(default)]
+    pub program_setup: Option<String>,
 }
 
 pub use craft_anything_engine::toolchains::{Toolchain, found_in as toolchain_in};
@@ -122,11 +129,18 @@ pub fn get(name: &str) -> Option<&'static Stack> {
     catalogue().iter().find(|s| s.name == name)
 }
 
-/// The stack's own program (`cargo`) when `have` says this computer doesn't have it, and how to get it.
-pub fn missing_program(stack: &str, have: impl Fn(&str) -> bool) -> Option<(&'static str, &'static str)> {
+/// The stack's own program (`cargo`) when `have` says this computer doesn't have it, and how to get
+/// it: `program_setup` when the program's installer (`rustup`) is on this computer without the
+/// program (#2252), else `program_from`.
+pub fn missing_program(stack: &str, have: impl Fn(&str) -> bool) -> Option<(&'static str, String)> {
     let s = get(stack)?;
     let program = s.program.as_deref().filter(|p| !have(p))?;
-    Some((program, s.program_from.as_deref().unwrap_or_default()))
+    let from = if s.program_installer.as_deref().is_some_and(have) {
+        s.program_setup.clone().or_else(|| s.program_from.clone()).unwrap_or_default()
+    } else {
+        s.program_from.clone().unwrap_or_default()
+    };
+    Some((program, from))
 }
 
 /// A stack picked by name: its full name or its engine id, ignoring case (`unity`, `Godot`,

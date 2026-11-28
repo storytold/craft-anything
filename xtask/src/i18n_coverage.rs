@@ -41,6 +41,7 @@ impl<'ast> Visit<'ast> for Lookups {
             let owner = path.path.segments.iter().rev().nth(1).map(|s| s.ident.to_string()).unwrap_or_default();
             let positions: &[usize] = match (owner.as_str(), name.as_str()) {
                 (_, "tr" | "trf") => &[0],
+                (_, "step") => &[0, 1],
                 ("widgets", "primary" | "link" | "suggestion" | "caption" | "pill" | "working" | "working_since" | "segmented" | "segmented_sized") => &[1],
                 ("widgets", "named") => &[1],
                 ("widgets", "primary_icon" | "primary_sized" | "secondary") => &[2],
@@ -62,6 +63,20 @@ impl<'ast> Visit<'ast> for Lookups {
             }
         }
         visit::visit_expr_call(self, call);
+    }
+}
+
+/// Like [`Strings`], but it also descends into calls: `Builder::setup`'s sentence sits inside
+/// `Some(…)`, which the call-skipping scan treats as noise everywhere else.
+#[derive(Default)]
+struct Shown(BTreeSet<String>);
+
+impl<'ast> Visit<'ast> for Shown {
+    fn visit_lit_str(&mut self, s: &'ast syn::LitStr) {
+        let value = s.value();
+        if value.chars().any(|c| c.is_ascii_alphabetic()) {
+            self.0.insert(value);
+        }
     }
 }
 
@@ -89,6 +104,35 @@ pub fn check(root: &Path) -> bool {
     for spec in craft_anything_engine::Registry::with_all_tools().all() {
         lookups.0.0.insert(spec.title.to_string());
         lookups.0.0.insert(spec.toolset.title().to_string());
+    }
+    // `Builder::setup` shows strings the UI-file scan can't see: they live in
+    // the engines crate (#2252). Their keys are kept in the catalogs the way they always were;
+    // this only makes the check hold them to it.
+    let game = root.join("crates/engines/src/game.rs");
+    if let Ok(text) = std::fs::read_to_string(&game)
+        && let Ok(file) = syn::parse_file(&text)
+    {
+        let mut shown = Shown::default();
+        fn visit(block: &syn::Block, name: &str, shown: &mut Shown) {
+            if name == "setup" {
+                shown.visit_block(block);
+            }
+        }
+        for item in &file.items {
+            match item {
+                syn::Item::Fn(f) => visit(&f.block, &f.sig.ident.to_string(), &mut shown),
+                // `setup` is `Builder`'s, inside its `impl` block.
+                syn::Item::Impl(i) => {
+                    for item in &i.items {
+                        if let syn::ImplItem::Fn(f) = item {
+                            visit(&f.block, &f.sig.ident.to_string(), &mut shown);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        lookups.0.0.extend(shown.0);
     }
     let awaiting_path = source.join("i18n").join(AWAITING);
     let Ok(awaiting) = std::fs::read_to_string(&awaiting_path).map(|text| awaiting_keys(&text)) else {

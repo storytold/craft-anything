@@ -69,3 +69,5 @@ Couldn't set the usage record aside.
 at least {n}
 Counted again since an unreadable usage record was set aside (usage.unreadable.json): earlier builds aren't included.
 Count a project's usage again
+Set up the Rust toolchain
+rustup is on this computer. Run `rustup default stable` in a terminal.

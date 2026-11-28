@@ -2487,6 +2487,12 @@ Gaps found while using the app for real projects.
       looked at it (#2434). Esc with nothing focused still goes home, and still closes the palette,
       a dialog or Settings first
       Claimed: ilijachrchev, branch bugfix/2434-esc-in-prompt
+- [x] Rust setup says what to do when rustup is on the computer without a selected toolchain
+      (Homebrew's rustup ships only `rustup`; `cargo` appears after `rustup default`), instead of
+      pointing at rustup.rs, whose installer refuses to run over an existing install (#2252): the
+      engine inventory finds rustup, the Rust setup step, status line and modal say to run
+      `rustup default stable`, and so does a new build's missing-cargo stop
+      — claimed: kaovilai, branch bugfix/rustup-toolchain-message
 
 ### R2.10 Pinned builds
 Owner: maintainers · Status: in progress

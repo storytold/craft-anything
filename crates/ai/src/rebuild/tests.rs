@@ -5344,6 +5344,12 @@ fn a_new_build_stops_before_any_turn_when_its_stacks_program_is_missing() {
     for s in stacks::catalogue().iter().filter(|s| s.name.starts_with("Rust") || s.name == "Bevy") {
         assert_eq!(stacks::missing_program(&s.name, |_| false).map(|(p, from)| (p, !from.is_empty())), Some(("cargo", true)), "{}", s.name);
     }
+    // rustup without a selected toolchain says `rustup default stable`, not the installer, which
+    // refuses to run over an existing install (#2252).
+    let err = missing_program_stop("Rust + egui (eframe)", |p| p == "rustup").unwrap_err();
+    let r = err.remediation.as_deref().unwrap_or_default();
+    assert!(err.message.contains("cargo") && r.contains("rustup default stable") && !r.contains("rustup.rs"), "{err:?}");
+    assert!(missing_program_stop("Rust + egui (eframe)", |p| p == "cargo" || p == "rustup").is_ok());
 }
 
 /// #1903 review: a request (a message or a note) never fails because the stop's lock is busy:

@@ -123,6 +123,17 @@ impl Builder {
         self.needs_for(std::env::consts::OS)
     }
 
+    /// What to do when the builder's installer is on this computer but what it installs isn't
+    /// usable yet (#2252): rustup is there without a selected toolchain, and its own installer
+    /// refuses to run over an existing install, so the person is told what to run instead. The
+    /// same sentence is the Rust stacks' `program_setup` in `stacks.toml`: one wording.
+    pub fn setup(self) -> Option<&'static str> {
+        match self {
+            Builder::Rust => Some("rustup is on this computer. Run `rustup default stable` in a terminal."),
+            _ => None,
+        }
+    }
+
     /// [`needs`](Builder::needs) for a named OS, so every platform's words are testable here.
     fn needs_for(self, os: &str) -> &'static str {
         match self {
@@ -530,6 +541,10 @@ pub struct Inventory {
     pub epic_launcher: Option<PathBuf>,
     /// A C++ compiler Unreal can use (Visual Studio, Xcode, or the selected Linux engine's bundled Clang).
     pub cpp_tools: bool,
+    /// Rust's installer, when it's on this computer but no cargo is: the setup then says to run
+    /// `rustup default` (#2252) instead of pointing at rustup.rs, whose installer refuses to run
+    /// over an existing install.
+    pub rustup: Option<PathBuf>,
 }
 
 impl Inventory {
@@ -597,7 +612,8 @@ pub fn inventory(p: &Places) -> Inventory {
     engines.extend(unity_editors(p));
     engines.extend(unreal_installs(p));
     engines.extend(godot_installs(p));
-    if let Some(cargo) = p.use_path.then(|| craft_anything_platform::which("cargo")).flatten() {
+    let cargo = p.use_path.then(|| craft_anything_platform::which("cargo")).flatten();
+    if let Some(cargo) = cargo.clone() {
         engines.push(Installed { builder: Builder::Rust, version: String::new(), program: cargo });
     }
     engines.sort_by(|a, b| (a.builder as u8).cmp(&(b.builder as u8)).then_with(|| version_key(&b.version).cmp(&version_key(&a.version))));
@@ -617,6 +633,9 @@ pub fn inventory(p: &Places) -> Inventory {
                 .collect(),
         ),
         cpp_tools,
+        // Only when no cargo is there: with a working toolchain, Rust is simply ready and the
+        // setup keeps today's step.
+        rustup: cargo.is_none().then(|| p.use_path.then(|| craft_anything_platform::which("rustup")).flatten()).flatten(),
     }
 }
 
