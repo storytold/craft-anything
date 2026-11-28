@@ -107,7 +107,7 @@ impl Block {
     /// What a model is sent in place of a picture whose bytes aren't here (a resumed or trimmed
     /// conversation).
     pub fn image_note(name: &str) -> String {
-        format!("[A picture was shown here ({name}); it isn't kept once the conversation is saved or shortened.]")
+        format!("[A picture was shown here ({name}); it isn't sent again.]")
     }
 }
 
@@ -349,6 +349,11 @@ pub trait ChatModel: Send {
     /// The context window its server says it has loaded, when it says one (see [`crate::window`]).
     /// Asked on the agent's worker, never on the UI thread.
     fn context_window(&self) -> Option<crate::window::Window> {
+        None
+    }
+    /// Whether its model sees pictures, when its server says (see [`crate::sight`]). Asked on a
+    /// worker, never on the UI thread.
+    fn sees_pictures(&self) -> Option<crate::sight::Sight> {
         None
     }
 }
