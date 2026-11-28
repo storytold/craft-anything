@@ -775,6 +775,12 @@ into #794's wgpu error went DX12 → WARP → Vulkan by itself in about 2 s, ope
 next start, and went back to DX12 for another app version. The real #794 failure wasn't reproduced:
 DX12 and WARP both draw on that machine.
 
+With WARP (no graphics card, as in most VMs) egui filters textures by hand: WARP read them through wgpu's
+DX12 sampler heap about ten times slower, so each frame of a maximized window cost about 0.3 s on every
+core and moving the mouse over it kept the CPU at 100% (`vendor/egui-wgpu/CRAFT_ANYTHING.md`). Measured on
+one Windows 11 VM (QEMU, 6 vCPUs, over RDP): 13 frames a second on 2.6 cores instead of 2.6 frames on 5.
+Other graphics cards draw as before.
+
 ### Headless project and engine tools
 
 Rebuild runs save the project's conversation in the versioned `feed.json`, including runs from

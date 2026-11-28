@@ -617,6 +617,12 @@ from #1679 and #1702 failed every night on FreeBSD, whose capture was a stub tha
 anything. A test gated on `unix` must only need what every Unix build has; FreeBSD now captures
 through pipes, as Windows does.
 
+**Idle CPU passed while every frame cost a third of a second.** WARP was checked by leaving the window
+alone (busy for 5 s after start, then 0%), so nobody saw that each frame of a maximized window took
+about 0.3 s on every core: on a VM without a GPU, moving the mouse or clicking kept the CPU at 100%.
+Measure a renderer with frames being drawn too: move the mouse over the window and count frames, or
+redraw continuously, and compare the cost of one frame.
+
 ## Design
 
 **A readiness flag outlived the provider it described.** A Deep export cached success after a

@@ -328,6 +328,17 @@ only when it's green and a maintainer has fully reviewed it, code as well as wor
 - [x] Limit the decision line above to what was measured (one RX 6900 XT, one driver, one Windows
       build) and say other Radeons and drivers aren't checked (#912 review)
       — claimed: 00xJS, branch docs/r5.2-radeon-idle-scope
+- [x] Without a GPU (a VM over RDP, WARP) every frame cost about 0.3 s on all cores, so moving the
+      mouse or clicking kept the CPU at 100% for as long as it lasted: WARP samples a texture about
+      ten times slower than it loads one (likely, not confirmed inside WARP: wgpu's DX12 sampler
+      heap lookup). egui filters by hand on WARP (patched egui-wgpu in `vendor/egui-wgpu`): 13
+      frames/s on 2.6 cores instead of 2.6 on 5 on one Windows 11 VM (QEMU, 6 vCPUs); other
+      adapters unchanged
+      — claimed: Claude, branch bugfix/r5.2-warp-texture-filtering
+- [ ] Report WARP's sampling cost upstream (egui-wgpu: leave the sampler out of the pipeline when it
+      filters by hand; wgpu: why WARP samples slowly, the sampler heap being the suspect). Drop
+      `vendor/egui-wgpu` only once an upstream fix ships and the before/after WARP measurement in
+      `vendor/egui-wgpu/CRAFT_ANYTHING.md` shows no regression
 - [x] STATUS.md has rows twice, kept by squash merges of PRs that edited the same row: OpenCode
       models and thinking (three copies that disagree about SSH), Claude desktop app without Claude
       Code, Websites as targets, Desktop app and CLI; `docs/opencode.md` has a paragraph twice.
