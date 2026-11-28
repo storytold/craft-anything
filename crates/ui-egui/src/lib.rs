@@ -2180,6 +2180,7 @@ impl CraftApp {
             egui::CentralPanel::default().frame(egui::Frame::new().fill(t.canvas)).show(ui, |ui| guard_ui(ui, "first run", |ui| first_run::show(self, ui)));
             // An AI added from the first run reports a failure here (a wrong address or key).
             self.toasts(&ctx);
+            widgets::text_box_menu(&ctx);
             titlebar::window_edge(&ctx);
             titlebar::resize_edges(&ctx);
             return;
@@ -2208,6 +2209,7 @@ impl CraftApp {
         activity_box::windows(self, &ctx);
         self.toasts(&ctx);
         widgets::text_focus_ring(&ctx);
+        widgets::text_box_menu(&ctx);
         self.drop_overlay(&ctx);
         titlebar::window_edge(&ctx);
         titlebar::resize_edges(&ctx);
