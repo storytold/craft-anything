@@ -17,6 +17,11 @@
 //!
 //! The result is checked (a 2D texture, at least one image, a sensible size) so a layout this
 //! module doesn't know is refused rather than read wrong. Pixel rows are stored bottom first.
+//!
+//! Crunched textures (DXT1Crunched, DXT5Crunched) hold a stream of Unity's fork of the crunch
+//! library (<https://github.com/Unity-Technologies/crunch>, zlib), which Unity uses from 2017.3,
+//! the oldest version read here. The format has no specification apart from that code, so the
+//! stream is decoded by the `texture2ddecoder` crate rather than by our own implementation.
 
 use crate::common::FormatError;
 use crate::pixels::{self, Layout};
@@ -204,13 +209,96 @@ fn layout(format: i32) -> Option<Layout> {
     })
 }
 
+/// The bytes of the DXT block a crunched format holds, for Unity's crunched formats.
+fn crunched_block_bytes(format: i32) -> Option<u32> {
+    match format {
+        28 => Some(8),
+        29 => Some(16),
+        _ => None,
+    }
+}
+
+/// Room for a crunched stream's header and code tables on top of its compressed blocks.
+const CRUNCH_TABLES: usize = 64 << 10;
+
 /// Bytes of the full-size picture (the first mip) in `format`, or None for a format not decoded.
+///
+/// A crunched stream can't be split by mip, so for those formats this is a bound on the whole
+/// stream: its blocks compress below the picture's RGBA size.
 pub fn mip0_size(format: i32, width: u32, height: u32) -> Option<usize> {
+    if crunched_block_bytes(format).is_some() {
+        return pixels::size(Layout::Rgba32, width, height)?.checked_add(CRUNCH_TABLES);
+    }
     pixels::size(layout(format)?, width, height)
+}
+
+/// Where a panic aborts (the web viewer's `web-release` build) a panic inside the crunch decoder
+/// can't be caught, and it is what a damaged stream causes, so crunched textures aren't decoded.
+#[cfg(panic = "abort")]
+fn decode_crunched(_block_bytes: u32, _width: u32, _height: u32, _data: &[u8]) -> Result<Vec<u8>, FormatError> {
+    Err(FormatError::Unsupported("crunched textures in this build".into()))
+}
+
+/// Decode a crunched stream's full-size picture into RGBA, rows in stored order.
+#[cfg(not(panic = "abort"))]
+fn decode_crunched(block_bytes: u32, width: u32, height: u32, data: &[u8]) -> Result<Vec<u8>, FormatError> {
+    let too_large = || FormatError::TooLarge(format!("a {width}×{height} RGBA picture"));
+    pixels::size(Layout::Rgba32, width, height).filter(|n| *n as u64 <= pixels::DEFAULT_MAX_RGBA_BYTES).ok_or_else(too_large)?;
+    let len = u32::try_from(data.len()).map_err(|_| FormatError::TooLarge("a crunched stream over 4 GiB".into()))?;
+    // texture2ddecoder 0.1.2 walks blocks in pairs of columns and steps to the next row by the
+    // row's bytes minus a pair-rounded width, which underflows (a panic where overflow is
+    // checked) for an odd number of block columns. Such a stream already holds the padding
+    // column's blocks, so it is decoded as one block column wider and cut back to `width`.
+    let blocks_x = width.div_ceil(4);
+    let decoded_width = if blocks_x.is_multiple_of(2) { width } else { (blocks_x + 1) * 4 };
+    let decoded_bytes = pixels::size(Layout::Rgba32, decoded_width, height).ok_or_else(too_large)?;
+    // A stopgap until a crunch reader checks its input (docs/ROADMAP.md, R3.9): the decoder
+    // indexes by the header's offsets and by codes read from the stream without checking them, so
+    // a damaged stream panics inside it; that is caught here and reported like any malformed data.
+    // The panic hook still runs before the catch, so the desktop app's log (desktop.log) records
+    // it as "panic: …" from texture2ddecoder: that line is this refused texture, not a crash.
+    let decoded = std::panic::catch_unwind(|| {
+        let mut info = texture2ddecoder::CrnTextureInfo::default();
+        if !info.crnd_get_texture_info(data, len) {
+            return Err("its header isn't one the decoder reads");
+        }
+        if (info.width, info.height, info.bytes_per_block) != (width, height, block_bytes) {
+            return Err("it holds a different picture than the texture describes");
+        }
+        let mut stream = std::borrow::Cow::Borrowed(data);
+        if decoded_width != width {
+            // The header's width is the big-endian 16 bits at offset 12; the decoder doesn't check its CRC.
+            let wide = u16::try_from(decoded_width).map_err(|_| "it is too wide to decode")?;
+            let header_width = stream.to_mut().get_mut(12..14).ok_or("its header is too short")?;
+            header_width.copy_from_slice(&wide.to_be_bytes());
+        }
+        let mut image = vec![0u32; decoded_bytes / 4];
+        texture2ddecoder::decode_unity_crunch(&stream, decoded_width as usize, height as usize, &mut image).map(|()| image)
+    });
+    let image = match decoded {
+        Ok(Ok(image)) => image,
+        Ok(Err(why)) => return Err(FormatError::Malformed(format!("crunched pixels: {why}"))),
+        Err(_) => return Err(FormatError::Malformed("crunched pixels the decoder couldn't read".into())),
+    };
+    // Each pixel is the bytes blue, green, red, alpha.
+    Ok(image
+        .chunks(decoded_width as usize)
+        .flat_map(|row| &row[..width as usize])
+        .flat_map(|p| {
+            let [b, g, r, a] = p.to_le_bytes();
+            [r, g, b, a]
+        })
+        .collect())
 }
 
 /// Decode the full-size picture (`data` starts with it) into RGBA, top row first.
 pub fn decode(format: i32, width: u32, height: u32, data: &[u8]) -> Result<Vec<u8>, FormatError> {
+    if width == 0 || height == 0 {
+        return Err(FormatError::Malformed("an empty picture".into()));
+    }
+    if let Some(block_bytes) = crunched_block_bytes(format) {
+        return Ok(pixels::flip_rows(&decode_crunched(block_bytes, width, height, data)?, width));
+    }
     let layout = layout(format).ok_or_else(|| FormatError::Unsupported(format!("{} textures", format_name(format))))?;
     // Stored bottom row first; pictures are read top row first.
     Ok(pixels::flip_rows(&pixels::decode(layout, width, height, data)?, width))
@@ -219,6 +307,7 @@ pub fn decode(format: i32, width: u32, height: u32, data: &[u8]) -> Result<Vec<u
 #[cfg(test)]
 mod tests {
     use super::*;
+    use craft_anything_testkit::games::unity_crunched_512;
 
     #[test]
     fn reads_texture_layouts_from_2017_to_unity_6() {
@@ -288,7 +377,106 @@ mod tests {
         // BC7 and BC6H (Unity's is unsigned): a reserved block is all zero, and black.
         assert_eq!(decode(25, 4, 4, &[0; 16]).unwrap(), [0; 64]);
         assert!(decode(24, 4, 4, &[0b11111, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]).unwrap().as_chunks::<4>().0.iter().all(|p| *p == [0, 0, 0, 255]));
-        assert!(matches!(decode(28, 4, 4, &[0; 16]), Err(FormatError::Unsupported(m)) if m.contains("DXT1Crunched")));
+        assert!(matches!(decode(30, 4, 4, &[0; 16]), Err(FormatError::Unsupported(m)) if m.contains("format 30")));
         assert!(matches!(decode(4, 2, 2, &[0; 15]), Err(FormatError::Truncated(_))));
+    }
+
+    const SIDE: u32 = 512;
+
+    fn texels(rgba: &[u8]) -> &[[u8; 4]] {
+        rgba.as_chunks::<4>().0
+    }
+
+    #[test]
+    fn both_crunched_formats_decode_to_the_same_orange_picture() {
+        let dxt1 = decode(28, SIDE, SIDE, unity_crunched_512(false)).unwrap();
+        let dxt5 = decode(29, SIDE, SIDE, unity_crunched_512(true)).unwrap();
+        let (dxt1, dxt5) = (texels(&dxt1), texels(&dxt5));
+        assert_eq!((dxt1.len(), dxt5.len()), (SIDE as usize * SIDE as usize, SIDE as usize * SIDE as usize));
+        // Where the DXT5 copy is opaque the two encodings of one picture agree closely.
+        let opaque: Vec<_> = dxt1.iter().zip(dxt5).filter(|(_, b)| b[3] == 255).collect();
+        assert!(opaque.len() > dxt1.len() / 10, "{} opaque pixels", opaque.len());
+        let diff: u64 = opaque.iter().map(|(a, b)| (0..3).map(|c| u64::from(a[c].abs_diff(b[c]))).sum::<u64>()).sum();
+        assert!(diff / (opaque.len() as u64 * 3) < 8, "mean channel difference {}", diff / (opaque.len() as u64 * 3));
+        // Ferris is orange: more red than blue, which a swapped channel order would turn round.
+        let channel = |c: usize| opaque.iter().map(|(a, _)| u64::from(a[c])).sum::<u64>();
+        assert!(channel(0) > 2 * channel(2), "red {} blue {}", channel(0), channel(2));
+        assert!(dxt5.iter().any(|p| p[3] < 128), "DXT5 keeps its alpha");
+    }
+
+    #[test]
+    fn rows_come_out_top_first_like_the_other_unity_formats() {
+        // The fixture is Ferris, red at the top shading to orange-yellow at the bottom: read top row
+        // first, the upper half's opaque pixels are less green than the lower half's.
+        let rgba = decode(29, SIDE, SIDE, unity_crunched_512(true)).unwrap();
+        let (top, bottom) = rgba.split_at(rgba.len() / 2);
+        let mean_green = |half: &[u8]| {
+            let opaque: Vec<_> = texels(half).iter().filter(|p| p[3] == 255).collect();
+            opaque.iter().map(|p| u64::from(p[1])).sum::<u64>() / opaque.len() as u64
+        };
+        assert!(mean_green(top) < mean_green(bottom), "top {} bottom {}", mean_green(top), mean_green(bottom));
+    }
+
+    #[test]
+    fn a_stream_for_another_picture_or_format_is_refused() {
+        let dxt1 = unity_crunched_512(false);
+        for (format, side) in [(28, SIDE / 2), (29, SIDE)] {
+            assert!(matches!(decode(format, side, side, dxt1), Err(FormatError::Malformed(_))), "{format} {side}");
+        }
+        assert!(matches!(decode(28, 16384, 16384, dxt1), Err(FormatError::TooLarge(_))));
+    }
+
+    /// A fixture stream relabelled as a smaller picture: its first blocks, decoded in the order
+    /// any stream of that size is read.
+    fn relabelled(dxt5: bool, width: u16, height: u16) -> Vec<u8> {
+        let mut data = unity_crunched_512(dxt5).to_vec();
+        data[12..14].copy_from_slice(&width.to_be_bytes());
+        data[14..16].copy_from_slice(&height.to_be_bytes());
+        data
+    }
+
+    #[test]
+    fn a_picture_one_block_column_wide_decodes() {
+        // 4 pixels is one block column; the decoder reads blocks in pairs of columns, so the stream
+        // holds a second column, and an 8×8 picture is the same blocks with that column shown.
+        for (format, dxt5) in [(28, false), (29, true)] {
+            let narrow = decode(format, 4, 8, &relabelled(dxt5, 4, 8)).unwrap_or_else(|e| panic!("{format}: {e}"));
+            let wide = decode(format, 8, 8, &relabelled(dxt5, 8, 8)).unwrap();
+            let left: Vec<u8> = wide.chunks(8 * 4).flat_map(|row| &row[..4 * 4]).copied().collect();
+            assert_eq!(narrow, left, "{format}");
+            // Three block columns (12 pixels) likewise end in a padding column.
+            let odd = decode(format, 12, 4, &relabelled(dxt5, 12, 4)).unwrap();
+            let even = decode(format, 16, 4, &relabelled(dxt5, 16, 4)).unwrap();
+            let left: Vec<u8> = even.chunks(16 * 4).flat_map(|row| &row[..12 * 4]).copied().collect();
+            assert_eq!(odd, left, "{format}");
+        }
+    }
+
+    #[test]
+    fn an_empty_picture_is_refused_without_panicking() {
+        // A crunched stream decoded zero pixels wide would be cut into zero-width rows.
+        for (format, dxt5) in [(28, false), (29, true)] {
+            for (width, height) in [(0, 8), (8, 0)] {
+                let data = relabelled(dxt5, width, height);
+                assert!(matches!(decode(format, width.into(), height.into(), &data), Err(FormatError::Malformed(_))), "{format} {width}×{height}");
+            }
+        }
+        assert!(matches!(decode(10, 0, 8, &[0; 32]), Err(FormatError::Malformed(_))));
+    }
+
+    #[test]
+    fn damaged_streams_are_refused_without_panicking() {
+        for dxt5 in [false, true] {
+            let data = unity_crunched_512(dxt5);
+            let format = if dxt5 { 29 } else { 28 };
+            for cut in (0..data.len()).step_by(97) {
+                assert!(decode(format, SIDE, SIDE, &data[..cut]).is_err(), "{cut}");
+            }
+            for at in 0..160 {
+                let mut bad = data.to_vec();
+                bad[at] ^= 0xff;
+                let _ = decode(format, SIDE, SIDE, &bad);
+            }
+        }
     }
 }

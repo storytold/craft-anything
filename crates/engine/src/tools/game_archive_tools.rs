@@ -88,7 +88,7 @@ pub fn specs() -> Vec<ToolSpec> {
         spec(
             "game_unity_asset_export",
             "Take an asset out of a Unity game",
-            "Save one object of a Unity serialized file (absolute path of a .assets or level file, or of a bundle: then `file` picks the serialized file inside, the first by default) as a file anyone can open, at `output` (an absolute path that doesn't exist yet), by its path_id from game_unity_list. A texture (Texture2D) becomes a PNG. A sound (AudioClip, Unity 5 and later) is read from the .resource file it's stored in: one in 16-bit PCM (Unity's uncompressed sound), mono or stereo, becomes a WAV, others (Vorbis, ADPCM…) are saved as the FMOD sound bank (FSB5) they're stored in; `output`'s extension is set to .wav or .fsb to match, and `saved_as` says which. Pixels are read inside the object or from the .resS file it streams from. Formats: Alpha8, R8, RGB24, RGBA32, ARGB32, BGRA32, RGB565, RGBA4444, ARGB4444, RHalf, RGHalf, RGBAHalf, RFloat, RGFloat, RGBAFloat, DXT1, DXT5, BC4, BC5, BC6H and BC7. Floating-point colours are shown in 8-bit sRGB and clip at white. Other formats (crunched, ASTC, ETC…) are refused with their name. Textures from Unity 2017.3 on.",
+            "Save one object of a Unity serialized file (absolute path of a .assets or level file, or of a bundle: then `file` picks the serialized file inside, the first by default) as a file anyone can open, at `output` (an absolute path that doesn't exist yet), by its path_id from game_unity_list. A texture (Texture2D) becomes a PNG. A sound (AudioClip, Unity 5 and later) is read from the .resource file it's stored in: one in 16-bit PCM (Unity's uncompressed sound), mono or stereo, becomes a WAV, others (Vorbis, ADPCM…) are saved as the FMOD sound bank (FSB5) they're stored in; `output`'s extension is set to .wav or .fsb to match, and `saved_as` says which. Pixels are read inside the object or from the .resS file it streams from. Formats: Alpha8, R8, RGB24, RGBA32, ARGB32, BGRA32, RGB565, RGBA4444, ARGB4444, RHalf, RGHalf, RGBAHalf, RFloat, RGFloat, RGBAFloat, DXT1, DXT5, BC4, BC5, BC6H, BC7, DXT1Crunched and DXT5Crunched. Floating-point colours are shown in 8-bit sRGB and clip at white. Other formats (ASTC, ETC…) are refused with their name. Textures from Unity 2017.3 on.",
             "Save a picture or a sound from a Unity game.",
             Toolset::Formats,
             Effects::EVIDENCE.union(Effects::WRITES_FILESYSTEM),
@@ -2117,18 +2117,23 @@ mod tests {
 
     #[test]
     fn saves_unity_textures_as_png() {
-        use craft_anything_testkit::games::{unity_bundle_with, unity_serialized_file, unity_texture2d};
+        use craft_anything_testkit::games::{unity_bundle_with, unity_crunched_512, unity_serialized_file, unity_texture2d};
         let e = Engine::new(crate::testing::session());
         let dir = tempfile::tempdir().unwrap();
         // 2×1 RGBA32 inline (stored bottom row first), and a 4×4 DXT1 block streamed from the .resS.
         let inline = unity_texture2d("2022.3.62f1", "Pair", 2, 1, 4, Some(&[255, 0, 0, 255, 0, 0, 255, 255]), None);
         let block = [0x00, 0xf8, 0x1f, 0x00, 0, 0, 0, 0]; // all red
         let streamed = unity_texture2d("2022.3.62f1", "Block", 4, 4, 10, None, Some(("sharedassets0.assets.resS", 16, 8)));
-        let crunched = unity_texture2d("2022.3.62f1", "Fancy", 4, 4, 28, Some(&[0; 16]), None);
-        let assets = unity_serialized_file("2022.3.62f1", &[(28, inline), (28, streamed), (1, vec![0; 16]), (28, crunched)]);
+        let crunched = unity_texture2d("2022.3.62f1", "Fancy", 512, 512, 28, Some(unity_crunched_512(false)), None);
+        let dxt5 = unity_crunched_512(true);
+        let crunched_streamed = unity_texture2d("2022.3.62f1", "Faded", 512, 512, 29, None, Some(("sharedassets0.assets.resS", 24, dxt5.len() as u32)));
+        let broken = unity_texture2d("2022.3.62f1", "Broken", 512, 512, 28, Some(&unity_crunched_512(false)[..100]), None);
+        let assets =
+            unity_serialized_file("2022.3.62f1", &[(28, inline), (28, streamed), (1, vec![0; 16]), (28, crunched), (28, crunched_streamed), (28, broken)]);
         std::fs::write(dir.path().join("sharedassets0.assets"), &assets).unwrap();
         let mut ress = vec![0u8; 16];
         ress.extend_from_slice(&block);
+        ress.extend_from_slice(dxt5);
         std::fs::write(dir.path().join("sharedassets0.assets.resS"), &ress).unwrap();
         let call = |path: &std::path::Path, id: i64, out: &str| {
             e.call("game_unity_asset_export", json!({"path": path, "path_id": id, "output": dir.path().join(out)}), CallOptions::new(Caller::Mcp))
@@ -2142,7 +2147,13 @@ mod tests {
         assert_eq!(v["result"]["streamed_from"].as_str(), Some("sharedassets0.assets.resS"));
         assert!(decode("block.png").rgba.as_chunks::<4>().0.iter().all(|p| *p == [255, 0, 0, 255]));
         assert!(call(&file, 3, "x.png").unwrap_err().message.contains("GameObject objects can't be taken out yet"));
-        assert!(call(&file, 4, "x.png").unwrap_err().message.contains("DXT1Crunched"));
+        for (id, out, format) in [(4, "fancy.png", "DXT1Crunched"), (5, "faded.png", "DXT5Crunched")] {
+            let v = call(&file, id, out).unwrap().to_json();
+            assert_eq!((v["result"]["format"].as_str(), v["result"]["width"].as_u64()), (Some(format), Some(512)), "{v}");
+            let png = decode(out);
+            assert!(png.rgba.as_chunks::<4>().0.iter().any(|p| p[..3] != png.rgba[..3]), "{out} is a picture, not a fill");
+        }
+        assert!(call(&file, 6, "x.png").unwrap_err().message.contains("crunched pixels"));
         assert!(call(&file, 9, "x.png").unwrap_err().message.contains("no object with path id 9"));
         assert!(call(&file, 1, "pair.png").unwrap_err().message.contains("already exists"));
         assert!(!dir.path().join("x.png").exists(), "nothing written on a refusal");

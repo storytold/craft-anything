@@ -46,6 +46,8 @@ sha1 = { version = "0.10", default-features = false, features = ["oid"] }
 lzma-rs = "0.3"
 bzip2-rs = "0.1"
 ruzstd = { version = "0.9.1", default-features = false, features = ["std"] }
+# Unity crunched textures (pure Rust, no_std; MIT OR Apache-2.0).
+texture2ddecoder = "0.1.2"
 
 [dev-dependencies]
 wasmparser = { workspace = true }

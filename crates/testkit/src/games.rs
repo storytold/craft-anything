@@ -941,3 +941,13 @@ fn il2cpp_metadata_39(s: &Il2cppSample) -> Vec<u8> {
     }
     out
 }
+
+/// A 512×512 texture as Unity's crunch fork writes it, with ten mips: DXT1 blocks (`dxt5` false)
+/// or DXT5 blocks. These are `resources/tests/textures/UNITYCRUNCH_DXT1.crn` and
+/// `UNITYCRUNCH_DXT5.crn` from https://github.com/UniversalGameExtraction/texture2ddecoder at
+/// commit 551fcbfbe86c05424ccc2ff942525c0ec7171d65 (added in its PR #1), MIT OR Apache-2.0,
+/// downloaded unchanged; recorded in ATTRIBUTION.md. The picture is Ferris the Rustacean
+/// (https://rustacean.net, CC0 by Karen Rustad Tölva) on a transparent background.
+pub fn unity_crunched_512(dxt5: bool) -> &'static [u8] {
+    if dxt5 { include_bytes!("../fixtures/unity_crunch/dxt5.crn") } else { include_bytes!("../fixtures/unity_crunch/dxt1.crn") }
+}

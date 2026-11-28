@@ -99,3 +99,11 @@ own `ATTRIBUTION.md` names their authors and pinned sources.
 | Generator | Fixture | Author | Source and inputs | Licence | How made |
 |---|---|---|---|---|---|
 | `crates/engine/src/tools/wasm_compare_tools.rs`: `resource_module`, `many_table_module`, and `resource_imports_use_independent_index_spaces` | Temporary core modules for memory/table interface comparisons | Afloat16 | Original numeric limits and names, following [WebAssembly Core 3.0 binary limits, memory and table types](https://webassembly.github.io/spec/core/binary/types.html) and the [Threads proposal's shared memory limits](https://github.com/WebAssembly/threads/blob/main/proposals/threads/Overview.md#binary-format) | MIT OR Apache-2.0 | Generated in the committed Rust tests from literal section fields; no external module bytes, assets, or target execution. |
+
+## Test fixtures
+
+Files only tests read; they are not shipped.
+
+| File | What | Source | Licence | How obtained |
+|---|---|---|---|---|
+| `crates/testkit/fixtures/unity_crunch/dxt1.crn`, `dxt5.crn` | 512×512 picture of Ferris the Rustacean as Unity's crunch fork writes it (DXT1, DXT5) | https://github.com/UniversalGameExtraction/texture2ddecoder, `resources/tests/textures/UNITYCRUNCH_DXT1.crn` and `UNITYCRUNCH_DXT5.crn` at commit 551fcbfbe86c05424ccc2ff942525c0ec7171d65 (added in its PR #1); sha256 `bfe5f953…84ef`, `5dc5e390…2735`. The picture: Ferris, https://rustacean.net, CC0 by Karen Rustad Tölva | MIT OR Apache-2.0 (the texture2ddecoder repository) | Downloaded unchanged and renamed |
