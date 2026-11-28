@@ -940,11 +940,18 @@ impl AgentAdapter for Codex {
 
     /// Ask the selected CLI, not its auth file or keychain; discard raw status output.
     fn signed_in(&self, program: &str) -> Option<bool> {
+        // `login status` knows only an OpenAI sign-in; another provider uses its own key (#2490).
+        if codex_has_another_provider() {
+            return None;
+        }
         let out = Process::new(program).args(["login", "status"]).timeout(Duration::from_secs(10)).stdout_cap(16 * 1024).run().ok()?;
         codex_login_status(out.success, &out.stdout_text(), &out.stderr_text())
     }
 
     fn sign_in_fix(&self) -> Option<String> {
+        if codex_has_another_provider() {
+            return Some("Codex's config.toml picks another model provider: check that provider's API key, then test it again in Settings → AI.".into());
+        }
         Some("Run the selected Codex program with `login` in a terminal, choose Sign in with ChatGPT, then test it again in Settings → AI.".into())
     }
 
@@ -1119,6 +1126,20 @@ fn codex_models(json: &str) -> Vec<String> {
     c.models.retain(|m| m.visibility == "list" && !m.slug.trim().is_empty());
     c.models.sort_by_key(|m| m.priority);
     c.models.into_iter().map(|m| m.slug).collect()
+}
+
+/// Whether the `config.toml` in Codex's home (`$CODEX_HOME`, else `~/.codex`) picks another provider.
+fn codex_has_another_provider() -> bool {
+    let home = std::env::var_os("CODEX_HOME").filter(|v| !v.is_empty()).map(std::path::PathBuf::from).or_else(|| dirs::home_dir().map(|h| h.join(".codex")));
+    home.and_then(|h| std::fs::read_to_string(h.join("config.toml")).ok()).is_some_and(|c| codex_uses_another_provider(&c))
+}
+
+/// Whether Codex's `config.toml` picks a model provider other than OpenAI, in the profile it
+/// selects or at its top level.
+fn codex_uses_another_provider(config: &str) -> bool {
+    let Ok(doc) = config.parse::<toml::Table>() else { return false };
+    let profile = doc.get("profile").and_then(toml::Value::as_str).and_then(|p| doc.get("profiles")?.get(p)?.get("model_provider"));
+    profile.or_else(|| doc.get("model_provider")).and_then(toml::Value::as_str).is_some_and(|p| p != "openai")
 }
 
 /// Unknown output (including future CLI formats) is not a claim that the account is connected.
@@ -1387,7 +1408,20 @@ mod codex_model_tests {
 
 #[cfg(test)]
 mod codex_login_tests {
-    use super::codex_login_status;
+    use super::{codex_login_status, codex_uses_another_provider};
+
+    /// #2490: a Codex set up with another provider reads as signed out to `codex login status`.
+    #[test]
+    fn only_codex_with_another_provider_skips_the_sign_in_check() {
+        let other = "model_provider = \"proxy\"\n[model_providers.proxy]\nbase_url = \"https://example.invalid/v1\"\n";
+        assert!(codex_uses_another_provider(other));
+        assert!(!codex_uses_another_provider("model = \"gpt-5\"\n"), "no provider is OpenAI's");
+        assert!(!codex_uses_another_provider("model_provider = \"openai\"\n"));
+        assert!(!codex_uses_another_provider("model_provider = [\n"), "a config Codex can't read either");
+        let profiles = "model_provider = \"proxy\"\nprofile = \"work\"\n[profiles.work]\nmodel_provider = \"openai\"\n";
+        assert!(!codex_uses_another_provider(profiles), "the selected profile's provider wins");
+        assert!(codex_uses_another_provider("profile = \"local\"\n[profiles.local]\nmodel_provider = \"ollama\"\n"));
+    }
 
     #[test]
     fn login_status_reads_both_streams_without_inferring_success_from_exit_alone() {
