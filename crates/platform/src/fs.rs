@@ -2,7 +2,7 @@
 //! optionally private (0600 on Unix).
 
 use craft_anything_evidence::{ErrorCode, ToolError};
-use std::io::{Read as _, Write as _};
+use std::io::Write as _;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -31,23 +31,75 @@ pub fn open_regular_file(path: &Path) -> Result<(std::fs::File, std::fs::Metadat
     Ok((file, metadata))
 }
 
+/// Chunk size for bounded file reads so growth stays predictable without a giant stack buffer.
+const READ_CHUNK_BYTES: usize = 64 * 1024;
+
+/// Build the `OverLimit` error returned when a capped read cannot reserve its buffer.
+fn reserve_over_limit(path: &Path, requested: u64, max: u64) -> ToolError {
+    ToolError::new(ErrorCode::OverLimit, format!("{} needs a {requested} byte buffer that could not be reserved (limit is {max})", path.display()))
+        .with_remediation("Free memory or lower the size limit parameter.")
+}
+
+/// Build the `OverLimit` error returned when a stream yields more than `max` bytes.
+fn read_over_limit(path: &Path, max: u64) -> ToolError {
+    ToolError::new(ErrorCode::OverLimit, format!("{} contains more than {max} bytes; the read limit was reached", path.display()))
+        .with_remediation("Raise the size limit parameter if you really want to read it.")
+}
+
+/// Read up to `max` bytes from `reader`, pre-reserving up to `size_hint.min(max)` and checking
+/// buffer reservations before every growth step so allocation failure returns `OverLimit` instead
+/// of aborting. Rejects streams that contain more than `max` bytes without overflowing `max`.
+fn read_capped_with_hint<R: std::io::Read>(reader: &mut R, path: &Path, size_hint: u64, max: u64) -> Result<Vec<u8>, ToolError> {
+    let initial_hint = size_hint.min(max);
+    let initial = usize::try_from(initial_hint).map_err(|_| reserve_over_limit(path, initial_hint, max))?;
+    let mut bytes = Vec::new();
+    bytes.try_reserve_exact(initial).map_err(|_| reserve_over_limit(path, initial_hint, max))?;
+
+    let mut chunk = [0u8; READ_CHUNK_BYTES];
+    let mut total: u64 = 0;
+    loop {
+        let remaining = max.saturating_sub(total);
+        let to_read = if remaining == 0 { 1 } else { usize::try_from(remaining).unwrap_or(chunk.len()).min(chunk.len()) };
+        let Some(buf) = chunk.get_mut(..to_read) else {
+            return Err(ToolError::io(path.display(), std::io::Error::other("read chunk slice out of bounds")));
+        };
+        match reader.read(buf) {
+            Ok(0) => return Ok(bytes),
+            Ok(n) => {
+                if remaining == 0 {
+                    return Err(read_over_limit(path, max));
+                }
+                let next_total = total.checked_add(n as u64).ok_or_else(|| read_over_limit(path, max))?;
+                if next_total > max {
+                    return Err(read_over_limit(path, max));
+                }
+                let Some(slice) = chunk.get(..n) else {
+                    return Err(ToolError::io(path.display(), std::io::Error::other("reader returned more bytes than requested")));
+                };
+                if bytes.capacity().saturating_sub(bytes.len()) < n {
+                    let max_more = usize::try_from(remaining).unwrap_or(usize::MAX);
+                    let grow = bytes.len().max(n).min(max_more);
+                    bytes.try_reserve_exact(grow).or_else(|_| bytes.try_reserve_exact(n)).map_err(|_| reserve_over_limit(path, next_total, max))?;
+                }
+                bytes.extend_from_slice(slice);
+                total = next_total;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(ToolError::io(path.display(), error)),
+        }
+    }
+}
+
 /// Read a whole regular file, enforcing `max` on the bytes read as well as the size metadata.
-/// The one-byte overflow probe does not add to `max`, so even `u64::MAX` cannot overflow.
+/// Reserves the buffer fallibly before reading and before growing, so an unsatisfiable buffer
+/// returns `OverLimit` instead of aborting the process.
 pub fn read_file_capped(path: &Path, max: u64) -> Result<Vec<u8>, ToolError> {
     let (mut file, metadata) = open_regular_file(path)?;
     if metadata.len() > max {
         return Err(ToolError::new(ErrorCode::OverLimit, format!("{} is {} bytes; the limit is {max}", path.display(), metadata.len()))
             .with_remediation("Raise the size limit parameter if you really want to read it."));
     }
-    let mut bytes = Vec::new();
-    (&mut file).take(max).read_to_end(&mut bytes).map_err(|e| ToolError::io(path.display(), e))?;
-    let mut extra = [0u8; 1];
-    match file.read_exact(&mut extra) {
-        Ok(()) => Err(ToolError::new(ErrorCode::OverLimit, format!("{} contains more than {max} bytes; the read limit was reached", path.display()))
-            .with_remediation("Raise the size limit parameter if you really want to read it.")),
-        Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => Ok(bytes),
-        Err(error) => Err(ToolError::io(path.display(), error)),
-    }
+    read_capped_with_hint(&mut file, path, metadata.len(), max)
 }
 
 /// Write `bytes` to `path` atomically, keeping the existing file's permissions when it exists.
@@ -250,5 +302,104 @@ mod tests {
         std::fs::write(&a, "second").unwrap();
         assert!(!backup_once(&a, &b).unwrap());
         assert_eq!(std::fs::read_to_string(&b).unwrap(), "first");
+    }
+
+    /// Guards that an unsatisfiable buffer reservation returns `OverLimit` naming the file
+    /// rather than aborting on allocation failure, and that `size_hint` is clamped to `max`.
+    #[test]
+    fn capped_read_returns_over_limit_naming_the_file_when_buffer_reservation_fails() {
+        let path = Path::new("huge-target.bin");
+        for (size_hint, max) in [(isize::MAX as u64, isize::MAX as u64), (usize::MAX as u64, usize::MAX as u64), (u64::MAX, u64::MAX)] {
+            let mut reader = std::io::Cursor::new(b"small".as_slice());
+            let error = read_capped_with_hint(&mut reader, path, size_hint, max).unwrap_err();
+            assert_eq!(error.code, ErrorCode::OverLimit);
+            assert!(error.message.contains("huge-target.bin"), "expected file name in error: {}", error.message);
+        }
+        // A huge hint above `max` must clamp to `max` instead of failing reservation.
+        let mut clamped_reader = std::io::Cursor::new(b"small".as_slice());
+        assert_eq!(read_capped_with_hint(&mut clamped_reader, path, u64::MAX, 5).unwrap(), b"small");
+    }
+
+    /// Guards empty files, normal files, exact-limit files, over-limit files, and non-regular paths.
+    #[test]
+    fn capped_read_handles_empty_exact_limit_over_limit_and_non_regular_paths() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let empty = dir.path().join("empty.bin");
+        std::fs::write(&empty, b"").unwrap();
+        assert_eq!(read_file_capped(&empty, 0).unwrap(), b"");
+        assert_eq!(read_file_capped(&empty, 16).unwrap(), b"");
+
+        let exact = dir.path().join("exact.bin");
+        let payload = b"hello world!";
+        std::fs::write(&exact, payload).unwrap();
+        assert_eq!(read_file_capped(&exact, payload.len() as u64).unwrap(), payload);
+        assert_eq!(read_file_capped(&exact, payload.len() as u64 + 8).unwrap(), payload);
+
+        let too_big = read_file_capped(&exact, payload.len() as u64 - 1).unwrap_err();
+        assert_eq!(too_big.code, ErrorCode::OverLimit);
+        assert!(too_big.message.contains("exact.bin"), "expected file name in error: {}", too_big.message);
+
+        let dir_err = read_file_capped(dir.path(), 1024).unwrap_err();
+        assert_eq!(dir_err.code, ErrorCode::BadInput);
+    }
+
+    /// Guards streaming growth beyond a zero metadata hint, exact cap acceptance, and +1 byte rejection.
+    #[test]
+    fn capped_read_streams_past_zero_size_hint_and_rejects_one_byte_past_cap() {
+        let payload: Vec<u8> = (0..(READ_CHUNK_BYTES * 2 + 17)).map(|i| (i % 251) as u8).collect();
+        let path = Path::new("growing.bin");
+
+        let mut exact_reader = std::io::Cursor::new(payload.as_slice());
+        let got = read_capped_with_hint(&mut exact_reader, path, 0, payload.len() as u64).unwrap();
+        assert_eq!(got, payload);
+
+        let mut over_reader = std::io::Cursor::new(payload.as_slice());
+        let err = read_capped_with_hint(&mut over_reader, path, 0, (payload.len() - 1) as u64).unwrap_err();
+        assert_eq!(err.code, ErrorCode::OverLimit);
+        assert!(err.message.contains("growing.bin"), "expected file name in error: {}", err.message);
+
+        let mut zero_cap_reader = std::io::Cursor::new(b"x".as_slice());
+        let zero_err = read_capped_with_hint(&mut zero_cap_reader, path, 0, 0).unwrap_err();
+        assert_eq!(zero_err.code, ErrorCode::OverLimit);
+        assert!(zero_err.message.contains("growing.bin"), "expected file name in error: {}", zero_err.message);
+    }
+
+    /// Reader wrapper that yields one `Interrupted` error before delegating to the inner reader.
+    struct InterruptedOnce<R> {
+        inner: R,
+        interrupted: bool,
+    }
+
+    impl<R: std::io::Read> std::io::Read for InterruptedOnce<R> {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            if !self.interrupted {
+                self.interrupted = true;
+                return Err(std::io::Error::new(std::io::ErrorKind::Interrupted, "simulated interrupt"));
+            }
+            self.inner.read(buf)
+        }
+    }
+
+    /// Reader that always returns a non-`Interrupted` I/O error.
+    struct FailingReader;
+
+    impl std::io::Read for FailingReader {
+        fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("simulated disk read failure"))
+        }
+    }
+
+    /// Guards that transient `Interrupted` reads are retried while other I/O errors fail cleanly.
+    #[test]
+    fn capped_read_retries_after_interrupted_read() {
+        let mut reader = InterruptedOnce { inner: std::io::Cursor::new(b"resumed".as_slice()), interrupted: false };
+        let got = read_capped_with_hint(&mut reader, Path::new("retry.bin"), 0, 64).unwrap();
+        assert_eq!(got, b"resumed");
+
+        let mut failing = FailingReader;
+        let err = read_capped_with_hint(&mut failing, Path::new("broken.bin"), 0, 64).unwrap_err();
+        assert_eq!(err.code, ErrorCode::FileError);
+        assert!(err.message.contains("broken.bin"), "expected file name in error: {}", err.message);
     }
 }
