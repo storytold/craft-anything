@@ -1267,7 +1267,7 @@ impl<'a> D<'a> {
         let discriminator = self.pop_name()?;
         let name = match self.pop()? {
             N::Ident(i) | N::Operator(i) => i,
-            _ => return Err("expected a name".into()),
+            _ => return Err("expected a name (priv)".into()),
         };
         self.push(N::Private(format!("({name} in {discriminator})")))
     }
@@ -1485,7 +1485,9 @@ impl<'a> D<'a> {
                     return self.push(N::Global { prefix: p.into(), inner: Box::new(proto), suffix: String::new() });
                 }
                 if p.starts_with("protocol conformance") || kind == b'A' {
+                    let sig = self.pop_if(|n| matches!(n, N::Sig { .. }));
                     let conf = self.conformance()?;
+                    let prefix = if let Some(s) = sig.as_ref() { format!("{} {}", p, sig_text(s, self.max_param.unwrap_or(0))) } else { p.to_string() };
                     if kind == b'A'
                         && let N::Conformance { ty, module, .. } = &conf
                         && (!matches!(**module, N::Module(_))
@@ -1493,7 +1495,7 @@ impl<'a> D<'a> {
                     {
                         return Err("associated type descriptor of a non-type or outside a module".into());
                     }
-                    return self.push(N::Global { prefix: p.into(), inner: Box::new(conf), suffix: String::new() });
+                    return self.push(N::Global { prefix, inner: Box::new(conf), suffix: String::new() });
                 }
                 if p.starts_with("protocol self-conformance descriptor") && !matches!(self.stack.last(), Some(N::Nominal { kind: 'P', .. })) {
                     return Err("protocol self-conformance descriptor of a non-protocol".into());
@@ -1947,6 +1949,7 @@ impl<'a> D<'a> {
             }
             b'v' => {
                 let ty = self.pop_type()?;
+                let _labels = self.pop_if(|n| matches!(n, N::EmptyList));
                 let name = self.pop_decl_name()?;
                 let ctx = self.pop_context()?;
                 let accessor = self.accessor()?;
