@@ -4,7 +4,7 @@
 //! ever calls the non-blocking [`Conversation`] methods.
 
 use crate::anthropic::INVALID_INPUT_KEY;
-use crate::config::ToolList;
+use crate::config::{ToolList, Vision};
 use crate::context;
 use crate::model::{Block, ChatModel, Delta, Effort, Msg, Speaker, Stop, StopReason, ToolDef, TurnRequest, Usage};
 use crate::price::{self, Meter};
@@ -258,6 +258,8 @@ pub struct ModelSlot {
     pub context_tokens: u64,
     /// Which tools a builder on it is offered (see [`offers_lean`]).
     pub tools: ToolList,
+    /// Whether its model is shown pictures (see [`crate::sight::sees`]).
+    pub vision: Vision,
 }
 
 /// Settings for one conversation.
@@ -410,7 +412,27 @@ pub struct AgentLoop {
     /// What each backend's server said its window is when asked ahead of time, by chain position:
     /// how many times it was asked and the window it named (see [`AgentLoop::ask_window`]).
     read_windows: BTreeMap<usize, (u8, Option<u64>)>,
+    /// Whether each backend's model sees pictures, by chain position, once worked out, and whether
+    /// that's settled: an answer from the setting or the server is; Auto with nothing from the
+    /// server isn't, and is asked again after the model's next reply (see
+    /// [`AgentLoop::sees_pictures`]).
+    sights: BTreeMap<usize, (bool, bool)>,
 }
+
+/// What the agent's worker is asked to do.
+enum Job {
+    /// A turn: the person's message and the pictures shown with it (`None`: continue the failed turn).
+    Turn(Option<String>, Vec<Block>),
+    /// Whether the current model sees pictures, answered on the worker, which owns the model.
+    Sight(Sender<bool>),
+}
+
+/// How long [`ApiConversation::sees_pictures`] waits for the worker: a turn already running
+/// keeps it busy, and each question to the server has its own short limit.
+const SIGHT_WAIT: Duration = Duration::from_secs(60);
+
+/// The most pictures shown with one message: each costs a model thousands of tokens.
+pub const MAX_PICTURES: usize = 6;
 
 /// How many times a server is asked for its window: before the backend's first turn, and once
 /// after it, since Ollama and LM Studio say it only once the model is loaded.
@@ -493,20 +515,58 @@ impl AgentLoop {
 
     /// Handle one user message to completion.
     pub fn handle(&mut self, text: &str) {
-        self.handle_turn(Some(text));
+        self.handle_turn(Some(text), Vec::new());
+    }
+
+    /// Whether the current backend's model is shown pictures: its setting, and under Auto what
+    /// its server says (asked once, then kept). Journaled as `sight` the first time.
+    fn sees_pictures(&mut self) -> bool {
+        if let Some((sees, _)) = self.sights.get(&self.current) {
+            return *sees;
+        }
+        let Some(slot) = self.chain.get(self.current) else { return false };
+        let read = if slot.vision == Vision::Auto { slot.model.sees_pictures() } else { None };
+        let sees = crate::sight::sees(slot.vision, read);
+        self.host.journal("sight", json!({"backend": slot.name, "sees": sees, "vision": slot.vision.as_str(), "source": read.map(|r| r.source)}));
+        self.sights.insert(self.current, (sees, slot.vision != Vision::Auto || read.is_some()));
+        sees
+    }
+
+    /// Add the person's message with its pictures (each named in a line before it, so the model
+    /// can tell them apart), or with a note in place of each when the model can't see them. Only
+    /// the latest message with pictures carries their bytes: the earlier ones become their notes,
+    /// so a build's requests don't grow by a round's pictures after every check.
+    fn push_message(&mut self, text: &str, pictures: Vec<Block>) {
+        let sees = !pictures.is_empty() && self.sees_pictures();
+        if sees {
+            context::pictures_to_notes(&mut self.history);
+        }
+        context::push_user_text(&mut self.history, text);
+        if pictures.is_empty() {
+            return;
+        }
+        let Some(last) = self.history.last_mut() else { return };
+        for picture in pictures.into_iter().take(MAX_PICTURES) {
+            let Block::Image { name, .. } = &picture else { continue };
+            if sees {
+                last.blocks.push(Block::Text { text: format!("Picture: {name}") });
+                last.blocks.push(picture);
+            } else {
+                last.blocks.push(Block::Text { text: format!("[A picture ({name}) was meant for you here, but this model isn't shown pictures.]") });
+            }
+        }
     }
 
     /// A retry has no new user message: keep completed tool calls and their results, then
     /// continue the failed model request using the same history.
-    fn handle_turn(&mut self, text: Option<&str>) {
+    fn handle_turn(&mut self, text: Option<&str>, pictures: Vec<Block>) {
         self.stop.reset();
         let cancel = CancelToken::default();
         *self.cancel.lock().unwrap_or_else(PoisonError::into_inner) = cancel.clone();
         if let Some(text) = text {
-            self.host.journal("user_message", json!({"text": crate::journal_text(text)}));
-        }
-        if let Some(text) = text {
-            context::push_user_text(&mut self.history, text);
+            let names: Vec<&str> = pictures.iter().filter_map(|p| if let Block::Image { name, .. } = p { Some(name.as_str()) } else { None }).collect();
+            self.host.journal("user_message", json!({"text": crate::journal_text(text), "pictures": names}));
+            self.push_message(text, pictures);
         }
         let max_turns = self.chain.get(self.current).map(|s| s.max_turns).unwrap_or(DEFAULT_MAX_TURNS).max(1);
         let mut msg_usage = Usage::default();
@@ -530,6 +590,9 @@ impl AgentLoop {
             // Ask the server for its window before choosing the tools, so Auto chooses from it.
             self.ask_window();
             let Some(result) = self.one_turn(&mut msg_usage, &mut msg_cost) else { break };
+            // The model answered, so its server has it running now: one that said nothing about
+            // pictures before (llama-swap answers only for a model it has started) is asked again.
+            self.sights.retain(|_, (_, settled)| *settled);
             self.last_input = result.usage.input_tokens + result.usage.cache_read_tokens + result.usage.cache_write_tokens;
             self.last_history_estimate = context::estimate_tokens(&self.history).max(1);
             let (slot_name, local, model_id) = match self.chain.get(self.current) {
@@ -852,6 +915,11 @@ impl AgentLoop {
                     if !produced && self.current + 1 < self.chain.len() {
                         self.current += 1;
                         self.ask_window();
+                        // Pictures meant for a backend that sees would have a blind one refuse the request.
+                        let pictured = self.history.iter().flat_map(|m| &m.blocks).any(|b| matches!(b, Block::Image { data, .. } if !data.is_empty()));
+                        if pictured && !self.sees_pictures() {
+                            context::pictures_to_notes(&mut self.history);
+                        }
                         let next = self.chain.get(self.current).map(|s| s.name.clone()).unwrap_or_default();
                         self.emit(AgentEvent::Status { text: format!("{name} failed ({}). Trying {next}…", e.message) });
                         continue;
@@ -993,7 +1061,9 @@ fn wait_answer(rx: &Receiver<Answer>, stop: &Stop) -> Option<Answer> {
 
 /// A conversation with an API backend: a worker thread runs [`AgentLoop`].
 pub struct ApiConversation {
-    to_worker: Sender<Option<String>>,
+    to_worker: Sender<Job>,
+    /// Pictures to show with the next message ([`Conversation::attach`]).
+    pictures: Vec<Block>,
     events: Receiver<AgentEvent>,
     busy: Arc<AtomicBool>,
     stop: Stop,
@@ -1015,7 +1085,7 @@ impl ApiConversation {
             return Err(ToolError::unavailable("No AI backend could be started.").with_remediation("Add one in Settings → AI."));
         }
         let (etx, erx) = std::sync::mpsc::channel();
-        let (wtx, wrx) = std::sync::mpsc::channel::<Option<String>>();
+        let (wtx, wrx) = std::sync::mpsc::channel::<Job>();
         let busy = Arc::new(AtomicBool::new(false));
         let stop = Stop::default();
         let cancel = Arc::new(Mutex::new(CancelToken::default()));
@@ -1044,13 +1114,22 @@ impl ApiConversation {
             failed_builds: 0,
             server_windows: BTreeMap::new(),
             read_windows: BTreeMap::new(),
+            sights: BTreeMap::new(),
         };
         let busy2 = busy.clone();
         std::thread::Builder::new()
             .name("ai-agent".into())
             .spawn(move || {
-                while let Ok(text) = wrx.recv() {
-                    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| agent.handle_turn(text.as_deref())));
+                while let Ok(job) = wrx.recv() {
+                    let (text, pictures) = match job {
+                        Job::Turn(text, pictures) => (text, pictures),
+                        Job::Sight(answer) => {
+                            let sees = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| agent.sees_pictures())).unwrap_or(false);
+                            let _ = answer.send(sees);
+                            continue;
+                        }
+                    };
+                    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| agent.handle_turn(text.as_deref(), pictures)));
                     if r.is_err() {
                         let _ = etx.send(AgentEvent::Error {
                             message: "The assistant hit a bug and stopped safely.".into(),
@@ -1062,7 +1141,7 @@ impl ApiConversation {
                 }
             })
             .map_err(|e| ToolError::internal(format!("couldn't start the AI worker: {e}")))?;
-        Ok(ApiConversation { to_worker: wtx, events: erx, busy, stop, cancel, waiters, queued: Vec::new(), resumed, failure })
+        Ok(ApiConversation { to_worker: wtx, pictures: Vec::new(), events: erx, busy, stop, cancel, waiters, queued: Vec::new(), resumed, failure })
     }
 
     /// It continues a conversation kept in its transcript file.
@@ -1073,7 +1152,8 @@ impl ApiConversation {
     fn submit(&mut self, text: Option<String>) {
         *self.failure.lock().unwrap_or_else(PoisonError::into_inner) = None;
         self.busy.store(true, Ordering::SeqCst);
-        if self.to_worker.send(text).is_err() {
+        let pictures = if text.is_some() { std::mem::take(&mut self.pictures) } else { Vec::new() };
+        if self.to_worker.send(Job::Turn(text, pictures)).is_err() {
             self.busy.store(false, Ordering::SeqCst);
             self.queued.push(AgentEvent::Error {
                 message: "The assistant isn't running any more.".into(),
@@ -1091,6 +1171,21 @@ impl Conversation for ApiConversation {
 
     fn retry(&mut self, _text: &str) {
         self.submit(None);
+    }
+
+    fn attach(&mut self, pictures: Vec<Block>) {
+        self.pictures.extend(pictures);
+    }
+
+    /// Its setting, and under Auto what its server says; an Auto answer the server didn't give
+    /// is asked again after the model's next reply. Waits for the worker (at most
+    /// [`SIGHT_WAIT`]); no answer is a no.
+    fn sees_pictures(&self) -> bool {
+        let (tx, rx) = std::sync::mpsc::channel();
+        if self.to_worker.send(Job::Sight(tx)).is_err() {
+            return false;
+        }
+        rx.recv_timeout(SIGHT_WAIT).unwrap_or(false)
     }
 
     fn last_failure(&self) -> Option<TurnFailure> {
@@ -1365,8 +1460,16 @@ pub(crate) mod tests {
             ]),
             seen: seen.clone(),
         };
-        let slot =
-            ModelSlot { name: "Fake".into(), model: Box::new(script), local: false, effort: None, max_turns: 10, context_tokens: 0, tools: Default::default() };
+        let slot = ModelSlot {
+            name: "Fake".into(),
+            model: Box::new(script),
+            local: false,
+            effort: None,
+            max_turns: 10,
+            context_tokens: 0,
+            tools: Default::default(),
+            vision: Default::default(),
+        };
         let mut c = ApiConversation::start(host.clone(), vec![slot], LoopConfig { beginner: true, ..LoopConfig::default() }).unwrap();
         c.send("How does it work?");
         assert!(c.is_busy());
@@ -1429,6 +1532,7 @@ pub(crate) mod tests {
                 max_turns: 400,
                 context_tokens: 0,
                 tools: Default::default(),
+                vision: Default::default(),
             };
             let mut c = ApiConversation::start(host, vec![slot], LoopConfig { beginner: true, ..LoopConfig::default() }).unwrap();
             c.send("build it");
@@ -1474,6 +1578,7 @@ pub(crate) mod tests {
                 max_turns: 10,
                 context_tokens: 0,
                 tools: Default::default(),
+                vision: Default::default(),
             };
             let mut c = ApiConversation::start(host, vec![slot], LoopConfig { notes: dir, ..LoopConfig::default() }).unwrap();
             c.send("build it");
@@ -1496,6 +1601,214 @@ pub(crate) mod tests {
         assert!(!notes::was_read(&dir, 8));
     }
 
+    /// A scripted model whose server says (or doesn't) whether it sees, counting the questions.
+    struct Sighted {
+        inner: Scripted,
+        says: Option<bool>,
+        asked: Arc<std::sync::atomic::AtomicU32>,
+    }
+
+    impl ChatModel for Sighted {
+        fn turn(&mut self, req: &TurnRequest<'_>, on_delta: &mut dyn FnMut(Delta), stop: &Stop) -> Result<TurnResult, ToolError> {
+            self.inner.turn(req, on_delta, stop)
+        }
+        fn model(&self) -> String {
+            self.inner.model()
+        }
+        fn sees_pictures(&self) -> Option<crate::sight::Sight> {
+            self.asked.fetch_add(1, Ordering::SeqCst);
+            self.says.map(|sees| crate::sight::Sight { sees, source: "test" })
+        }
+    }
+
+    #[test]
+    fn pictures_go_with_the_next_message_only_to_a_model_that_sees() {
+        let png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR";
+        let name = "checks/round-1/screenshot.png";
+        for (vision, says, sees) in [
+            (Vision::Auto, Some(true), true),
+            (Vision::Auto, Some(false), false),
+            (Vision::Auto, None, false),
+            (Vision::Yes, None, true),
+            (Vision::No, Some(true), false),
+        ] {
+            let case = format!("{vision:?} {says:?}");
+            let host = Arc::new(FakeHost { calls: Mutex::default(), journal: Mutex::default() });
+            let seen = Arc::new(Mutex::new(Vec::new()));
+            let asked = Arc::new(std::sync::atomic::AtomicU32::new(0));
+            let done = || turn(vec![Block::Text { text: "done".into() }], StopReason::EndTurn);
+            let model = Sighted { inner: Scripted { turns: VecDeque::from([done(), done()]), seen: seen.clone() }, says, asked: asked.clone() };
+            let slot = ModelSlot {
+                name: "Local".into(),
+                model: Box::new(model),
+                local: true,
+                effort: None,
+                max_turns: 5,
+                context_tokens: 0,
+                tools: Default::default(),
+                vision,
+            };
+            let mut c = ApiConversation::start(host.clone(), vec![slot], LoopConfig::default()).unwrap();
+            assert_eq!(c.sees_pictures(), sees, "{case}");
+            c.attach(vec![Block::image(name, png).unwrap()]);
+            c.send("Here's your build.");
+            drain_until_done(&mut c, |_, _| {});
+            // The pictures went with that message; the next one carries none.
+            c.send("And again.");
+            drain_until_done(&mut c, |_, _| {});
+            let seen = seen.lock().unwrap();
+            let first = &seen[0].last().unwrap().blocks;
+            let picture = Block::image(name, png).unwrap();
+            if sees {
+                assert_eq!(
+                    first,
+                    &vec![Block::Text { text: "Here's your build.".into() }, Block::Text { text: format!("Picture: {name}") }, picture],
+                    "{case}"
+                );
+            } else {
+                assert!(!first.iter().any(|b| matches!(b, Block::Image { .. })), "{case}");
+                assert!(first.iter().any(|b| matches!(b, Block::Text { text } if text.contains(name) && text.contains("isn't shown pictures"))), "{case}");
+            }
+            assert!(
+                !seen[1].last().unwrap().blocks.iter().any(|b| matches!(b, Block::Image { .. }) || matches!(b, Block::Text { text } if text.contains(name))),
+                "{case}"
+            );
+            // A set answer isn't asked of the server; Auto asks once and keeps the answer.
+            assert_eq!(asked.load(Ordering::SeqCst), u32::from(vision == Vision::Auto), "{case}");
+            let journal = host.journal.lock().unwrap();
+            let sight: Vec<_> = journal.iter().filter(|(k, _)| k == "sight").collect();
+            assert_eq!(sight.len(), 1, "{case}");
+            assert_eq!(sight[0].1["sees"], sees, "{case}");
+        }
+    }
+
+    /// A backend that sees fails and the chain moves on: a fallback that doesn't see gets the
+    /// pictures as notes (a text-only server refuses a request with pictures), one that sees keeps them.
+    #[test]
+    fn a_fallback_that_doesnt_see_gets_the_pictures_as_notes() {
+        let png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR";
+        let name = "checks/round-1/screenshot.png";
+        for fallback_vision in [Vision::No, Vision::Yes] {
+            let host = Arc::new(FakeHost { calls: Mutex::default(), journal: Mutex::default() });
+            let seen = Arc::new(Mutex::new(Vec::new()));
+            let failing = Scripted { turns: VecDeque::from([Err(ToolError::new(ErrorCode::EngineMissing, "temporarily unavailable"))]), seen: Arc::default() };
+            let fallback = Scripted { turns: VecDeque::from([turn(vec![Block::Text { text: "done".into() }], StopReason::EndTurn)]), seen: seen.clone() };
+            let slot = |name: &str, model: Scripted, vision| ModelSlot {
+                name: name.into(),
+                model: Box::new(model),
+                local: true,
+                effort: None,
+                max_turns: 5,
+                context_tokens: 0,
+                tools: Default::default(),
+                vision,
+            };
+            let chain = vec![slot("Sees", failing, Vision::Yes), slot("Fallback", fallback, fallback_vision)];
+            let mut c = ApiConversation::start(host, chain, LoopConfig::default()).unwrap();
+            c.attach(vec![Block::image(name, png).unwrap()]);
+            c.send("Here's your build.");
+            drain_until_done(&mut c, |_, _| {});
+            let seen = seen.lock().unwrap();
+            let sent = &seen.last().expect("the fallback was asked").last().unwrap().blocks;
+            let pictures = sent.iter().filter(|b| matches!(b, Block::Image { data, .. } if !data.is_empty())).count();
+            if fallback_vision == Vision::No {
+                assert_eq!(pictures, 0, "{sent:?}");
+                assert!(sent.iter().any(|b| matches!(b, Block::Text { text } if text == &Block::image_note(name))), "{sent:?}");
+            } else {
+                assert_eq!(pictures, 1, "{sent:?}");
+            }
+        }
+    }
+
+    /// A model whose server says nothing about pictures until the model has answered once (as
+    /// llama-swap does for a model it hadn't started), then that it sees, if `wakes`.
+    pub struct Waking {
+        pub script: Scripted,
+        pub wakes: bool,
+        pub asked: Arc<std::sync::atomic::AtomicU32>,
+    }
+
+    impl ChatModel for Waking {
+        fn turn(&mut self, req: &TurnRequest<'_>, on_delta: &mut dyn FnMut(Delta), stop: &Stop) -> Result<TurnResult, ToolError> {
+            self.script.turn(req, on_delta, stop)
+        }
+        fn model(&self) -> String {
+            self.script.model()
+        }
+        fn sees_pictures(&self) -> Option<crate::sight::Sight> {
+            self.asked.fetch_add(1, Ordering::SeqCst);
+            let started = !self.script.seen.lock().unwrap().is_empty();
+            (started && self.wakes).then_some(crate::sight::Sight { sees: true, source: "test" })
+        }
+    }
+
+    #[test]
+    fn a_model_its_server_said_nothing_about_is_asked_again_after_it_replies() {
+        let png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR";
+        let name = "checks/round-1/screenshot.png";
+        let host = Arc::new(FakeHost { calls: Mutex::default(), journal: Mutex::default() });
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let asked = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let done = || turn(vec![Block::Text { text: "done".into() }], StopReason::EndTurn);
+        let model = Waking { script: Scripted { turns: VecDeque::from([done(), done(), done()]), seen: seen.clone() }, wakes: true, asked: asked.clone() };
+        let slot = ModelSlot {
+            name: "Local".into(),
+            model: Box::new(model),
+            local: true,
+            effort: None,
+            max_turns: 5,
+            context_tokens: 0,
+            tools: Default::default(),
+            vision: Vision::Auto,
+        };
+        let mut c = ApiConversation::start(host.clone(), vec![slot], LoopConfig::default()).unwrap();
+        // Before the model has run, its server says nothing: blind, and asked only once.
+        assert!(!c.sees_pictures());
+        assert!(!c.sees_pictures());
+        assert_eq!(asked.load(Ordering::SeqCst), 1, "an answer is kept until the model replies");
+        c.send("Build it.");
+        drain_until_done(&mut c, |_, _| {});
+        // Now it's running, the server says it sees, and the next pictures are shown.
+        assert!(c.sees_pictures());
+        c.attach(vec![Block::image(name, png).unwrap()]);
+        c.send("Here's your build.");
+        drain_until_done(&mut c, |_, _| {});
+        let shown = seen.lock().unwrap()[1].last().unwrap().blocks.clone();
+        assert!(shown.iter().any(|b| matches!(b, Block::Image { .. })), "{shown:?}");
+        // A settled answer isn't asked again after later replies.
+        c.send("Once more.");
+        drain_until_done(&mut c, |_, _| {});
+        assert!(c.sees_pictures());
+        assert_eq!(asked.load(Ordering::SeqCst), 2);
+        let journal = host.journal.lock().unwrap();
+        let sight: Vec<_> = journal.iter().filter(|(k, _)| k == "sight").map(|(_, v)| v["sees"].clone()).collect();
+        assert_eq!(sight, [json!(false), json!(true)]);
+    }
+
+    #[test]
+    fn at_most_a_few_pictures_go_with_one_message() {
+        let png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR";
+        let host = Arc::new(FakeHost { calls: Mutex::default(), journal: Mutex::default() });
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let script = Scripted { turns: VecDeque::from([turn(vec![Block::Text { text: "done".into() }], StopReason::EndTurn)]), seen: seen.clone() };
+        let slot = ModelSlot {
+            name: "Claude".into(),
+            model: Box::new(script),
+            local: false,
+            effort: None,
+            max_turns: 5,
+            context_tokens: 0,
+            tools: Default::default(),
+            vision: Vision::Yes,
+        };
+        let mut c = ApiConversation::start(host, vec![slot], LoopConfig::default()).unwrap();
+        c.attach((0..MAX_PICTURES + 3).map(|i| Block::image(format!("p{i}.png"), png).unwrap()).collect());
+        c.send("Look.");
+        drain_until_done(&mut c, |_, _| {});
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen[0].last().unwrap().blocks.iter().filter(|b| matches!(b, Block::Image { .. })).count(), MAX_PICTURES);
+    }
+
     #[test]
     fn the_build_tool_the_limit_counts_exists() {
         let e = craft_anything_engine::Engine::new(craft_anything_engine::testing::session());
@@ -1516,8 +1829,16 @@ pub(crate) mod tests {
             turns: VecDeque::from([look("a"), look("b"), Ok(summary), turn(vec![Block::Text { text: "done".into() }], StopReason::EndTurn)]),
             seen: seen.clone(),
         };
-        let slot =
-            ModelSlot { name: "Fake".into(), model: Box::new(script), local: false, effort: None, max_turns: 10, context_tokens: 0, tools: Default::default() };
+        let slot = ModelSlot {
+            name: "Fake".into(),
+            model: Box::new(script),
+            local: false,
+            effort: None,
+            max_turns: 10,
+            context_tokens: 0,
+            tools: Default::default(),
+            vision: Default::default(),
+        };
         // Ordinary turns report 10 input tokens, over this budget, so room is made before the third.
         let cfg = || LoopConfig {
             transcript: Some(path.clone()),
@@ -1561,8 +1882,16 @@ pub(crate) mod tests {
         // A new conversation with the same file continues it.
         let seen2 = Arc::new(Mutex::new(Vec::new()));
         let script = Scripted { turns: VecDeque::from([turn(vec![Block::Text { text: "blue now".into() }], StopReason::EndTurn)]), seen: seen2.clone() };
-        let slot =
-            ModelSlot { name: "Fake".into(), model: Box::new(script), local: false, effort: None, max_turns: 10, context_tokens: 0, tools: Default::default() };
+        let slot = ModelSlot {
+            name: "Fake".into(),
+            model: Box::new(script),
+            local: false,
+            effort: None,
+            max_turns: 10,
+            context_tokens: 0,
+            tools: Default::default(),
+            vision: Default::default(),
+        };
         let mut c = ApiConversation::start(host, vec![slot], LoopConfig { transcript: Some(path.clone()), deep: true, ..LoopConfig::default() }).unwrap();
         assert!(c.resumed());
         c.send("Make it blue");
@@ -1589,8 +1918,16 @@ pub(crate) mod tests {
                 turns: VecDeque::from([look("a"), look("b"), summary, turn(vec![Block::Text { text: "done".into() }], StopReason::EndTurn)]),
                 seen: seen.clone(),
             };
-            let slot =
-                ModelSlot { name: "Fake".into(), model: Box::new(script), local, effort: None, max_turns: 10, context_tokens: 0, tools: Default::default() };
+            let slot = ModelSlot {
+                name: "Fake".into(),
+                model: Box::new(script),
+                local,
+                effort: None,
+                max_turns: 10,
+                context_tokens: 0,
+                tools: Default::default(),
+                vision: Default::default(),
+            };
             let mut c = ApiConversation::start(host.clone(), vec![slot], LoopConfig { context_tokens: 5, ..LoopConfig::default() }).unwrap();
             c.send("Build it");
             let events = drain_until_done(&mut c, |_, _| {});
@@ -1638,6 +1975,7 @@ pub(crate) mod tests {
             max_turns: 5,
             context_tokens: budget,
             tools: Default::default(),
+            vision: Default::default(),
         };
         let mut conversation =
             ApiConversation::start(host.clone(), vec![slot], LoopConfig { transcript: Some(transcript), deep: true, ..Default::default() }).unwrap();
@@ -1672,6 +2010,7 @@ pub(crate) mod tests {
                 max_turns: 5,
                 context_tokens: 1000,
                 tools: Default::default(),
+                vision: Default::default(),
             }],
             current: 0,
             history: vec![Msg::user_text("Build it")],
@@ -1690,6 +2029,7 @@ pub(crate) mod tests {
             failed_builds: 0,
             server_windows: BTreeMap::new(),
             read_windows: BTreeMap::new(),
+            sights: BTreeMap::new(),
         };
         let tools = [ToolDef { name: "look".into(), description: "x".repeat(4000), schema: json!({"type": "object"}) }];
 
@@ -1731,6 +2071,7 @@ pub(crate) mod tests {
                 max_turns: 5,
                 context_tokens: 100_000,
                 tools: ToolList::Auto,
+                vision: Default::default(),
             }],
             current: 0,
             history: vec![Msg::user_text("Build it")],
@@ -1749,6 +2090,7 @@ pub(crate) mod tests {
             failed_builds: 0,
             server_windows: BTreeMap::new(),
             read_windows: BTreeMap::new(),
+            sights: BTreeMap::new(),
         };
         agent.fit_system();
         assert!(!agent.system_lean, "a 100k budget gets every tool");
@@ -1821,6 +2163,7 @@ pub(crate) mod tests {
             max_turns: 3,
             context_tokens: 0,
             tools: Default::default(),
+            vision: Default::default(),
         };
         let mut conversation = ApiConversation::start(host, vec![slot], LoopConfig { logs: Some(logs.clone()), ..Default::default() }).unwrap();
         conversation.send("Build it");
@@ -1870,6 +2213,7 @@ pub(crate) mod tests {
                 max_turns: 10,
                 context_tokens: 0,
                 tools: Default::default(),
+                vision: Default::default(),
             };
             let mut conversation = ApiConversation::start(host.clone(), vec![slot], LoopConfig::default()).unwrap();
             conversation.send("Build it");
@@ -1916,8 +2260,16 @@ pub(crate) mod tests {
             let seen = Arc::new(Mutex::new(Vec::new()));
             let model = Windowed { inner: Scripted { turns: VecDeque::new(), seen: Arc::default() }, asks: Arc::default(), window };
             let recorder = Recorded { windowed: model, turns: VecDeque::from([call, done]), seen: seen.clone() };
-            let slot =
-                ModelSlot { name: "Local".into(), model: Box::new(recorder), local, effort: None, max_turns: 5, context_tokens: configured, tools: setting };
+            let slot = ModelSlot {
+                name: "Local".into(),
+                model: Box::new(recorder),
+                local,
+                effort: None,
+                max_turns: 5,
+                context_tokens: configured,
+                tools: setting,
+                vision: Default::default(),
+            };
             let cfg = LoopConfig { lean_for_local: builder, ..Default::default() };
             let mut conversation = ApiConversation::start(host.clone(), vec![slot], cfg).unwrap();
             conversation.send("Build it");
@@ -1988,6 +2340,7 @@ pub(crate) mod tests {
                 max_turns: 5,
                 context_tokens: backend_budget,
                 tools: Default::default(),
+                vision: Default::default(),
             };
             let mut conversation = ApiConversation::start(host, vec![slot], LoopConfig { context_tokens: override_budget, ..Default::default() }).unwrap();
             conversation.send("Build it");
@@ -2027,6 +2380,7 @@ pub(crate) mod tests {
             max_turns: 5,
             context_tokens: 120_000,
             tools,
+            vision: Default::default(),
         };
         // (case, the first backend's script, whether a Lean fallback follows, lean on each request offered)
         let cases: [(&str, Script, bool, [bool; 2]); 2] = [
@@ -2081,6 +2435,7 @@ pub(crate) mod tests {
                 max_turns: 5,
                 context_tokens: 100,
                 tools: Default::default(),
+                vision: Default::default(),
             },
             ModelSlot {
                 name: "Small".into(),
@@ -2090,6 +2445,7 @@ pub(crate) mod tests {
                 max_turns: 5,
                 context_tokens: 5,
                 tools: Default::default(),
+                vision: Default::default(),
             },
         ];
         let mut conversation = ApiConversation::start(host.clone(), chain, LoopConfig::default()).unwrap();
@@ -2147,6 +2503,7 @@ pub(crate) mod tests {
                 max_turns: 5,
                 context_tokens: 30_000,
                 tools: Default::default(),
+                vision: Default::default(),
             },
             ModelSlot {
                 name: "Small".into(),
@@ -2156,6 +2513,7 @@ pub(crate) mod tests {
                 max_turns: 5,
                 context_tokens: budget,
                 tools: Default::default(),
+                vision: Default::default(),
             },
         ];
         let mut conversation =
@@ -2235,6 +2593,7 @@ pub(crate) mod tests {
                 max_turns: 5,
                 context_tokens: 0,
                 tools: Default::default(),
+                vision: Default::default(),
             }];
             let mut conversation =
                 ApiConversation::start(host.clone(), chain, LoopConfig { transcript: Some(transcript), deep: true, ..Default::default() }).unwrap();
@@ -2309,6 +2668,7 @@ pub(crate) mod tests {
             max_turns: 5,
             context_tokens: 0,
             tools: Default::default(),
+            vision: Default::default(),
         };
 
         // No count of the refused request: it was larger than the window, so room is made all the same.
@@ -2357,8 +2717,26 @@ pub(crate) mod tests {
             seen: Arc::default(),
         };
         let chain = vec![
-            ModelSlot { name: "A".into(), model: Box::new(failing), local: false, effort: None, max_turns: 5, context_tokens: 0, tools: Default::default() },
-            ModelSlot { name: "B".into(), model: Box::new(refusing), local: true, effort: None, max_turns: 5, context_tokens: 0, tools: Default::default() },
+            ModelSlot {
+                name: "A".into(),
+                model: Box::new(failing),
+                local: false,
+                effort: None,
+                max_turns: 5,
+                context_tokens: 0,
+                tools: Default::default(),
+                vision: Default::default(),
+            },
+            ModelSlot {
+                name: "B".into(),
+                model: Box::new(refusing),
+                local: true,
+                effort: None,
+                max_turns: 5,
+                context_tokens: 0,
+                tools: Default::default(),
+                vision: Default::default(),
+            },
         ];
         let mut c = ApiConversation::start(host, chain, LoopConfig::default()).unwrap();
         c.send("q");
@@ -2402,6 +2780,7 @@ pub(crate) mod tests {
                 max_turns: 5,
                 context_tokens: 0,
                 tools: Default::default(),
+                vision: Default::default(),
             },
             ModelSlot {
                 name: "B".into(),
@@ -2411,6 +2790,7 @@ pub(crate) mod tests {
                 max_turns: 5,
                 context_tokens: 0,
                 tools: Default::default(),
+                vision: Default::default(),
             },
         ];
         let mut c = ApiConversation::start(host, chain, LoopConfig::default()).unwrap();

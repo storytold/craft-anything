@@ -643,6 +643,23 @@ been run live.
       to check its work with rebuild_check, which the loop refuses while it builds; only its first
       message says so. Say "Craft Anything checks it after your turn" there instead
       — claimed: Afloat16, branch bugfix/r5.4-api-follow-up-check
+- [x] Models that can see get pictures: an image block in the conversation, sent as `image_url`
+      parts (OpenAI-style) and `image` blocks (Anthropic), for the check's screenshots beside the
+      original's, the pictures in `reference/` and a PNG the builder reads. Each AI's "Sees
+      pictures" setting (`vision`) is Auto, Yes or No; Auto follows what the server reports
+      (Ollama's capabilities, LM Studio's model type, `input_modalities` in a model list). A builder
+      whose model sees is treated as sighted (`BriefCx::sees_pictures`) and shown the pictures
+      — claimed: youkaicountry, branch feature/r5.4-pictures-to-builders
+- [ ] Let an API builder whose model sees open a picture itself: `build_file_read` refuses
+      pictures, so it sees only what the run attaches (the original's with the first message, each
+      check's after it), not a screenshot it takes of its own build mid-turn or one in reference/
+      that went past the six a message carries
+- [ ] Show the pictures a person adds while a build runs (a note's pictures, a follow-up's) to an
+      API builder whose model sees, with the message that tells it about them; it's shown only
+      what reference/ and capture/ hold when a run starts, and each check's pictures
+- [ ] Beside "Sees pictures" set to Auto in Settings → AI, say what the AI's server says (it sees,
+      it doesn't, or nothing, which means no pictures), asked off the UI thread as `ai vision`
+      does; it was to come with the context budget's server question in Settings (#1753)
 - [x] When a server refuses a request for its context window and says the size (Ollama, llama.cpp,
       OpenAI-style), fit the conversation to that window and ask once more, else say how to raise it (#962)
 - [x] Ollama fits a long prompt to its context by dropping the oldest messages, and a Qwen 3.8 model
@@ -712,9 +729,23 @@ been run live.
       the way it expects (OpenAI-style `image_url` data URIs, Anthropic's image source), capped in
       size, kept out of saved transcripts as bytes, and counted toward the context budget
       — claimed: youkaicountry, branch feature/r5.4-pictures-to-models
-- [ ] Say per AI whether its model sees pictures (`vision = auto | yes | no`; Auto asks the
-      server: llama.cpp's `/props` modalities, Ollama's capabilities), and let a builder whose model
-      sees get the check's screenshot and the person's pictures attached to its next message
+- [x] Say per AI whether its model sees pictures (`vision = auto | yes | no` in `[[ai.backends]]`,
+      `ai vision`), Auto asking the server: a model list's `input_modalities`, llama.cpp's `/props`
+      `modalities` (through llama-swap's upstream route for a loaded model), LM Studio's model
+      `type`, Ollama's `capabilities`; Claude reads pictures. Unknown is treated as blind
+      — claimed: youkaicountry, branch feature/r5.4-vision-setting
+- [x] Let a builder whose model sees get the check's screenshot and the person's pictures attached
+      to its next message
+      — claimed: youkaicountry, branch feature/r5.4-pictures-to-builders
+- [x] Ask whether a model sees again after its first reply when the server didn't say before it:
+      llama-swap answers only for a loaded model, and asking about an unloaded one would start it,
+      so under Auto a model it hasn't loaded yet reads as blind for the whole conversation. One it
+      has just started reads the same: llama-swap lists it as loaded while its server is still
+      starting, and the server's `/props` didn't answer for about a minute (seen live, a 512k model)
+      Seen live once: a local Qwen through llama-swap was unloaded when a follow-up build began, so
+      the first message went without pictures; after the first reply the server said it sees, the
+      feed said so, and the fix round's message carried the check's six pictures
+      — claimed: youkaicountry, branch feature/r5.4-ask-sight-again
 - [ ] Shrink a picture larger than `MAX_IMAGE_BYTES` (3.75 MB) before it's shown to a model,
       instead of refusing it (a 4K screenshot as PNG can be larger)
 - [ ] Before pictures reach a builder, bound a request's pictures as a whole (how many and their

@@ -1187,6 +1187,7 @@ mod typed_retries {
                 max_turns: 10,
                 context_tokens: 0,
                 tools: Default::default(),
+                vision: Default::default(),
             };
             let enabled = std::collections::BTreeSet::from([craft_anything_engine::Toolset::Core, craft_anything_engine::Toolset::Build]);
             let mut api = ApiConversation::start_with(Arc::new(EngineHost(worker.engine.clone())), vec![slot], LoopConfig::default(), enabled).unwrap();
@@ -1696,8 +1697,16 @@ fn an_api_backend_builds_with_the_build_tools() {
         ]),
         seen: Arc::default(),
     };
-    let slot =
-        ModelSlot { name: "Scripted".into(), model: Box::new(script), local: false, effort: None, max_turns: 10, context_tokens: 0, tools: Default::default() };
+    let slot = ModelSlot {
+        name: "Scripted".into(),
+        model: Box::new(script),
+        local: false,
+        effort: None,
+        max_turns: 10,
+        context_tokens: 0,
+        tools: Default::default(),
+        vision: Default::default(),
+    };
     let enabled = std::collections::BTreeSet::from([craft_anything_engine::Toolset::Core, craft_anything_engine::Toolset::Build]);
     let mut api = ApiConversation::start_with(Arc::new(EngineHost(engine)), vec![slot], LoopConfig::default(), enabled).unwrap();
     let reply = w.turn(&mut ws, &mut api, "Build it.", true, None).unwrap();
@@ -2665,6 +2674,7 @@ mod picking_up_a_build {
             max_turns: 10,
             context_tokens: 0,
             tools: Default::default(),
+            vision: Default::default(),
         };
         let api = ApiConversation::start(Arc::new(EngineHost(worker.engine.clone())), vec![slot], LoopConfig::default()).unwrap();
         let entry = crate::BackendEntry {
@@ -2683,6 +2693,308 @@ mod picking_up_a_build {
         let error = worker.run(&mut ws, entry, Some(api), None, super::super::KeptHistory { in_mode: true, elsewhere: false }, &opts).unwrap_err();
         assert!(error.message.contains("two builder turns"), "{error:?}");
         assert_eq!(seen.lock().unwrap().len(), 2);
+    }
+
+    /// A kind whose check saves a picture of the build each round: unlike the original at first,
+    /// then alike.
+    struct PicturedKind;
+    struct PicturedCheck;
+
+    impl Check for PicturedCheck {
+        fn id(&self) -> &'static str {
+            "pictured"
+        }
+        fn run(&self, cx: &mut CheckCx) -> Result<CheckResult, ToolError> {
+            let rel = PathBuf::from(format!("checks/round-{}/screenshot-1280.png", cx.round));
+            std::fs::create_dir_all(cx.ws.root.join(&rel).parent().unwrap()).unwrap();
+            std::fs::write(cx.ws.root.join(&rel), PNG).unwrap();
+            let similarity = if cx.round == 1 { 10.0 } else { 99.0 };
+            Ok(CheckResult { similarity: Some(similarity), artifacts: vec![rel], ..CheckResult::new(self.id(), cx.round, true, "Compared.") })
+        }
+    }
+
+    impl TargetKind for PicturedKind {
+        fn id(&self) -> &'static str {
+            "pictured"
+        }
+        fn words(&self) -> KindWords {
+            KindWords { button: "Open", icon: "box", ready: "Ready", change_hint: "Ask" }
+        }
+        fn detect(&self, _cx: &DetectCx) -> Option<u32> {
+            Some(1000)
+        }
+        fn default_stack(&self, _cx: &DetectCx) -> &'static str {
+            "Anything"
+        }
+        fn goal(&self) -> &'static str {
+            "a thing"
+        }
+        fn checks(&self, _ws: &Workspace) -> Vec<Box<dyn Check>> {
+            vec![Box::new(PicturedCheck)]
+        }
+    }
+
+    const PNG: &[u8] = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR";
+
+    #[test]
+    fn an_api_builder_whose_model_sees_is_shown_the_originals_and_each_checks_pictures() {
+        use crate::agent::tests::{Scripted, turn};
+        use crate::agent::{ApiConversation, EngineHost, LoopConfig, ModelSlot};
+        use crate::model::{Block, Msg, StopReason};
+        let pictures =
+            |m: &Msg| -> Vec<String> { m.blocks.iter().filter_map(|b| if let Block::Image { name, .. } = b { Some(name.clone()) } else { None }).collect() };
+        for vision in [crate::Vision::Yes, crate::Vision::No] {
+            let b = bench();
+            let mut ws = worked_on(&b);
+            std::fs::write(ws.capture_dir().join("screenshot-1280.png"), PNG).unwrap();
+            std::fs::write(ws.capture_dir().join("noise-1280.png"), PNG).unwrap();
+            let seen = Arc::default();
+            // The refinement changes app/, so the next check looks again (a round that worked stands
+            // while nothing it looks at changes).
+            let done = || turn(vec![Block::Text { text: "Done.".into() }], StopReason::EndTurn);
+            let write =
+                Block::ToolUse { id: "w".into(), name: "build_file_write".into(), input: serde_json::json!({"path": "app/index.html", "content": "Closer"}) };
+            let script =
+                Scripted { turns: std::collections::VecDeque::from([done(), turn(vec![write], StopReason::ToolUse), done()]), seen: Arc::clone(&seen) };
+            let mut worker = check_worker(&ws, false);
+            let slot = ModelSlot {
+                name: "Scripted".into(),
+                model: Box::new(script),
+                local: true,
+                effort: None,
+                max_turns: 10,
+                context_tokens: 0,
+                tools: Default::default(),
+                vision,
+            };
+            let build = std::collections::BTreeSet::from([craft_anything_engine::Toolset::Core, craft_anything_engine::Toolset::Build]);
+            let api = ApiConversation::start_with(Arc::new(EngineHost(worker.engine.clone())), vec![slot], LoopConfig::default(), build).unwrap();
+            let entry = crate::BackendEntry {
+                config: crate::BackendConfig {
+                    name: "Scripted".into(),
+                    kind: BackendKind::OpenaiCompatible,
+                    model: "scripted".into(),
+                    base_url: None,
+                    ssh_host: None,
+                    enabled: true,
+                },
+                options: Default::default(),
+            };
+            let mut opts = RunOptions::default();
+            opts.kinds.register(Arc::new(PicturedKind));
+            worker.run(&mut ws, entry, Some(api), None, super::super::KeptHistory::default(), &opts).unwrap();
+            let seen = seen.lock().unwrap();
+            assert_eq!(seen.len(), 3, "{vision:?}: a build turn, then one refinement that writes a file and answers");
+            let first = seen[0].last().unwrap();
+            let refined = seen[1].last().unwrap();
+            if vision == crate::Vision::Yes {
+                // The original's screenshot (not its noise mask) with the first message; after the
+                // check, the original's beside the build's at the same width.
+                assert_eq!(pictures(first), ["capture/screenshot-1280.png"]);
+                assert_eq!(pictures(refined), ["capture/screenshot-1280.png", "checks/round-1/screenshot-1280.png"]);
+                assert!(first.text().contains(SIGHTED_API_BUILDER.trim()) && !first.text().contains(BLIND_BUILDER.trim()), "{}", first.text());
+            } else {
+                assert!(pictures(first).is_empty() && pictures(refined).is_empty());
+                assert!(first.text().contains(BLIND_BUILDER.trim()) && !first.text().contains(SIGHTED_API_BUILDER.trim()), "{}", first.text());
+                assert!(
+                    !seen.iter().flatten().any(|m| m.text().contains("Picture: ") || m.text().contains("isn't shown pictures")),
+                    "a builder that doesn't see isn't sent pictures at all"
+                );
+            }
+        }
+    }
+
+    /// After two check rounds, the request carries only the latest round's pictures as pictures:
+    /// the first message's and the first round's are notes by then, in what both APIs are sent.
+    #[test]
+    fn after_two_checks_only_the_latest_rounds_pictures_are_sent() {
+        use crate::agent::tests::{Scripted, turn};
+        use crate::agent::{ApiConversation, EngineHost, LoopConfig, ModelSlot};
+        use crate::model::{Block, StopReason};
+        let b = bench();
+        let mut ws = worked_on(&b);
+        std::fs::write(ws.capture_dir().join("screenshot-1280.png"), PNG).unwrap();
+        let seen = Arc::default();
+        let done = || turn(vec![Block::Text { text: "Done.".into() }], StopReason::EndTurn);
+        // Each fix changes app/, so the check after it looks again.
+        let write = |content: &str| {
+            turn(
+                vec![Block::ToolUse {
+                    id: "w".into(),
+                    name: "build_file_write".into(),
+                    input: serde_json::json!({"path": "app/index.html", "content": content}),
+                }],
+                StopReason::ToolUse,
+            )
+        };
+        let script =
+            Scripted { turns: std::collections::VecDeque::from([done(), write("Closer"), done(), write("Closer still"), done()]), seen: Arc::clone(&seen) };
+        let mut worker = check_worker(&ws, false);
+        let slot = ModelSlot {
+            name: "Scripted".into(),
+            model: Box::new(script),
+            local: true,
+            effort: None,
+            max_turns: 10,
+            context_tokens: 0,
+            tools: Default::default(),
+            vision: crate::Vision::Yes,
+        };
+        let build = std::collections::BTreeSet::from([craft_anything_engine::Toolset::Core, craft_anything_engine::Toolset::Build]);
+        let api = ApiConversation::start_with(Arc::new(EngineHost(worker.engine.clone())), vec![slot], LoopConfig::default(), build).unwrap();
+        let entry = crate::BackendEntry {
+            config: crate::BackendConfig {
+                name: "Scripted".into(),
+                kind: BackendKind::OpenaiCompatible,
+                model: "scripted".into(),
+                base_url: None,
+                ssh_host: None,
+                enabled: true,
+            },
+            options: Default::default(),
+        };
+        let mut opts = RunOptions::default();
+        opts.kinds.register(Arc::new(PicturedKind));
+        // Neither round is good enough, so there are two fixes, each after a check.
+        opts.good_enough = 100.0;
+        opts.max_rounds = 2;
+        worker.run(&mut ws, entry, Some(api), None, super::super::KeptHistory::default(), &opts).unwrap();
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 5, "a build turn, then two fixes that each write a file and answer");
+        let last = seen.last().unwrap();
+        let openai: Vec<serde_json::Value> = last.iter().flat_map(|m| crate::openai::messages_json(m, false)).collect();
+        let anthropic: Vec<serde_json::Value> = last.iter().map(crate::anthropic::message_json).collect();
+        let parts = |v: &[serde_json::Value], kind: &str| v.iter().map(|m| m.to_string().matches(&format!("\"type\":\"{kind}\"")).count()).collect::<Vec<_>>();
+        for (api, sent, kind) in [("openai", &openai, "image_url"), ("anthropic", &anthropic, "image")] {
+            let per_message = parts(sent, kind);
+            let with = per_message.iter().filter(|n| **n > 0).count();
+            assert_eq!(with, 1, "{api}: pictures in one message only, {per_message:?}");
+            // That one is the second fix's: the original and the build of round 2 at one width.
+            let at = per_message.iter().position(|n| *n > 0).unwrap();
+            assert_eq!(per_message[at], 2, "{api}: {per_message:?}");
+            assert!(sent[at].to_string().contains("checks/round-2/screenshot-1280.png"), "{api}");
+            let all = sent.iter().map(|m| m.to_string()).collect::<String>();
+            assert!(all.contains("checks/round-1/screenshot-1280.png") && all.contains("isn't sent again"), "{api}: earlier pictures stay as notes");
+        }
+    }
+
+    /// "Try again" when the last check couldn't run: the run checks first and its first message
+    /// is the fix after that check, so it carries the check's pictures once, not the original's
+    /// first-message pictures as well (which repeated the original and could crowd the build's out).
+    #[test]
+    fn a_run_that_only_checks_shows_the_checks_pictures_not_the_first_messages_too() {
+        use crate::agent::tests::{Scripted, turn};
+        use crate::agent::{ApiConversation, EngineHost, LoopConfig, ModelSlot};
+        use crate::model::{Block, StopReason};
+        let b = bench();
+        let mut ws = worked_on(&b);
+        std::fs::write(ws.capture_dir().join("screenshot-1280.png"), PNG).unwrap();
+        std::fs::create_dir_all(ws.reference_dir()).unwrap();
+        std::fs::write(ws.reference_dir().join("picture-1.png"), PNG).unwrap();
+        ws.manifest.awaiting_check = true;
+        // The check runs in Clean room, so the capture is Clean room's (one from Deep is studied again).
+        ws.manifest.capture_deep = Some(false);
+        ws.save().unwrap();
+        let seen = Arc::default();
+        // The fix changes app/, so the check after it looks again.
+        let write =
+            Block::ToolUse { id: "w".into(), name: "build_file_write".into(), input: serde_json::json!({"path": "app/index.html", "content": "Closer"}) };
+        let done = turn(vec![Block::Text { text: "Done.".into() }], StopReason::EndTurn);
+        let script = Scripted { turns: std::collections::VecDeque::from([turn(vec![write], StopReason::ToolUse), done]), seen: Arc::clone(&seen) };
+        let mut worker = check_worker(&ws, false);
+        let slot = ModelSlot {
+            name: "Scripted".into(),
+            model: Box::new(script),
+            local: true,
+            effort: None,
+            max_turns: 10,
+            context_tokens: 0,
+            tools: Default::default(),
+            vision: crate::Vision::Yes,
+        };
+        let build = std::collections::BTreeSet::from([craft_anything_engine::Toolset::Core, craft_anything_engine::Toolset::Build]);
+        let api = ApiConversation::start_with(Arc::new(EngineHost(worker.engine.clone())), vec![slot], LoopConfig::default(), build).unwrap();
+        let entry = crate::BackendEntry {
+            config: crate::BackendConfig {
+                name: "Scripted".into(),
+                kind: BackendKind::OpenaiCompatible,
+                model: "scripted".into(),
+                base_url: None,
+                ssh_host: None,
+                enabled: true,
+            },
+            options: Default::default(),
+        };
+        let mut opts = RunOptions::default();
+        opts.kinds.register(Arc::new(PicturedKind));
+        worker.run(&mut ws, entry, Some(api), None, super::super::KeptHistory { in_mode: true, elsewhere: false }, &opts).unwrap();
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 2, "the check first, then one refinement that writes a file and answers");
+        let names: Vec<String> =
+            seen[0].last().unwrap().blocks.iter().filter_map(|b| if let Block::Image { name, .. } = b { Some(name.clone()) } else { None }).collect();
+        assert_eq!(names, ["capture/screenshot-1280.png", "checks/round-1/screenshot-1280.png"]);
+    }
+
+    /// llama-swap answers whether a model sees only once it has started it, so a build on Auto
+    /// can begin blind with a model that sees.
+    #[test]
+    fn an_api_builder_that_started_blind_is_shown_pictures_once_its_server_says_it_sees() {
+        use crate::agent::tests::{Scripted, Waking, turn};
+        use crate::agent::{ApiConversation, EngineHost, LoopConfig, ModelSlot};
+        use crate::model::{Block, Msg, StopReason};
+        let pictures =
+            |m: &Msg| -> Vec<String> { m.blocks.iter().filter_map(|b| if let Block::Image { name, .. } = b { Some(name.clone()) } else { None }).collect() };
+        for wakes in [true, false] {
+            let b = bench();
+            let mut ws = worked_on(&b);
+            std::fs::write(ws.capture_dir().join("screenshot-1280.png"), PNG).unwrap();
+            let seen = Arc::default();
+            // The refinement changes app/, so the next check looks again (a round that worked stands
+            // while nothing it looks at changes).
+            let done = || turn(vec![Block::Text { text: "Done.".into() }], StopReason::EndTurn);
+            let write =
+                Block::ToolUse { id: "w".into(), name: "build_file_write".into(), input: serde_json::json!({"path": "app/index.html", "content": "Closer"}) };
+            let script =
+                Scripted { turns: std::collections::VecDeque::from([done(), turn(vec![write], StopReason::ToolUse), done()]), seen: Arc::clone(&seen) };
+            let model = Waking { script, wakes, asked: Arc::default() };
+            let mut worker = check_worker(&ws, false);
+            let slot = ModelSlot {
+                name: "Scripted".into(),
+                model: Box::new(model),
+                local: true,
+                effort: None,
+                max_turns: 10,
+                context_tokens: 0,
+                tools: Default::default(),
+                vision: crate::Vision::Auto,
+            };
+            let build = std::collections::BTreeSet::from([craft_anything_engine::Toolset::Core, craft_anything_engine::Toolset::Build]);
+            let api = ApiConversation::start_with(Arc::new(EngineHost(worker.engine.clone())), vec![slot], LoopConfig::default(), build).unwrap();
+            let entry = crate::BackendEntry {
+                config: crate::BackendConfig {
+                    name: "Scripted".into(),
+                    kind: BackendKind::OpenaiCompatible,
+                    model: "scripted".into(),
+                    base_url: None,
+                    ssh_host: None,
+                    enabled: true,
+                },
+                options: Default::default(),
+            };
+            let mut opts = RunOptions::default();
+            opts.kinds.register(Arc::new(PicturedKind));
+            worker.run(&mut ws, entry, Some(api), None, super::super::KeptHistory::default(), &opts).unwrap();
+            let seen = seen.lock().unwrap();
+            assert_eq!(seen.len(), 3, "{wakes}: a build turn, then one refinement that writes a file and answers");
+            let (first, refined) = (seen[0].last().unwrap(), seen[1].last().unwrap());
+            assert!(pictures(first).is_empty() && first.text().contains(BLIND_BUILDER.trim()), "{}", first.text());
+            if wakes {
+                assert_eq!(pictures(refined), ["capture/screenshot-1280.png", "checks/round-1/screenshot-1280.png"]);
+                assert!(refined.text().starts_with(NOW_SIGHTED.trim()), "{}", refined.text());
+            } else {
+                assert!(pictures(refined).is_empty() && !refined.text().contains(NOW_SIGHTED.trim()), "{}", refined.text());
+            }
+        }
     }
 
     #[test]
@@ -2784,6 +3096,7 @@ mod picking_up_a_build {
                     max_turns: 10,
                     context_tokens: 0,
                     tools: Default::default(),
+                    vision: Default::default(),
                 };
                 let api = ApiConversation::start(Arc::new(EngineHost(worker.engine.clone())), vec![slot], LoopConfig::default()).unwrap();
                 let entry = crate::BackendEntry {
