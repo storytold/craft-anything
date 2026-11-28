@@ -2522,7 +2522,16 @@ to the project next.
       and error detail carry the project; UI regressions cover a late estimate, a late error and a
       closed dialog
       — claimed: AlexJoaquimPereira, branch bugfix/r2.10-pin-estimate-project
-- [ ] Opening a pin that's already running brings its window to the front, instead of a message
+- [x] Opening a pin that's already running brings its window to the front, instead of a message
+      (macOS: `window::bring_to_front` asks the system to activate the app with that pid;
+      `brought_to_front` in `project_pin_open`'s result; the sidebar's message stays where it can't)
+      — in PR #2215
+- [ ] Bring a running pin's window to the front on Windows and Linux too (they still show "It's
+      already open"), and for a pin whose window belongs to a child of the process it started
+- [ ] Find a running pin's window without Screen Recording permission: read the window list
+      (`CGWindowListCopyWindowInfo`) by process id, layer and on-screen, which needs no window
+      names, instead of the window library that skips unnamed windows (without the permission
+      macOS 14.8 gives other apps' windows without names, so the pin says "It's already open")
 - [x] How much space pins take in Settings
       — claimed: Afloat16, branch feature/r2.10-pinned-copy-storage
 

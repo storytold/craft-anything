@@ -144,7 +144,10 @@ impl CraftApp {
                 if let Some(url) = v["url"].as_str() {
                     self.open_url = Some(url.to_string());
                 } else if v["already_running"].as_bool() == Some(true) {
-                    self.toast(tr("It's already open. Right-click it to open another copy."), false);
+                    // Its window coming forward is the answer; where it can't, say why nothing opened.
+                    if v["brought_to_front"].as_bool() != Some(true) {
+                        self.toast(tr("It's already open. Right-click it to open another copy."), false);
+                    }
                 } else if !v["closed_at_once"].is_null() {
                     self.toast(quit_at_once(&v), true);
                 } else {
@@ -455,6 +458,15 @@ mod tests {
         app.pin_done("project_pin_create", Err(error));
         assert!(app.state.pin_draft.size.is_none(), "another project's creation error isn't this dialog's");
         assert!(app.state.toasts.iter().any(|(text, error)| *error && text.contains("copy failed")), "{:?}", app.state.toasts);
+    }
+
+    #[test]
+    fn a_running_pin_brought_to_the_front_needs_no_message() {
+        let mut app = app();
+        app.pin_done("project_pin_open", Ok(json!({"already_running": true, "brought_to_front": true, "pid": 7})));
+        assert!(app.state.toasts.is_empty(), "its window came forward: {:?}", app.state.toasts);
+        app.pin_done("project_pin_open", Ok(json!({"already_running": true, "brought_to_front": false, "pid": 7})));
+        assert!(app.state.toasts.iter().any(|(text, _)| text.contains("already open")), "where it couldn't: {:?}", app.state.toasts);
     }
 
     #[test]

@@ -41,10 +41,10 @@ pub fn specs() -> Vec<ToolSpec> {
         ToolSpec {
             id: "project_pin_open",
             title: "Open a pinned build",
-            summary: "Start a pinned build in its own window; a pinned website is served from its copy on a loopback port of its own, and its address returned (`url`; `another` doesn't apply). The website is served for this session; with `wait`, the call itself serves it until it's cancelled (Ctrl+C in the CLI, whose session ends with the command). If it's already running, says so instead of starting a second copy, unless `another` is true (copies of one pin share the files they save beside themselves). A start that quits within two seconds is reported with its exit code and last output. It runs the code the builder wrote, so it needs the person's consent.",
+            summary: "Start a pinned build in its own window; a pinned website is served from its copy on a loopback port of its own, and its address returned (`url`; `another` doesn't apply). The website is served for this session; with `wait`, the call itself serves it until it's cancelled (Ctrl+C in the CLI, whose session ends with the command). If it's already running, brings its window to the front (macOS; `brought_to_front` says whether that was asked of the system) and says so instead of starting a second copy, unless `another` is true (copies of one pin share the files they save beside themselves). A start that quits within two seconds is reported with its exit code and last output. It runs the code the builder wrote, so it needs the person's consent.",
             beginner: "Opens a version you kept.",
             toolset: Toolset::Projects,
-            effects: Effects::LAUNCHES_PROCESS.union(Effects::EXECUTES_FOREIGN_CODE),
+            effects: Effects::LAUNCHES_PROCESS.union(Effects::EXECUTES_FOREIGN_CODE).union(Effects::CHANGES_UI_STATE),
             requires: Requires::Nothing,
             input_schema: schema_of::<OpenParams>,
             run: project_pin_open,
@@ -203,19 +203,30 @@ pub(crate) fn start(ctx: &mut Ctx<'_>, app: &Path, log: &Path, another: bool, la
         return Err(ToolError::new(ErrorCode::NotFound, "There's nothing to start: no built program here.")
             .with_remediation("Finish a build first (rebuild), or open the folder to look."));
     };
-    start_program(ctx, app, log, another, label, (program, args))
+    start_program(ctx, app, log, Again { another, to_front: false }, label, (program, args))
+}
+
+/// What to do when the program already runs from that folder.
+struct Again {
+    /// Start a second copy anyway.
+    another: bool,
+    /// Otherwise bring the running one's window to the front.
+    to_front: bool,
 }
 
 /// Start a program from `app` through the run list, logging to `log`. The program is made absolute
 /// first because the child runs with `app` as its working directory.
-fn start_program(ctx: &mut Ctx<'_>, app: &Path, log: &Path, another: bool, label: &str, (program, args): (PathBuf, Vec<String>)) -> Result<Value, ToolError> {
+fn start_program(ctx: &mut Ctx<'_>, app: &Path, log: &Path, again: Again, label: &str, (program, args): (PathBuf, Vec<String>)) -> Result<Value, ToolError> {
     if let Some(dir) = log.parent() {
         std::fs::create_dir_all(dir).map_err(|e| ToolError::io(dir.display(), e))?;
     }
     let program = crate::outputs::absolute_program(&program);
     let launch = Launch::new(&program).args(&args).cwd(app).hide_console().log_to(log).label(label).remediation("Open the folder and start it by hand.");
-    let (launched, quit) = match runs(ctx).open(app, launch, another)? {
-        Opened::AlreadyRunning(l) => return Ok(json!({"already_running": true, "pid": l.pid(), "started": program.display().to_string()})),
+    let (launched, quit) = match runs(ctx).open(app, launch, again.another)? {
+        Opened::AlreadyRunning(l) => {
+            let brought_to_front = again.to_front && craft_anything_platform::window::bring_to_front(l.pid());
+            return Ok(json!({"already_running": true, "brought_to_front": brought_to_front, "pid": l.pid(), "started": program.display().to_string()}));
+        }
         Opened::Started { launched, quit } => (launched, quit),
     };
     let last_output = pins::tail(log);
@@ -307,7 +318,7 @@ fn project_pin_open(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, Tool
         return Ok(ToolOutput::Value(json!({"pin": pin.id, "already_running": already_running, "url": url})));
     }
     let launch = pin.launch(&ws, godot(ctx).as_deref(), &ctx.session.cargo())?;
-    let mut out = start_program(ctx, &pin.app_dir(&ws), &pin.log_path(&ws), p.another, &pin.name, launch)?;
+    let mut out = start_program(ctx, &pin.app_dir(&ws), &pin.log_path(&ws), Again { another: p.another, to_front: true }, &pin.name, launch)?;
     if let Some(o) = out.as_object_mut() {
         o.insert("pin".into(), json!(pin.id));
     }
@@ -427,6 +438,35 @@ mod tests {
             .clone();
         assert_eq!(opened["closed_at_once"]["code"], 0, "{opened}");
         assert!(std::path::Path::new(opened["started"].as_str().unwrap()).is_absolute(), "{opened}");
+    }
+
+    /// Opening a pin that's already running starts no second copy and asks for its window to come
+    /// to the front; a program with no window (this stand-in) can't, and the result says so.
+    #[cfg(unix)]
+    #[test]
+    fn opening_a_running_pin_again_asks_for_its_window() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let d = tempfile::tempdir().unwrap();
+        let ws = Workspace::create(d.path(), "Game", "a game", TargetRef::None).unwrap();
+        let app = ws.app_dir();
+        std::fs::create_dir_all(app.join("target/debug")).unwrap();
+        std::fs::write(app.join("Cargo.toml"), "[package]\nname = \"game\"\n").unwrap();
+        let program = app.join("target/debug/game");
+        std::fs::write(&program, "#!/bin/sh\nsleep 30\n").unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let e = Engine::new(crate::testing::session());
+        let call =
+            |id: &str, params: Value| e.call(id, params, CallOptions::new(Caller::Cli).with_consent(Consent::Granted)).unwrap().to_json()["result"].clone();
+        let pin = call("project_pin_create", json!({"project": ws.root}))["pin"]["id"].clone();
+        let first = call("project_pin_open", json!({"project": ws.root, "pin": pin}));
+        assert_eq!(first["already_running"], false, "{first}");
+        let again = call("project_pin_open", json!({"project": ws.root, "pin": pin}));
+        assert_eq!(again["already_running"], true, "{again}");
+        assert_eq!(again["pid"], first["pid"], "no second copy");
+        assert_eq!(again["brought_to_front"], false, "a program without a window can't come to the front: {again}");
+        call("project_pin_stop", json!({"project": ws.root, "pin": pin}));
     }
 
     #[test]

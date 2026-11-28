@@ -128,6 +128,28 @@ pub fn capture_window(pid: u32, app_name: Option<&str>) -> Result<WindowShot, To
     })
 }
 
+/// Ask the system to bring the windows of the app `pid` runs to the front. False when the request
+/// couldn't be made: `pid` isn't an app with a window on screen (a command-line program, one that
+/// quit, an app still running after its last window closed), or this system isn't macOS, where
+/// it's built in for now. True means the request was sent, not that it was honoured: macOS may
+/// decline one from an app that isn't in front itself.
+pub fn bring_to_front(pid: u32) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication};
+        let Ok(app_pid) = i32::try_from(pid) else { return false };
+        let Some(app) = NSRunningApplication::runningApplicationWithProcessIdentifier(app_pid) else { return false };
+        // Activating an app with no window shows nothing, so the caller must say it's open instead.
+        let shown = xcap::Window::all().is_ok_and(|ws| ws.iter().any(|w| w.pid().ok() == Some(pid) && !w.is_minimized().unwrap_or(true)));
+        shown && app.activateWithOptions(NSApplicationActivationOptions::ActivateAllWindows)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = pid;
+        false
+    }
+}
+
 /// Linux: a window on the X display (an X11 session, or XWayland under Wayland).
 #[cfg(target_os = "linux")]
 pub fn capture_window(pid: u32, app_name: Option<&str>) -> Result<WindowShot, ToolError> {
@@ -138,6 +160,17 @@ pub fn capture_window(pid: u32, app_name: Option<&str>) -> Result<WindowShot, To
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 pub fn capture_window(_pid: u32, _app_name: Option<&str>) -> Result<WindowShot, ToolError> {
     Err(unsupported())
+}
+
+#[cfg(test)]
+mod front_tests {
+    /// Only an app with windows can come to the front: not this test program, which has none, and
+    /// not a process that doesn't exist.
+    #[test]
+    fn a_program_without_windows_is_not_brought_to_the_front() {
+        assert!(!super::bring_to_front(std::process::id()));
+        assert!(!super::bring_to_front(u32::MAX));
+    }
 }
 
 #[cfg(all(test, any(windows, target_os = "macos", target_os = "linux")))]
