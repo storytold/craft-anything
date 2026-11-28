@@ -5,11 +5,65 @@
 
 use super::*;
 
+const MAX_MODELS_OUTPUT: usize = 1024 * 1024;
+const MAX_MODELS: usize = 1_000;
+
 pub struct Antigravity;
 
 impl AgentAdapter for Antigravity {
     fn ids(&self) -> &'static [&'static str] {
         &["antigravity", "agy"]
+    }
+
+    fn has_model_catalog(&self) -> bool {
+        true
+    }
+
+    fn model_catalog(
+        &self,
+        config: &BackendConfig,
+        options: &BackendOptions,
+        directory: Option<&Path>,
+        stop: &Stop,
+    ) -> Result<Vec<models::AgentModel>, ToolError> {
+        stop.check()?;
+        let program = super::super::program_of(config, options)?;
+        let (cmd, args) = match config.ssh_host.as_deref().filter(|h| !h.trim().is_empty()) {
+            Some(host) => ("ssh".into(), crate::ssh::ssh_args(host, &[program, "models".into()])),
+            None => (program, vec!["models".into()]),
+        };
+        let mut process = Process::new(&cmd).args(&args);
+        if let Some(dir) = directory.filter(|_| config.ssh_host.as_deref().is_none_or(|h| h.trim().is_empty())) {
+            process = process.cwd(dir);
+        }
+        let stop = stop.clone();
+        let out = process
+            .timeout(Duration::from_secs(20))
+            .idle_timeout(Duration::from_secs(15))
+            .stdout_cap(MAX_MODELS_OUTPUT)
+            .stderr_cap(64 * 1024)
+            .cancel_when(move || stop.is_stopped())
+            .remediation("Check that Antigravity (`agy`) is installed and signed in, then reload the models.")
+            .run()?;
+        if !out.success {
+            let name = Path::new(&cmd).file_name().map_or_else(|| cmd.clone(), |n| n.to_string_lossy().into_owned());
+            return Err(craft_anything_platform::process::nonzero_error_with(
+                &name,
+                &out,
+                Some(&craft_anything_platform::process::printable_command(OsStr::new(&cmd), &args)),
+            ));
+        }
+        parse_models(&out.stdout)
+    }
+
+    fn validate_model(&self, config: &BackendConfig, options: &BackendOptions, directory: Option<&Path>, stop: &Stop) -> Result<(), ToolError> {
+        if options.cli_model.is_none() && options.cli_thinking.is_none() {
+            return Ok(());
+        }
+        if options.args.iter().any(|a| a == "--model" || a.starts_with("--model=")) {
+            return Err(ToolError::invalid("Choose Antigravity's model in its model setting, rather than in extra arguments."));
+        }
+        models::validate(options, &self.model_catalog(config, options, directory, stop)?)
     }
 
     fn args(&self, cx: &ArgsCx) -> Vec<String> {
@@ -116,6 +170,49 @@ impl AgentAdapter for Antigravity {
         }
         out
     }
+}
+
+/// Parse `agy models` stdout (`<id>\t<display name>` when piped, or space-padded columns).
+/// Preserves the CLI's ordering, deduplicates by id, and rejects empty or oversized output.
+fn parse_models(bytes: &[u8]) -> Result<Vec<models::AgentModel>, ToolError> {
+    if bytes.len() >= MAX_MODELS_OUTPUT {
+        return Err(ToolError::new(ErrorCode::OverLimit, "Antigravity's model list is too large."));
+    }
+    let text = std::str::from_utf8(bytes).map_err(|_| {
+        ToolError::new(ErrorCode::GarbledOutput, "Antigravity returned an unreadable model list.")
+            .with_remediation("Run `agy models` in a terminal to verify your Antigravity sign-in, then reload the models.")
+    })?;
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let (id, name) = match line.split_once('\t') {
+            Some((id, name)) => (id.trim(), name.trim()),
+            None => match line.split_once(char::is_whitespace) {
+                Some((id, rest)) => (id.trim(), rest.trim()),
+                None => (line, line),
+            },
+        };
+        if id.is_empty() || id.chars().any(|c| c.is_whitespace() || c.is_control()) {
+            continue;
+        }
+        if !seen.insert(id.to_string()) {
+            continue;
+        }
+        if out.len() >= MAX_MODELS {
+            return Err(ToolError::new(ErrorCode::OverLimit, "Antigravity returned too many models."));
+        }
+        let display = if name.is_empty() { id } else { name };
+        out.push(models::AgentModel { id: id.to_string(), name: display.to_string(), thinking: Vec::new() });
+    }
+    if out.is_empty() {
+        return Err(ToolError::new(ErrorCode::GarbledOutput, "Antigravity returned an empty or unreadable model list.")
+            .with_remediation("Run `agy models` in a terminal to verify your Antigravity sign-in, then reload the models."));
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -305,5 +402,56 @@ mod tests {
         });
         let evs = p.line(&no_reply.to_string());
         assert!(matches!(evs[0], AgentEvent::Error { .. }), "an error with nothing delivered still fails the turn");
+    }
+
+    #[test]
+    fn antigravity_model_catalog_parsing() {
+        let piped = b"gemini-4-neon-high\tGemini 4 Neon (High)\n\
+                      gemini-4-neon-medium\tGemini 4 Neon (Medium)\n\
+                      gemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)\n\
+                      gemini-4-neon-high\tGemini 4 Neon (High)\n";
+        let list = parse_models(piped).unwrap();
+        assert_eq!(
+            list,
+            vec![
+                models::AgentModel { id: "gemini-4-neon-high".into(), name: "Gemini 4 Neon (High)".into(), thinking: Vec::new() },
+                models::AgentModel { id: "gemini-4-neon-medium".into(), name: "Gemini 4 Neon (Medium)".into(), thinking: Vec::new() },
+                models::AgentModel { id: "gemini-3.8-flash-medium".into(), name: "Gemini 3.8 Flash (Medium)".into(), thinking: Vec::new() },
+            ]
+        );
+
+        let spaced = b"gemini-4-neon-high              Gemini 4 Neon (High)\n\nclaude-sonnet-5-5-medium        Claude Sonnet 5.5 (Medium)\n";
+        let list = parse_models(spaced).unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].id, "gemini-4-neon-high");
+        assert_eq!(list[0].name, "Gemini 4 Neon (High)");
+        assert_eq!(list[1].id, "claude-sonnet-5-5-medium");
+        assert_eq!(list[1].name, "Claude Sonnet 5.5 (Medium)");
+
+        let err = parse_models(b"   \n\n").unwrap_err();
+        assert_eq!(err.code, ErrorCode::GarbledOutput);
+    }
+
+    #[test]
+    fn antigravity_has_model_catalog_and_validates_extra_args() {
+        assert!(Antigravity.has_model_catalog());
+        let config = BackendConfig {
+            name: "Antigravity".into(),
+            kind: crate::BackendKind::AgentCli,
+            model: "antigravity".into(),
+            base_url: None,
+            ssh_host: None,
+            enabled: true,
+        };
+        let default_opts = BackendOptions::default();
+        assert!(Antigravity.validate_model(&config, &default_opts, None, &Stop::default()).is_ok());
+
+        let conflicting = BackendOptions {
+            cli_model: Some("gemini-4-neon-high".into()),
+            args: vec!["--model".into(), "gemini-3.8-flash-low".into()],
+            ..Default::default()
+        };
+        let err = Antigravity.validate_model(&config, &conflicting, None, &Stop::default()).unwrap_err();
+        assert_eq!(err.code, ErrorCode::BadInput);
     }
 }
