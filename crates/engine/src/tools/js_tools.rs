@@ -243,7 +243,7 @@ pub(crate) fn load_app_input(ctx: &Ctx<'_>, p: &AnalyzeParams) -> Result<(AppInp
         }
         InputFormat::Asar => {
             input.format = "asar".into();
-            let bytes = read_capped(&path, crate::target::MAX_TARGET_BYTES)?;
+            let bytes = crate::target::read_admitted(&path, ctx.session.max_target_bytes())?;
             let a = asar::parse(&bytes, p.max_files.saturating_mul(4).max(1000))
                 .map_err(|e| ToolError::new(ErrorCode::GarbledOutput, format!("{}: {e}", path.display())))?;
             if a.truncated {
@@ -288,7 +288,7 @@ pub(crate) fn load_app_input(ctx: &Ctx<'_>, p: &AnalyzeParams) -> Result<(AppInp
         }
         InputFormat::Zip => {
             input.format = "zip".into();
-            let bytes = read_capped(&path, crate::target::MAX_TARGET_BYTES)?;
+            let bytes = crate::target::read_admitted(&path, ctx.session.max_target_bytes())?;
             let z = zip::parse(&bytes, p.max_files.saturating_mul(4).max(1000))
                 .map_err(|e| ToolError::new(ErrorCode::GarbledOutput, format!("{}: {e}", path.display())))?;
             listing_truncated = z.truncated;

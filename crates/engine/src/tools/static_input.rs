@@ -46,7 +46,7 @@ pub fn load_path(p: &str, max: u64) -> Result<Input, ToolError> {
     if !pb.is_absolute() {
         return Err(ToolError::invalid(format!("{p:?} is not an absolute path")).with_remediation("Pass the full path, for example /home/me/app.apk."));
     }
-    let bytes = craft_anything_platform::fs::read_file_capped(&pb, max)?;
+    let bytes = crate::target::read_admitted(&pb, max)?;
     let name = pb.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| p.to_string());
     let t = Target::from_bytes(pb.clone(), name.clone(), bytes);
     Ok(Input { subject: t.subject(), bytes: t.bytes.clone(), path: pb, name, kind: t.kind })

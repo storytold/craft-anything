@@ -816,14 +816,14 @@ fn projection_inventory(ctx: &Ctx<'_>, p: &ProjectionParams) -> Result<(Inventor
     let limits = InvLimits { max_depth: 2, ..InvLimits::default() };
     if let Some(v) = &p.inventory {
         let ev = resolve_evidence_input(ctx, v, &["core_archive_show"])?;
-        let (inv, subject) = recorded_inventory(&ev, limits, &ctx.cancel)?;
+        let (inv, subject) = recorded_inventory(&ev, limits, &ctx.cancel, ctx.session.max_target_bytes())?;
         return Ok((inv, subject, Some(ev.id)));
     }
     let path = match &p.path {
         Some(x) => abs_path(x, "path")?,
         None => ctx.session.active()?.target.path.clone(),
     };
-    let (inv, subject) = inventory_path(&path, limits, &ctx.cancel)?;
+    let (inv, subject) = inventory_path(&path, limits, &ctx.cancel, ctx.session.max_target_bytes())?;
     Ok((inv, subject, None))
 }
 

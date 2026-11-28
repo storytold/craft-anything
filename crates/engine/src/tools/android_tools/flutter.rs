@@ -3,7 +3,6 @@
 //! library: snapshot symbols and headers plus the app's package URIs and identifier tokens
 //! (`android_dart_snapshot_show`). Built-in parsers only.
 
-use crate::target::MAX_TARGET_BYTES;
 use crate::tool::{Ctx, Effects, Requires, ToolOutput, ToolSpec, Toolset, parse_params, schema_of};
 use crate::tools::native_common::{page, spec};
 use crate::tools::static_input::{Input, builder, format_err, load};
@@ -124,7 +123,7 @@ fn read_lib(input: &Input, lib: &Lib, budget: &mut u64) -> Result<Vec<u8>, Strin
 
 fn android_flutter_identify(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, ToolError> {
     let p: IdentifyParams = parse_params(params)?;
-    let input = load(ctx, p.path.as_deref(), MAX_TARGET_BYTES)?;
+    let input = load(ctx, p.path.as_deref(), ctx.session.max_target_bytes())?;
     let (libs, _) = libraries(&input)?;
     let mut budget = MAX_CUMULATIVE;
     let mut abis: BTreeMap<String, serde_json::Map<String, Value>> = BTreeMap::new();
@@ -249,7 +248,7 @@ fn android_dart_snapshot_show(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOu
     if !(1..=2000).contains(&p.limit) {
         return Err(ToolError::invalid("limit must be 1..=2000"));
     }
-    let input = load(ctx, p.path.as_deref(), MAX_TARGET_BYTES)?;
+    let input = load(ctx, p.path.as_deref(), ctx.session.max_target_bytes())?;
     let (libs, is_package) = libraries(&input)?;
     let apps: Vec<&Lib> = libs.iter().filter(|l| l.role == "libapp" || !is_package).collect();
     let chosen = match &p.abi {

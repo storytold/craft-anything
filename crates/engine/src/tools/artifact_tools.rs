@@ -709,8 +709,8 @@ fn default_max_total() -> u64 {
 }
 
 /// Build an inventory of a path (file or folder).
-pub(crate) fn inventory_path(path: &Path, limits: InvLimits, cancel: &CancelToken) -> Result<(Inventory, Subject), ToolError> {
-    inventory_path_unlisted(path, limits, cancel).map(|(inv, subject, _)| (inv, subject))
+pub(crate) fn inventory_path(path: &Path, limits: InvLimits, cancel: &CancelToken, target_limit: u64) -> Result<(Inventory, Subject), ToolError> {
+    inventory_path_unlisted(path, limits, cancel, target_limit).map(|(inv, subject, _)| (inv, subject))
 }
 
 /// What a folder walk found at one path, for listing its results in one order.
@@ -722,7 +722,12 @@ enum WalkEntry<'a> {
 
 /// [`inventory_path`], also returning the folders that couldn't be listed, or only in part, as (path, reason).
 #[allow(clippy::type_complexity)]
-fn inventory_path_unlisted(path: &Path, limits: InvLimits, cancel: &CancelToken) -> Result<(Inventory, Subject, Vec<(String, String)>), ToolError> {
+fn inventory_path_unlisted(
+    path: &Path,
+    limits: InvLimits,
+    cancel: &CancelToken,
+    target_limit: u64,
+) -> Result<(Inventory, Subject, Vec<(String, String)>), ToolError> {
     let meta = std::fs::metadata(path).map_err(|e| ToolError::io(path.display(), e))?;
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.display().to_string());
     let check = || cancel.is_cancelled();
@@ -775,7 +780,7 @@ fn inventory_path_unlisted(path: &Path, limits: InvLimits, cancel: &CancelToken)
         let subject = Subject { kind: "directory".into(), sha256: Some(id.trim_start_matches("inv_").to_string()), name: Some(name) };
         return Ok((out, subject, walked.unlisted));
     }
-    let bytes = read_capped(path, limits.max_total_bytes.min(crate::target::MAX_TARGET_BYTES))?;
+    let bytes = crate::target::read_admitted(path, limits.max_total_bytes.min(target_limit))?;
     let kind = craft_anything_analysis::js_inventory::sniff_kind(&bytes, &name);
     let mut inv = Inventorier::new(&name, kind, limits, &check);
     let mut unlisted = Vec::new();
@@ -829,7 +834,7 @@ fn show_limits(max_depth: u32, max_entries: usize, max_total_bytes: u64) -> InvL
 
 /// Re-read the path a core_archive_show record names and check it is unchanged, then return its inventory at `limits`.
 /// The check uses the scope the record was made with, since a folder's id covers only the entries that scope lists.
-pub(crate) fn recorded_inventory(ev: &Evidence, limits: InvLimits, cancel: &CancelToken) -> Result<(Inventory, Subject), ToolError> {
+pub(crate) fn recorded_inventory(ev: &Evidence, limits: InvLimits, cancel: &CancelToken, target_limit: u64) -> Result<(Inventory, Subject), ToolError> {
     let path = ev.params.get("path").and_then(Value::as_str).ok_or_else(|| ToolError::invalid("inventory evidence has no path"))?;
     let num = |k: &str| ev.params.get(k).and_then(Value::as_u64);
     let recorded = show_limits(
@@ -839,7 +844,7 @@ pub(crate) fn recorded_inventory(ev: &Evidence, limits: InvLimits, cancel: &Canc
     );
     // A file's id is the hash of its bytes, whatever the scope; a folder's depends on the scope.
     let check = if ev.subject.kind == "directory" { recorded } else { limits };
-    let (inv, subject) = inventory_path(Path::new(path), check, cancel)?;
+    let (inv, subject) = inventory_path(Path::new(path), check, cancel, target_limit)?;
     if subject.sha256 != ev.subject.sha256 {
         return Err(ToolError::new(ErrorCode::FileChanged, format!("{path} changed since evidence {} was recorded", ev.id))
             .with_remediation("Run core_archive_show again, or pass the path directly."));
@@ -847,7 +852,7 @@ pub(crate) fn recorded_inventory(ev: &Evidence, limits: InvLimits, cancel: &Canc
     if same_limits(&check, &limits) {
         return Ok((inv, subject));
     }
-    inventory_path(Path::new(path), limits, cancel)
+    inventory_path(Path::new(path), limits, cancel, target_limit)
 }
 
 fn same_limits(a: &InvLimits, b: &InvLimits) -> bool {
@@ -863,7 +868,7 @@ fn core_archive_show(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, Too
     let path = target_path(ctx, p.path.as_deref())?;
     let limits = show_limits(p.max_depth, p.max_entries, p.max_total_bytes);
     ctx.report(None, format!("Inventorying {}", path.display()));
-    let (inv, subject, unlisted) = inventory_path_unlisted(&path, limits, &ctx.cancel)?;
+    let (inv, subject, unlisted) = inventory_path_unlisted(&path, limits, &ctx.cancel, ctx.session.max_target_bytes())?;
     let blocking = inv.contradictions.iter().any(|c| c.get("reason").and_then(Value::as_str).is_some_and(|r| r.contains("integrity") || r.contains("CRC")));
     if blocking && p.if_tampered == IntegrityPolicy::Fail {
         return Err(integrity_error(&inv));
@@ -956,7 +961,7 @@ fn core_archive_extract(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, 
             ToolError::unsupported(format!("{} is already a folder", path.display())).with_remediation("Folders don't need extracting; analyse them directly.")
         );
     }
-    let bytes = read_capped(&path, crate::target::MAX_TARGET_BYTES)?;
+    let bytes = crate::target::read_admitted(&path, ctx.session.max_target_bytes())?;
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let kind = craft_anything_analysis::js_inventory::sniff_kind(&bytes, &name);
     // Collect (name, bytes-or-error) without touching the disk first.
@@ -1121,12 +1126,12 @@ fn default_rows() -> usize {
 
 fn inventory_input(ctx: &Ctx<'_>, v: &Value) -> Result<(Inventory, Option<String>), ToolError> {
     if let Some(p) = is_path_input(v) {
-        let (inv, _) = inventory_path(&abs_path(p, "path")?, InvLimits::default(), &ctx.cancel)?;
+        let (inv, _) = inventory_path(&abs_path(p, "path")?, InvLimits::default(), &ctx.cancel, ctx.session.max_target_bytes())?;
         return Ok((inv, None));
     }
     let ev = resolve_evidence_input(ctx, v, &["core_archive_show"])?;
     // Evidence holds one page; re-read the recorded path for the full inventory and check it is unchanged.
-    let (inv, _) = recorded_inventory(&ev, InvLimits::default(), &ctx.cancel)?;
+    let (inv, _) = recorded_inventory(&ev, InvLimits::default(), &ctx.cancel, ctx.session.max_target_bytes())?;
     Ok((inv, Some(ev.id)))
 }
 
@@ -1292,7 +1297,7 @@ mod tests {
         let w = walk(dir.path(), 3, ROOMY);
         assert_eq!((rels(&w), w.truncated), (vec!["a/first.txt", "a-b.txt", "z1.txt"], true));
         let limits = InvLimits { max_entries: 3, ..InvLimits::default() };
-        let (inv, _) = inventory_path(dir.path(), limits, &CancelToken::default()).unwrap();
+        let (inv, _) = inventory_path(dir.path(), limits, &CancelToken::default(), u64::MAX).unwrap();
         let paths: Vec<&str> = inv.entries.iter().map(|e| e.path.as_str()).collect();
         assert_eq!(paths, ["a", "a/first.txt", "a-b.txt"]);
         assert!(inv.truncated);
@@ -1316,7 +1321,7 @@ mod tests {
             std::fs::create_dir_all(dir.path().join("zz").join(format!("sub{d:02}"))).unwrap();
         }
         let limits = InvLimits { max_entries: 10, ..InvLimits::default() };
-        let (inv, _) = inventory_path(dir.path(), limits, &CancelToken::default()).unwrap();
+        let (inv, _) = inventory_path(dir.path(), limits, &CancelToken::default(), u64::MAX).unwrap();
         let paths: Vec<&str> = inv.entries.iter().map(|e| e.path.as_str()).collect();
         assert_eq!(paths, ["a1.txt", "a2.txt", "a3.txt", "a4.txt", "a5.txt", "zz", "zz/sub00", "zz/sub01", "zz/sub02", "zz/sub03"]);
         assert_eq!(inv.entries.iter().filter(|e| e.sha256.is_some()).count(), 5, "every file is read and hashed");
@@ -1327,7 +1332,7 @@ mod tests {
         assert_eq!(out["result"]["files"], 5, "{}", out["summary"]);
         assert_eq!(out["result"]["truncated"], true);
         // A limit the tree fits in lists all of it, in the same order, and isn't cut.
-        let (whole, _) = inventory_path(dir.path(), InvLimits { max_entries: 26, ..InvLimits::default() }, &CancelToken::default()).unwrap();
+        let (whole, _) = inventory_path(dir.path(), InvLimits { max_entries: 26, ..InvLimits::default() }, &CancelToken::default(), u64::MAX).unwrap();
         assert_eq!(whole.entries.len(), 26);
         assert_eq!(whole.entries.iter().map(|e| e.path.as_str()).take(10).collect::<Vec<_>>(), paths);
         assert!(!whole.truncated);

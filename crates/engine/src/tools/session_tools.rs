@@ -190,7 +190,7 @@ fn core_target_open(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, Tool
         return Err(ToolError::invalid(format!("{} is not an absolute path", p.path))
             .with_remediation("Pass the full path, e.g. /Users/me/Downloads/app.exe or C:\\Apps\\app.exe."));
     }
-    let mut target = Target::load(&path)?;
+    let mut target = Target::load_limited(&path, ctx.session.max_target_bytes())?;
     match p.format.as_deref() {
         None => {}
         Some("raw-binary") => {

@@ -35,12 +35,18 @@ pub fn open_regular_file(path: &Path) -> Result<(std::fs::File, std::fs::Metadat
 /// The one-byte overflow probe does not add to `max`, so even `u64::MAX` cannot overflow.
 pub fn read_file_capped(path: &Path, max: u64) -> Result<Vec<u8>, ToolError> {
     let (mut file, metadata) = open_regular_file(path)?;
-    if metadata.len() > max {
-        return Err(ToolError::new(ErrorCode::OverLimit, format!("{} is {} bytes; the limit is {max}", path.display(), metadata.len()))
+    read_opened_capped(path, &mut file, metadata.len(), max)
+}
+
+/// Read `file`, already opened, enforcing `max`. `len` is that descriptor's size: admission and
+/// the read share it, so the path is not opened again. A reported length of zero still stops at `max`.
+pub fn read_opened_capped(path: &Path, file: &mut std::fs::File, len: u64, max: u64) -> Result<Vec<u8>, ToolError> {
+    if len > max {
+        return Err(ToolError::new(ErrorCode::OverLimit, format!("{} is {len} bytes; the limit is {max}", path.display()))
             .with_remediation("Raise the size limit parameter if you really want to read it."));
     }
     let mut bytes = Vec::new();
-    (&mut file).take(max).read_to_end(&mut bytes).map_err(|e| ToolError::io(path.display(), e))?;
+    file.take(max).read_to_end(&mut bytes).map_err(|e| ToolError::io(path.display(), e))?;
     let mut extra = [0u8; 1];
     match file.read_exact(&mut extra) {
         Ok(()) => Err(ToolError::new(ErrorCode::OverLimit, format!("{} contains more than {max} bytes; the read limit was reached", path.display()))
@@ -238,6 +244,19 @@ mod tests {
             assert_eq!(temporary, dir.path().join(format!(".craft-anything.tmp-{}-{}", std::process::id(), next_counter - 1)));
             assert_eq!(file.metadata().unwrap().len(), 0);
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_zero_length_report_still_stops_at_the_cap() {
+        let path = Path::new("/proc/self/status");
+        let (mut file, metadata) = open_regular_file(path).unwrap();
+        assert_eq!(metadata.len(), 0);
+        let err = read_opened_capped(path, &mut file, 0, 32).unwrap_err();
+        assert_eq!(err.code, ErrorCode::OverLimit);
+        let (mut file, _) = open_regular_file(path).unwrap();
+        let bytes = read_opened_capped(path, &mut file, 0, 1024 * 1024).unwrap();
+        assert!(bytes.len() > 32);
     }
 
     #[test]

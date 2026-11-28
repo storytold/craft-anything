@@ -115,6 +115,12 @@ impl Session {
         Session { settings, ..Default::default() }
     }
 
+    /// The size cap for files this session opens. An omitted setting is 2 GiB.
+    /// Another session's settings do not change it.
+    pub fn max_target_bytes(&self) -> u64 {
+        crate::target::effective_max_target_bytes(self.settings.limits.max_target_bytes)
+    }
+
     /// [`Session::cargo_env`], or this process's environment when none was given.
     pub fn cargo(&self) -> crate::outputs::CargoEnv {
         self.cargo_env.clone().unwrap_or_else(crate::outputs::CargoEnv::of_process)
@@ -203,7 +209,8 @@ impl Session {
         if targets.len() > 128 {
             return Err(ToolError::invalid("At most 128 targets can be shared with an agent."));
         }
-        let opened: Result<Vec<_>, _> = targets.iter().map(|target| target.open(self.clean_room())).collect();
+        let limit = self.max_target_bytes();
+        let opened: Result<Vec<_>, _> = targets.iter().map(|target| target.open(self.clean_room(), limit)).collect();
         for target in opened? {
             self.add_target(target);
         }

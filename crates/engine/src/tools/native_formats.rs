@@ -547,7 +547,7 @@ fn core_target_triage(ctx: &mut Ctx<'_>, params: Value) -> Result<ToolOutput, To
             if !pb.is_absolute() {
                 return Err(ToolError::invalid(format!("{path} is not an absolute path")));
             }
-            Target::load(&pb)?
+            Target::load_limited(&pb, ctx.session.max_target_bytes())?
         }
         None => ctx.session.active()?.target.clone(),
     };
