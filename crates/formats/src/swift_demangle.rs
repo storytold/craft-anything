@@ -133,6 +133,9 @@ enum N {
     Builtin(String),
     EmptyList,
     FirstMarker,
+    /// Marker pushed by the `HP`/`Hp` conformance reference operator; denotes a
+    /// conformance reference without a retroactive module operand.
+    HpRef,
     Throws,
     Async,
     FnMarker(FnMarker),
@@ -283,6 +286,7 @@ impl<'a> D<'a> {
             | N::Operator(_)
             | N::EmptyList
             | N::FirstMarker
+            | N::HpRef
             | N::Throws
             | N::Async
             | N::FnMarker(_)
@@ -669,6 +673,7 @@ impl<'a> D<'a> {
             N::Ident(_)
             | N::Private(_)
             | N::Operator(_)
+            | N::HpRef
             | N::FirstMarker
             | N::Throws
             | N::Async
@@ -822,7 +827,7 @@ impl<'a> D<'a> {
     fn shape_ok(&self, top_func: bool, need_name: bool) -> bool {
         let st = &self.stack;
         let at = |i: usize| i.checked_sub(1).and_then(|j| st.get(j));
-        let typeish = |n: Option<&N>| matches!(n, Some(n) if !matches!(n, N::Ident(_) | N::Private(_) | N::Operator(_) | N::FirstMarker | N::Throws | N::Async | N::FnMarker(_) | N::Requirement(_) | N::Sig { .. } | N::Module(_)));
+        let typeish = |n: Option<&N>| matches!(n, Some(n) if !matches!(n, N::Ident(_) | N::Private(_) | N::Operator(_) | N::FirstMarker | N::HpRef | N::Throws | N::Async | N::FnMarker(_) | N::Requirement(_) | N::Sig { .. } | N::Module(_)));
         let mut i = st.len();
         if matches!(at(i), Some(N::Sig { .. })) {
             i -= 1;
@@ -1420,6 +1425,86 @@ impl<'a> D<'a> {
                 self.add_sub(&n)?;
                 self.push(n)
             }
+            b'H' => {
+                let k = self.next()?;
+                match k {
+                    b'C' => {
+                        // concrete-protocol-conformance: ..., then any-protocol-conformance-list,
+                        // then the protocol-conformance-ref, then the type, then `HC`.
+                        let mut nodes: Vec<N> = Vec::new();
+                        loop {
+                            if let Some(N::EmptyList) = self.stack.last() {
+                                let _ = self.stack.pop();
+                                break;
+                            }
+                            if matches!(self.stack.last(), Some(N::FirstMarker)) {
+                                let _ = self.stack.pop();
+                                let node = self.pop()?;
+                                if !matches!(node, N::Conformance { .. } | N::HpRef) {
+                                    return Err("expected a conformance".into());
+                                }
+                                nodes.push(node);
+                                break;
+                            }
+                            let node = self.pop()?;
+                            if !matches!(node, N::Conformance { .. } | N::HpRef) {
+                                return Err("expected a conformance".into());
+                            }
+                            nodes.push(node);
+                        }
+                        // The module comes first (on top) for a retroactive conformance.
+                        let module = match self.stack.last() {
+                            Some(N::HpRef) => {
+                                let _ = self.stack.pop();
+                                N::Module(String::new())
+                            }
+                            Some(N::Module(_) | N::Ident(_) | N::Extension { .. }) => self.pop()?,
+                            _ => return Err("expected a module or marker".into()),
+                        };
+                        // protocol-conformance-ref: a protocol, optionally already carrying its module
+                        // (retroactive), or a protocol followed by an `HP`/`Hp` operator which leaves
+                        // the protocol in place.
+                        let proto = self.pop()?;
+                        let proto_node = match proto {
+                            n @ N::Nominal { kind: 'P', .. } => n,
+                            N::Ident(name) | N::Private(name) | N::Operator(name) => {
+                                let ctx = self.pop_context()?;
+                                N::Nominal { kind: 'P', ctx: Box::new(ctx), name }
+                            }
+                            _ => return Err("expected a protocol".into()),
+                        };
+                        // The conforming type is any whole type beneath.
+                        let ty = self.pop_type()?;
+                        let conf = N::Conformance { ty: Box::new(ty), proto: Box::new(proto_node), module: Box::new(module) };
+                        self.push(conf)
+                    }
+                    b'P' | b'p' => self.push(N::HpRef),
+                    b'D' => {
+                        let i = self.index()?;
+                        let _ = i;
+                        Err("unsupported dependent conformance".into())
+                    }
+                    b'I' => {
+                        let i = self.index()?;
+                        let _ = i;
+                        Err("unsupported dependent conformance".into())
+                    }
+                    b'A' => {
+                        let i = self.index()?;
+                        let _ = i;
+                        Err("unsupported dependent conformance".into())
+                    }
+                    // An opaque-type conformance takes a dependent conformance, and a pack
+                    // conformance builds a node the renderer has no form for yet.
+                    b'O' => Err("unsupported dependent conformance".into()),
+                    b'X' => Err("unsupported pack conformance".into()),
+                    b'r' | b'n' | b'c' | b'F' => {
+                        // runtime-record metadata operators are not rendered yet
+                        Err("unsupported runtime record".into())
+                    }
+                    _ => Err(format!("unsupported operator 'H{}'", char::from(k))),
+                }
+            }
             b'K' => self.push(N::Throws),
             b'L' => match self.next()? {
                 b'L' => self.private_name(),
@@ -1966,6 +2051,16 @@ impl<'a> D<'a> {
                 self.push(N::Param(0, 0))
             }
             b'y' => self.push(N::EmptyList),
+            b'g' => {
+                let i = self.index()?;
+                if i >= 1 << 31 {
+                    return Err("retroactive index too large".into());
+                }
+                if !matches!(self.stack.last(), Some(N::Conformance { .. })) {
+                    return Err("expected a conformance".into());
+                }
+                Ok(())
+            }
             b'h' => {
                 let t = self.pop_type()?;
                 if matches!(t, N::Global { .. } | N::Entity { .. } | N::Conformance { .. } | N::Extension { .. }) {
@@ -2205,6 +2300,10 @@ fn render(n: &N, depth: usize) -> String {
         N::Ident(s) | N::Private(s) | N::Operator(s) | N::Module(s) | N::Builtin(s) => s.clone(),
         N::Nominal { .. } | N::Extension { .. } => path(n, d),
         N::Bound { base, args } => {
+            let mut args: Vec<N> = args.clone();
+            while matches!(args.last(), Some(N::Conformance { .. })) {
+                args.pop();
+            }
             let b = path(base, d);
             match (b.as_str(), args.as_slice()) {
                 ("Swift.Array", [t]) => format!("[{}]", render(t, d)),
@@ -2249,7 +2348,7 @@ fn render(n: &N, depth: usize) -> String {
         N::Opaque => "some".into(),
         N::OpaqueDecl(decl) => format!("<<opaque return type of {}>>", render(decl, d)),
         N::OpaqueRef { decl, index } => format!("<<opaque return type of {}>>.{index}", render(decl, d)),
-        N::EmptyList | N::FirstMarker | N::Throws | N::Async | N::FnMarker(_) => String::new(),
+        N::EmptyList | N::FirstMarker | N::HpRef | N::Throws | N::Async | N::FnMarker(_) => String::new(),
         N::Requirement(r) => r.clone(),
         N::Sig { .. } => sig_text(n, 0),
         N::Conformance { ty, proto, module } => format!("{} : {} in {}", render(ty, d), path(proto, d), path(module, d)),

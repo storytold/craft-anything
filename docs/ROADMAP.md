@@ -2853,6 +2853,8 @@ Owner: open · Status: in progress
 - [x] Read the explicit module-format byte in current Node SEA blobs while retaining the older layouts;
       report the stored format and recover the main script, assets and execution arguments at their real offsets.
       — claimed: Afloat16, branch bugfix/r3.12-node-sea-module-format-20261110
+- [x] Decode Swift concrete protocol conformances (`HC`) used as hidden generic arguments in types such as Coherence.CRRegister (the H operator), so symbols like PaperKit.Image.$bounds.getter decode.
+      — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-op-H
 - [x] Decode Swift protocol metatypes (`pm`) as `P.Protocol` instead of `P.Type`; a metatype of an existential from `p` is a protocol metatype.
       — claimed: Chr0mium24, branch bugfix/r3.12-swift-demangle-metatype-protocol
 - [x] Deduplicate modules before queueing role propagation, so repeated imports do not exhaust the application graph's traversal limit before reachable modules receive their roles.
