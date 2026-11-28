@@ -4265,6 +4265,65 @@ fn advanced_mode_keeps_projects_and_their_questions_in_sight() {
 }
 
 #[test]
+fn opening_a_same_content_copy_keeps_the_target_and_conversation() {
+    let dir = tempfile::tempdir().unwrap();
+    let original = dir.path().join("original.txt");
+    let copy = dir.path().join("copy.txt");
+    std::fs::write(&original, "the same target content").unwrap();
+    std::fs::copy(&original, &copy).unwrap();
+    let first = original.clone();
+    let mut h = harness(move || {
+        let mut app = demo::app(demo::engine(Mode::Experienced, true));
+        demo::deep(&mut app);
+        app.open_path(first);
+        app
+    });
+    assert!(wait(&mut h, |a| a.view.active_target().is_some_and(|t| t.path == original)));
+    h.state_mut().state.chat.push(ChatItem::User("Keep this question".into()));
+    h.state_mut().open_path(copy.clone());
+    assert!(wait(&mut h, |a| a.settings.recent.first() == Some(&copy)), "the second open completed");
+    assert_eq!(h.state().view.active_target().unwrap().path, original);
+    assert!(h.state().state.chat.iter().any(|item| matches!(item, ChatItem::User(text) if text == "Keep this question")));
+}
+
+#[test]
+fn opening_the_workbench_from_a_project_opens_its_own_target() {
+    use craft_anything_engine::workspace::{TargetRef, Workspace};
+    use craft_anything_ui_egui::state::Fill;
+    let d = tempfile::tempdir().unwrap();
+    let other = d.path().join("other.txt");
+    std::fs::write(&other, "something else that was open").unwrap();
+    let path = d.path().join("notes.jar");
+    std::fs::write(&path, craft_anything_testkit::java::notes_jar()).unwrap();
+    // A project of its own, beside the target it was started from.
+    let projects = d.path().join("projects");
+    let ws = Workspace::create(&projects, "Notes", "Rebuild this app", TargetRef::Local { path: path.clone() }).unwrap();
+    let first = other.clone();
+    let mut h = harness(move || {
+        let mut a = demo::app(demo::engine(Mode::Experienced, true));
+        demo::deep(&mut a);
+        a.open_path(first);
+        a
+    });
+    assert!(wait(&mut h, |a| a.view.active_target().is_some_and(|t| t.path == other)), "the other file is open");
+    h.state_mut().state.rail = RailKind::Classes;
+    h.state_mut().open_workspace(ws);
+    h.run_steps(3);
+    assert_eq!(h.state().state.screen, Screen::Project);
+    h.get_by_label("Open in the workbench").click();
+    assert!(
+        wait(&mut h, |a| a.state.screen == Screen::Workbench && a.view.active_target().is_some_and(|t| t.path == path)),
+        "the workbench shows the project's own target"
+    );
+    // Its class list comes from the jar's own tool, not the one for the file shown before.
+    assert!(
+        wait(&mut h, |a| matches!(a.state.lists.get(&RailKind::Classes), Some(Fill::Ready(e)) if e.operation == "java_classes_find")),
+        "{:?}",
+        h.state().state.lists.get(&RailKind::Classes)
+    );
+}
+
+#[test]
 fn the_website_dialog_is_ready_to_type_into() {
     let mut h = harness(|| {
         let mut a = demo::app(demo::engine(Mode::Beginner, true));

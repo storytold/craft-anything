@@ -1359,7 +1359,9 @@ impl CraftApp {
     /// Load the current rail list if it hasn't been.
     pub fn ensure_rail_loaded(&mut self) {
         let kind = self.state.rail;
-        if kind == RailKind::Targets || self.view.active.is_none() {
+        // A stale snapshot (the session was busy) would pick the old target's tool; the
+        // workbench asks again each frame while the list is idle.
+        if kind == RailKind::Targets || self.view.active.is_none() || self.view_dirty {
             return;
         }
         if matches!(self.state.lists.get(&kind), None | Some(Fill::Idle)) {
@@ -1794,8 +1796,10 @@ impl CraftApp {
             Done::Acted { tool, params, result } => self.acted(job, tool, &params, result),
             Done::Opened { path, result } => match result {
                 Ok(v) => {
-                    // Another target: a new conversation, so answers about two things don't mix.
-                    if self.view.active_target().is_some_and(|t| t.path != path) {
+                    // Another target: a new conversation, so answers about two things don't mix. The
+                    // engine keeps one target per content, so compare with the path it kept.
+                    let kept = v.get("path").and_then(Value::as_str).map_or_else(|| path.clone(), PathBuf::from);
+                    if self.view.active_target().is_some_and(|t| t.path != kept) {
                         self.state.chat.clear();
                         if let Some(mut c) = self.conversation.take() {
                             c.stop();
@@ -1819,7 +1823,9 @@ impl CraftApp {
                     } else {
                         self.state.screen = Screen::Workbench;
                         self.state.rail = if self.state.rail == RailKind::Targets { RailKind::Functions } else { self.state.rail };
-                        self.load_rail(self.state.rail);
+                        // The list's tool depends on the new target's kind, not the one shown before.
+                        self.refresh_view();
+                        self.ensure_rail_loaded();
                     }
                 }
                 Err(e) if clean_room::is_refusal(&e) => self.state.modal = Some(state::Modal::DeepMode),
@@ -2118,9 +2124,10 @@ impl CraftApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
         }
         self.refresh_view();
+        // A busy session needs another snapshot attempt even when the workbench is empty.
         // A conversation and jobs are checked on a timer; runs repaint the window themselves
         // (`RunOptions::wake`), so only a slow check covers them.
-        if self.conversation.as_ref().is_some_and(|c| c.is_busy()) || self.jobs.busy() {
+        if self.view_dirty || self.conversation.as_ref().is_some_and(|c| c.is_busy()) || self.jobs.busy() {
             ctx.request_repaint_after(Duration::from_millis(100));
         } else if self.runs.any_busy() {
             ctx.request_repaint_after(Duration::from_secs(1));
