@@ -917,6 +917,64 @@ fn a_switched_off_agent_is_found_again() {
     assert!(!is_on(&h.backends(), "Claude Code") && !is_on(&h.backends(), "Codex"));
 }
 
+#[test]
+fn discovery_keeps_distinct_local_servers_with_the_same_name_selectable() {
+    let (h, _dir) = hub();
+    let found = |port| Detected {
+        suggestion: BackendConfig {
+            name: "LM Studio (local)".into(),
+            kind: BackendKind::OpenaiCompatible,
+            model: "test-model".into(),
+            base_url: Some(format!("http://127.0.0.1:{port}/v1")),
+            ssh_host: None,
+            enabled: true,
+        },
+        reason: "Found LM Studio".into(),
+        needs_key: false,
+    };
+
+    // Existing settings may use the original display name for a non-default port.
+    h.add_backend(found(1235).suggestion, None).unwrap();
+    let offered = leave_out_set_up(vec![found(1234), found(1235), found(1236)], &h.backends());
+    let [first, second] = offered.as_slice() else { panic!("expected both unsaved endpoints: {offered:?}") };
+    assert_eq!(first.suggestion.base_url.as_deref(), Some("http://127.0.0.1:1234/v1"));
+    assert_eq!(second.suggestion.base_url.as_deref(), Some("http://127.0.0.1:1236/v1"));
+    assert_ne!(first.suggestion.name, second.suggestion.name);
+    for backend in offered {
+        assert_ne!(backend.suggestion.name, "LM Studio (local)");
+        h.add_backend(backend.suggestion, None).unwrap();
+    }
+
+    let saved = h.backends();
+    assert_eq!(saved.len(), 3);
+    assert!(leave_out_set_up(vec![found(1234), found(1235), found(1236)], &saved).is_empty());
+}
+
+#[test]
+fn discovery_matches_only_enabled_direct_addresses_even_when_saved_under_another_name() {
+    let detected = Detected {
+        suggestion: BackendConfig {
+            name: "LM Studio (local)".into(),
+            kind: BackendKind::OpenaiCompatible,
+            model: "test-model".into(),
+            base_url: Some("http://127.0.0.1:1234/v1".into()),
+            ssh_host: None,
+            enabled: true,
+        },
+        reason: "Found LM Studio".into(),
+        needs_key: false,
+    };
+    let mut saved = BackendConfig { name: "My server".into(), base_url: Some("http://127.0.0.1:1234/v1/".into()), ..detected.suggestion.clone() };
+    assert!(leave_out_set_up(vec![detected.clone()], std::slice::from_ref(&saved)).is_empty());
+
+    saved.enabled = false;
+    assert_eq!(leave_out_set_up(vec![detected.clone()], std::slice::from_ref(&saved)), vec![detected.clone()]);
+
+    saved.enabled = true;
+    saved.ssh_host = Some("other-computer".into());
+    assert_eq!(leave_out_set_up(vec![detected.clone()], &[saved]), vec![detected]);
+}
+
 /// Claude Code's folder (`CLAUDE_CONFIG_DIR`) is chosen per AI, so two can be two accounts; only
 /// a full path, and only for an agent app that keeps one.
 #[test]

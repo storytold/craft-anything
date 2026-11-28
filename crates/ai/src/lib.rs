@@ -42,6 +42,7 @@ use craft_anything_engine::{CancelToken, Engine, Settings};
 use craft_anything_evidence::{ErrorCode, ToolError};
 use craft_anything_platform::sync::Mutex;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -363,9 +364,46 @@ pub fn is_on(backends: &[BackendConfig], name: &str) -> bool {
     backends.iter().any(|b| b.enabled && b.name == name)
 }
 
-/// The found AIs that aren't already set up and on.
+/// Direct, OpenAI-compatible addresses found by the local-server scan.
+fn local_detection_address(config: &BackendConfig) -> Option<&str> {
+    if config.kind != BackendKind::OpenaiCompatible || config.ssh_host.as_deref().is_some_and(|host| !host.trim().is_empty()) {
+        return None;
+    }
+    let address = config.base_url.as_deref()?.trim().trim_end_matches('/');
+    detect::on_this_network(address).then_some(address)
+}
+
+/// Local servers are matched by address. Their suggested names must still be unique because
+/// selecting or adding an AI uses its saved name, including for other kinds of backend.
 pub fn leave_out_set_up(found: Vec<Detected>, backends: &[BackendConfig]) -> Vec<Detected> {
-    found.into_iter().filter(|d| !is_on(backends, &d.suggestion.name)).collect()
+    let mut names: HashSet<String> = backends
+        .iter()
+        .map(|backend| backend.name.clone())
+        .chain(found.iter().filter(|d| local_detection_address(&d.suggestion).is_none()).map(|d| d.suggestion.name.clone()))
+        .collect();
+    let mut offered = Vec::new();
+    for mut detected in found {
+        let suggestion = &mut detected.suggestion;
+        if let Some(address) = local_detection_address(suggestion) {
+            let same_address = |backend: &BackendConfig| local_detection_address(backend) == Some(address);
+            if backends.iter().any(|backend| backend.enabled && same_address(backend)) {
+                continue;
+            }
+            if !names.insert(suggestion.name.clone()) && !backends.iter().any(|backend| backend.name == suggestion.name && same_address(backend)) {
+                for number in 2usize.. {
+                    let name = format!("{} {number}", suggestion.name);
+                    if names.insert(name.clone()) {
+                        suggestion.name = name;
+                        break;
+                    }
+                }
+            }
+        } else if is_on(backends, &suggestion.name) {
+            continue;
+        }
+        offered.push(detected);
+    }
+    offered
 }
 
 /// What a backend does in a crew.
@@ -623,7 +661,7 @@ impl AiHub {
     }
 
     /// Look for keys, local servers and agent CLIs (runs quickly; network probes are bounded).
-    /// Things already configured (by name) are left out.
+    /// Things already configured and enabled are left out.
     pub fn detect(&self) -> Vec<Detected> {
         leave_out_set_up(detect::detect_all(), &self.backends())
     }

@@ -992,6 +992,14 @@ publisher prefixes and unrelated words are not classified by arbitrary ancestor 
 Regression tests cover mixed model lists and servers listing only specialised models through
 the local discovery API. Classification remains a name heuristic; it does not probe model capabilities.
 
+## Local server discovery names
+
+Two detected local servers with the same display name can be added independently. Discovery
+leaves out a direct local address already enabled in Settings, including one saved under a
+custom name, and assigns an unused name to a different address when needed. The regressions
+cover a previously saved LM Studio on a non-default port and a remote backend whose loopback
+address also exists on this computer.
+
 ## Quantized GGUF tensor ranges
 
 Model-header inspection calculates byte lengths for the supported Q4/Q5/Q8, K and IQ block
